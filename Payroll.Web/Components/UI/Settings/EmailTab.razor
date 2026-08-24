@@ -1,0 +1,44 @@
+﻿@using global::Payroll.Shared.Data
+
+<div class="row">
+    <div class="col-12 mb-3">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" @bind="Settings.EnableEmailNotifications" id="emailSwitch">
+            <label class="form-check-label fw-bold" for="emailSwitch">Enable Email Notifications</label>
+        </div>
+    </div>
+</div>
+
+@if (Settings.EnableEmailNotifications)
+{
+    <div class="row g-3">
+        <div class="col-md-5">
+            <label class="form-label small fw-bold">SMTP Host</label>
+            <input type="text" class="form-control form-control-sm" @bind="Settings.SmtpHost" placeholder="smtp.gmail.com" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-bold">Port</label>
+            <input type="number" class="form-control form-control-sm" @bind="Settings.SmtpPort" />
+        </div>
+        <div class="col-md-5">
+            <label class="form-label small fw-bold">From Email Address</label>
+            <input type="email" class="form-control form-control-sm" @bind="Settings.SmtpFromEmail" placeholder="payroll@company.com" />
+        </div>
+        <div class="col-md-6">
+            <label class="form-label small fw-bold">SMTP Username</label>
+            <input type="text" class="form-control form-control-sm" @bind="Settings.SmtpUser" />
+        </div>
+        <div class="col-md-6">
+            <label class="form-label small fw-bold">SMTP Password (App Password)</label>
+            <input type="password" class="form-control form-control-sm" @bind="Settings.SmtpPass" placeholder="••••••••" />
+        </div>
+    </div>
+    <div class="alert alert-info mt-3 small">
+        <i class="bi bi-info-circle-fill me-2"></i>
+        If using <strong>Gmail</strong>: Use Port <strong>587</strong>. You MUST generate an <strong>App Password</strong>.
+    </div>
+}
+
+@code {
+    [Parameter] public CompanySetting Settings { get; set; } = new();
+}

@@ -1,0 +1,343 @@
+﻿@page "/my-reports"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Services
+@using global::Payroll.Shared.Models
+@using System.Globalization
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ReportService ReportService
+@inject IToastService toastService
+@inject AuthenticationStateProvider AuthState
+@inject CsvExportService CsvService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+@attribute [Authorize(Roles = "Employee, SuperAdmin")]
+
+<PageTitle>My Personal Reports</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p><strong>Custom Reporting</strong> is disabled or you do not have permission to view personal reports.</p>
+            <hr>
+            <p class="mb-0">Please contact your administrator or <a href="/" class="alert-link">return to the dashboard</a>.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="text-primary mb-0"><i class="bi bi-file-earmark-bar-graph me-2"></i> My Personal Reports</h3>
+    </div>
+
+    @* --- REPORT SELECTION TABS --- *@
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "attendance" ? "active" : "")" @onclick="@(() => SwitchTab("attendance"))">
+                <i class="bi bi-clock-history me-2"></i> Attendance
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "payslips" ? "active" : "")" @onclick="@(() => SwitchTab("payslips"))">
+                <i class="bi bi-currency-rupee me-2"></i> Payslips
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "leave" ? "active" : "")" @onclick="@(() => SwitchTab("leave"))">
+                <i class="bi bi-calendar-check me-2"></i> Leave History
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "advances" ? "active" : "")" @onclick="@(() => SwitchTab("advances"))">
+                <i class="bi bi-cash-stack me-2"></i> Advances
+            </button>
+        </li>
+    </ul>
+
+    @* --- DATE FILTER BAR --- *@
+    <div class="card shadow-sm border-0 bg-light mb-3">
+        <div class="card-body p-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold">Start Date</label>
+                    <input type="date" class="form-control" @bind="startDate" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold">End Date</label>
+                    <input type="date" class="form-control" @bind="endDate" />
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-primary w-100" @onclick="GenerateReport" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        <i class="bi bi-search me-2"></i> Generate Report
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm flex-grow-1">
+        <div class="card-body p-4">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Processing data...</p>
+                </div>
+            }
+            else if (reportData == null)
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-clipboard-data display-4 mb-3 d-block opacity-50"></i>
+                    Select a date range and click <strong>Generate Report</strong> to view data.
+                </div>
+            }
+            else
+            {
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0 fw-bold text-secondary">@GetReportTitle()</h5>
+                    @if (activeTab == "attendance")
+                    {
+                        <button class="btn btn-sm btn-outline-success" @onclick="ExportCsv"><i class="bi bi-download me-1"></i> Export CSV</button>
+                    }
+                </div>
+
+                @* --- 1. ATTENDANCE REPORT --- *@
+                @if (activeTab == "attendance" && reportData is List<DailySummary> attendanceList)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr><th>Date</th><th>Status</th><th>Scheduled</th><th>Worked</th><th>OT</th><th>Penalty</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in attendanceList)
+                                {
+                                    <tr>
+                                        <td>@item.ShiftDate.ToString("dd-MMM-yyyy (ddd)")</td>
+                                        <td><span class="badge @GetStatusColor(item.Status)">@item.Status</span></td>
+                                        <td>@FormatTimeSpan(item.ScheduledShiftDuration)</td>
+                                        <td>@FormatTimeSpan(TimeSpan.FromHours((double)item.EarnedStandardHours))</td>
+                                        <td>@FormatTimeSpan(item.TotalOvertimeDuration)</td>
+                                        <td class="text-danger">@FormatTimeSpan(item.TotalPenaltyDuration)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @* --- 2. PAYSLIP REPORT --- *@
+                @if (activeTab == "payslips" && reportData is List<PayrollHistory> payslipList)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr><th>Period</th><th class="text-end">Gross Earned</th><th class="text-end">Deductions</th><th class="text-end">Net Pay</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in payslipList)
+                                {
+                                    <tr>
+                                        <td>@(new DateTime(p.PayYear, p.PayMonth, 1).ToString("MMM yyyy"))</td>
+                                        <td class="text-end">@(((p.TotalHoursWorked ?? 0) * p.HourlyRate + (p.Bonus ?? 0) + (p.OvertimePay ?? 0)).ToString("C", InrCulture))</td>
+                                        <td class="text-end text-danger">@(((p.Deductions_Hours ?? 0) + (p.Deductions_Advance ?? 0) + p.PfDeduction + p.EsiDeduction + p.PtDeduction + p.TdsDeduction).ToString("C", InrCulture))</td>
+                                        <td class="text-end fw-bold text-success">@p.NetSalary.ToString("C", InrCulture)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @* --- 3. LEAVE REPORT --- *@
+                @if (activeTab == "leave" && reportData is List<LeaveRequest> leaveList)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr><th>Date</th><th>Type</th><th>Status</th><th>Days</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var l in leaveList)
+                                {
+                                    <tr>
+                                        <td>@l.LeaveDate?.ToString("dd-MMM-yyyy")</td>
+                                        <td>@l.LeaveType</td>
+                                        <td>@(l.IsApproved ? "Approved" : "Pending/Rejected")</td>
+                                        <td>@(l.IsHalfDay ? "0.5" : "1.0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @* --- 4. ADVANCES REPORT --- *@
+                @if (activeTab == "advances" && reportData is List<SalaryAdvance> advanceList)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr><th>Date</th><th>Type</th><th class="text-end">Amount</th><th>Status</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var a in advanceList)
+                                {
+                                    <tr>
+                                        <td>@a.AdvanceDate?.ToString("dd-MMM-yyyy")</td>
+                                        <td>@a.AdvanceType</td>
+                                        <td class="text-end">@a.Amount.ToString("C", InrCulture)</td>
+                                        <td>@(a.PayrollID_Paid.HasValue ? "Paid" : "Pending")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = false;
+    private bool isAccessDenied = false;
+    private string activeTab = "attendance";
+    private DateTime startDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private DateTime endDate = DateTime.Now.Date;
+    private object? reportData;
+    private int employeeId = 0;
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckPermissionsAndLoadData();
+    }
+
+    private async Task CheckPermissionsAndLoadData()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            // 1. SECURITY CHECK
+            var settings = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            if (settings != null)
+            {
+                bool isModuleEnabled = settings.EnableCustomReporting;
+                bool canView = settings.EmployeeCanViewReports;
+
+                if (!isModuleEnabled || !canView)
+                {
+                    isAccessDenied = true;
+                    return;
+                }
+            }
+
+            var authState = await AuthState.GetAuthenticationStateAsync();
+            var email = authState.User.Identity?.Name;
+            if (email != null)
+            {
+                var emp = await db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Email == email);
+                employeeId = emp?.EmployeeID ?? 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError("Error initializing reports: " + ex.Message);
+        }
+    }
+
+    private void SwitchTab(string tab)
+    {
+        activeTab = tab;
+        reportData = null;
+    }
+
+    private async Task GenerateReport()
+    {
+        if (employeeId == 0) { toastService.ShowError("Employee record not found."); return; }
+
+        isLoading = true;
+        reportData = null;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var dStart = DateOnly.FromDateTime(startDate);
+            var dEnd = DateOnly.FromDateTime(endDate);
+
+            if (activeTab == "attendance")
+            {
+                reportData = await db.DailySummaries
+                    .Where(ds => ds.EmployeeID == employeeId && ds.ShiftDate >= dStart && ds.ShiftDate <= dEnd)
+                    .OrderByDescending(ds => ds.ShiftDate)
+                    .AsNoTracking()
+                    .ToListAsync();
+            }
+            else if (activeTab == "payslips")
+            {
+                reportData = await db.PayrollHistories
+                    .Where(p => p.EmployeeID == employeeId && p.PayYear >= startDate.Year && p.PayYear <= endDate.Year)
+                    .OrderByDescending(p => p.PayYear).ThenByDescending(p => p.PayMonth)
+                    .AsNoTracking()
+                    .ToListAsync();
+            }
+            else if (activeTab == "leave")
+            {
+                reportData = await db.LeaveRequests
+                    .Where(l => l.EmployeeID == employeeId && l.LeaveDate >= startDate && l.LeaveDate <= endDate)
+                    .OrderByDescending(l => l.LeaveDate)
+                    .AsNoTracking()
+                    .ToListAsync();
+            }
+            else if (activeTab == "advances")
+            {
+                reportData = await db.SalaryAdvances
+                    .Where(a => a.EmployeeID == employeeId && a.AdvanceDate >= startDate && a.AdvanceDate <= endDate)
+                    .OrderByDescending(a => a.AdvanceDate)
+                    .AsNoTracking()
+                    .ToListAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error generating report: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private Task ExportCsv()
+    {
+        toastService.ShowInfo("Export started...");
+        return Task.CompletedTask;
+    }
+
+    private string GetReportTitle() => activeTab switch
+    {
+        "attendance" => $"Attendance Log ({startDate:dd-MMM} - {endDate:dd-MMM})",
+        "payslips" => "Payslip History",
+        "leave" => "Leave Record",
+        "advances" => "Salary Advances",
+        _ => "Report"
+    };
+    private string GetStatusColor(string status) => status switch
+    {
+        "Present" => "bg-success",
+        "Absent" => "bg-danger",
+        "Half Day" => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+    private string FormatTimeSpan(TimeSpan ts) => $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}";
+}

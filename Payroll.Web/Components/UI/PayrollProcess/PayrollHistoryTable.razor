@@ -1,0 +1,145 @@
+﻿@using System.Globalization
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Services
+@using global::Payroll.Web.Models
+@inject BankExportService BankService
+@inject IJSRuntime JSRuntime
+
+@if (HistoryList != null)
+{
+    <h4>Saved Payroll History for @(new DateTime(Year, Month, 1).ToString("MMMM yyyy"))</h4>
+
+    @if (!HistoryList.Any())
+    {
+        <p><em>No saved payroll history found. Click "Generate Preview".</em></p>
+    }
+    else
+    {
+        <div class="mb-3 text-end">
+            <button class="btn btn-outline-success" @onclick="OnExport" disabled="@(IsLoading)">
+                <span class="bi bi-file-earmark-spreadsheet"></span> Export to CSV
+            </button>
+            <button class="btn btn-outline-primary" @onclick="ExportBankFile" disabled="@(IsLoading)">
+                <span class="bi bi-bank me-1"></span> Export Bank File
+            </button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-striped table-hover table-sm" style="font-size: 0.9em;">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Employee</th>
+                        <th class="text-end">Earned Pay</th>
+
+                        @* --- STATUTORY HEADERS --- *@
+                        @if (CompanySettings?.EnablePfEsiSystem == true && HistoryList.Any(p => p.PfDeduction > 0 || p.EsiDeduction > 0))
+                        {
+                            <th class="text-end text-warning">PF</th>
+                            <th class="text-end text-warning">ESI</th>
+                        }
+                        @if (CompanySettings?.EnableProfessionalTax == true)
+                        {
+                            <th class="text-end text-info">PT</th>
+                        }
+
+                        @* --- NEW: TDS HEADER --- *@
+                        @if (CompanySettings?.EnableTdsDeduction == true)
+                        {
+                            <th class="text-end text-danger">TDS</th>
+                        }
+
+                        <th class="text-end">Penalty</th>
+                        <th class="text-end">OT Pay</th>
+
+                        @* --- SHIFT ALLOWANCE HEADER --- *@
+                        @if (CompanySettings?.EnableShiftAllowance == true)
+                        {
+                            <th class="text-end text-primary">Night Allow.</th>
+                        }
+
+                        <th class="text-end">Advance</th>
+                        <th class="text-end">Bonus</th>
+                        <th class="text-end">Net Salary</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in HistoryList)
+                    {
+                        <tr>
+                            <td>@GetEmployeeName(entry.EmployeeID)</td>
+                            <td class="text-end">@(((entry.TotalHoursWorked ?? 0) * entry.HourlyRate).ToString("C", InrCulture))</td>
+
+                            @* --- STATUTORY BODY --- *@
+                            @if (CompanySettings?.EnablePfEsiSystem == true && HistoryList.Any(p => p.PfDeduction > 0 || p.EsiDeduction > 0))
+                            {
+                                <td class="text-end text-muted">@(entry.PfDeduction > 0 ? entry.PfDeduction.ToString("N0") : "--")</td>
+                                <td class="text-end text-muted">@(entry.EsiDeduction > 0 ? entry.EsiDeduction.ToString("N0") : "--")</td>
+                            }
+                            @if (CompanySettings?.EnableProfessionalTax == true)
+                            {
+                                <td class="text-end text-muted">@(entry.PtDeduction > 0 ? entry.PtDeduction.ToString("N0") : "--")</td>
+                            }
+
+                            @* --- NEW: TDS BODY --- *@
+                            @if (CompanySettings?.EnableTdsDeduction == true)
+                            {
+                                <td class="text-end text-danger">@entry.TdsDeduction.ToString("N0")</td>
+                            }
+
+                            <td class="text-end text-danger">(@(entry.Deductions_Hours?.ToString("C", InrCulture) ?? "(0.00)"))</td>
+                            <td class="text-end">@(entry.OvertimePay?.ToString("C", InrCulture) ?? "₹0.00")</td>
+
+                            @* --- SHIFT ALLOWANCE BODY --- *@
+                            @if (CompanySettings?.EnableShiftAllowance == true)
+                            {
+                                <td class="text-end text-primary">@entry.TotalShiftAllowance.ToString("N0")</td>
+                            }
+
+                            <td class="text-end text-danger">@(entry.Deductions_Advance?.ToString("C", InrCulture) ?? "(0.00)")</td>
+                            <td class="text-end">@(entry.Bonus?.ToString("C", InrCulture) ?? "₹0.00")</td>
+
+                            <td class="text-end"><strong>@entry.NetSalary.ToString("C", InrCulture)</strong></td>
+
+                            <td class="text-center">
+                                <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => OnView.InvokeAsync(entry.PayrollID)" title="View">
+                                    <span class="bi bi-eye"></span>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => OnDelete.InvokeAsync(entry)" title="Delete">
+                                    <span class="bi bi-trash"></span>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public List<global::Payroll.Shared.PayrollHistory>? HistoryList { get; set; }
+    [Parameter] public List<global::Payroll.Shared.Data.Employee> Employees { get; set; } = new();
+    [Parameter] public global::Payroll.Shared.Data.CompanySetting? CompanySettings { get; set; }
+    [Parameter] public int Month { get; set; }
+    [Parameter] public int Year { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnExport { get; set; }
+    [Parameter] public EventCallback<int> OnView { get; set; }
+    [Parameter] public EventCallback<global::Payroll.Shared.PayrollHistory> OnDelete { get; set; }
+
+    private async Task ExportBankFile()
+    {
+        if (HistoryList == null || !HistoryList.Any()) return;
+
+        var csvContent = BankService.GenerateSalaryUploadCsv(HistoryList, Employees);
+        var fileName = $"Bank_Upload_{Year}_{Month:D2}.csv";
+
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(csvContent));
+        using var streamRef = new DotNetStreamReference(stream);
+
+        await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+    }
+
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+    private string GetEmployeeName(int id) => Employees?.FirstOrDefault(e => e.EmployeeID == id)?.Name ?? "Unknown";
+}

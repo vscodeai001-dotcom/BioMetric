@@ -1,0 +1,114 @@
+﻿@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Web
+
+@if (IsLoading)
+{
+    <p><em>@StatusMessage</em></p>
+}
+else if (Requests == null || !Requests.Any())
+{
+    <p class="text-muted"><em>@StatusMessage</em></p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Employee</th>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th class="text-center">Half Day</th>
+                    <th class="text-center">Status</th>
+                    <th>Notes</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var leave in Requests)
+                {
+                    <tr>
+                        <td class="fw-bold">
+                            @(Employees?.FirstOrDefault(e => e.EmployeeID == leave.EmployeeID)?.Name ?? "Unknown")
+                        </td>
+                        <td>@leave.LeaveDate?.ToString("dd-MMM-yyyy (ddd)")</td>
+                        <td>
+                            <span class="badge bg-light text-dark border">@leave.LeaveType</span>
+                        </td>
+                        <td class="text-center">
+                            @if (leave.IsHalfDay)
+                            {
+                                <span class="badge bg-info text-dark" title="0.5 Days">Yes</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">-</span>
+                            }
+                        </td>
+                        <td class="text-center">
+                            @if (leave.LeaveType == "Loss of Pay (Auto)")
+                            {
+                                <span class="badge bg-danger">Auto LOP</span>
+                            }
+                            else if (leave.IsApproved)
+                            {
+                                <span class="badge bg-success">Approved</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning text-dark">Pending</span>
+                            }
+                        </td>
+                        <td class="small text-muted text-truncate" style="max-width: 200px;" title="@leave.Notes">
+                            @leave.Notes
+                        </td>
+                        <td class="text-center text-nowrap">
+                            @if (leave.LeaveType == "Loss of Pay (Auto)")
+                            {
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => OnDelete.InvokeAsync(leave)"
+                                        title="Delete Auto Entry">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            }
+                            else if (!leave.IsApproved)
+                            {
+                                <button class="btn btn-sm btn-success me-1"
+                                        @onclick="() => OnApprove.InvokeAsync(leave)"
+                                        title="Approve">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger"
+                                        @onclick="() => OnDeny.InvokeAsync(leave)"
+                                        title="Deny">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => OnCancel.InvokeAsync(leave)"
+                                        title="Revoke Approval">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public List<LeaveRequest>? Requests { get; set; }
+    [Parameter] public List<Employee>? Employees { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public string StatusMessage { get; set; } = "Loading...";
+
+    [Parameter] public EventCallback<LeaveRequest> OnApprove { get; set; }
+    [Parameter] public EventCallback<LeaveRequest> OnDeny { get; set; }
+    [Parameter] public EventCallback<LeaveRequest> OnCancel { get; set; }
+    [Parameter] public EventCallback<LeaveRequest> OnDelete { get; set; }
+}

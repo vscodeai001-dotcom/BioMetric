@@ -1,0 +1,328 @@
+﻿using System.Collections.Concurrent;
+
+namespace Payroll.Web.Services;
+
+public static class LiveLocationStore
+{
+    private static readonly ConcurrentDictionary<int, LiveEmployeeLocation> Locations = new();
+
+    public const int LiveTimeoutSeconds = 30;
+    public const int StaleTimeoutSeconds = 120;
+
+    public static bool Update(
+        int employeeId,
+        double latitude,
+        double longitude,
+        double accuracyMeters,
+        double distanceMeters,
+        int allowedRadiusMeters,
+        bool isWithinAllowedRadius,
+        Guid sessionId)
+    {
+        if (employeeId <= 0 ||
+            sessionId == Guid.Empty ||
+            !IsValidCoordinate(latitude, longitude))
+        {
+            return false;
+        }
+
+        var now = DateTime.UtcNow;
+
+        var safeAccuracy =
+            IsValidPositiveNumber(accuracyMeters)
+                ? accuracyMeters
+                : 0;
+
+        var safeDistance =
+            IsValidPositiveNumber(distanceMeters)
+                ? distanceMeters
+                : 0;
+
+        var safeRadius =
+            allowedRadiusMeters < 0
+                ? 0
+                : allowedRadiusMeters;
+
+        while (true)
+        {
+            if (!Locations.TryGetValue(
+                    employeeId,
+                    out var current))
+            {
+                var newLocation =
+                    new LiveEmployeeLocation
+                    {
+                        EmployeeId = employeeId,
+                        Latitude = latitude,
+                        Longitude = longitude,
+                        AccuracyMeters = safeAccuracy,
+                        DistanceMeters = safeDistance,
+                        AllowedRadiusMeters = safeRadius,
+                        IsWithinAllowedRadius = isWithinAllowedRadius,
+                        LastUpdatedUtc = now,
+                        SessionStartedUtc = now,
+                        SessionId = sessionId
+                    };
+
+                if (Locations.TryAdd(
+                        employeeId,
+                        newLocation))
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            /*
+             * IMPORTANT:
+             *
+             * A different session already owns the employee's
+             * live location.
+             *
+             * Never allow an old component/session to overwrite
+             * the current login session.
+             */
+            if (current.SessionId != sessionId)
+            {
+                return false;
+            }
+
+            var updatedLocation =
+                new LiveEmployeeLocation
+                {
+                    EmployeeId = employeeId,
+                    Latitude = latitude,
+                    Longitude = longitude,
+                    AccuracyMeters = safeAccuracy,
+                    DistanceMeters = safeDistance,
+                    AllowedRadiusMeters = safeRadius,
+                    IsWithinAllowedRadius = isWithinAllowedRadius,
+                    LastUpdatedUtc = now,
+                    SessionStartedUtc = current.SessionStartedUtc,
+                    SessionId = sessionId
+                };
+
+            if (Locations.TryUpdate(
+                    employeeId,
+                    updatedLocation,
+                    current))
+            {
+                return true;
+            }
+
+            /*
+             * Another update won the race.
+             * Re-read the current record and retry.
+             */
+        }
+    }
+
+    public static LiveEmployeeLocation? Get(
+        int employeeId)
+    {
+        if (employeeId <= 0)
+            return null;
+
+        return Locations.TryGetValue(
+            employeeId,
+            out var location)
+                ? location
+                : null;
+    }
+
+    public static Guid? GetSessionId(
+        int employeeId)
+    {
+        if (employeeId <= 0)
+            return null;
+
+        return Locations.TryGetValue(
+                   employeeId,
+                   out var location) &&
+               location.SessionId != Guid.Empty
+            ? location.SessionId
+            : null;
+    }
+
+    public static IReadOnlyList<LiveEmployeeLocation> GetAll()
+    {
+        return Locations.Values
+            .OrderBy(x => x.EmployeeId)
+            .ToList();
+    }
+
+    public static bool Remove(
+        int employeeId,
+        Guid sessionId)
+    {
+        if (employeeId <= 0 ||
+            sessionId == Guid.Empty)
+        {
+            return false;
+        }
+
+        while (Locations.TryGetValue(
+                   employeeId,
+                   out var current))
+        {
+            /*
+             * Never allow an old session to remove the current
+             * employee location.
+             */
+            if (current.SessionId != sessionId)
+            {
+                return false;
+            }
+
+            if (Locations.TryRemove(
+                    new KeyValuePair<int, LiveEmployeeLocation>(
+                        employeeId,
+                        current)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static bool IsLive(
+        LiveEmployeeLocation location,
+        int timeoutSeconds = LiveTimeoutSeconds)
+    {
+        if (location == null)
+            return false;
+
+        var age =
+            DateTime.UtcNow -
+            location.LastUpdatedUtc;
+
+        if (age < TimeSpan.Zero)
+            return true;
+
+        return age <=
+               TimeSpan.FromSeconds(
+                   Math.Max(1, timeoutSeconds));
+    }
+
+    public static LiveLocationStatus GetStatus(
+        LiveEmployeeLocation location)
+    {
+        if (location == null)
+            return LiveLocationStatus.Offline;
+
+        var age =
+            DateTime.UtcNow -
+            location.LastUpdatedUtc;
+
+        if (age < TimeSpan.Zero)
+            return LiveLocationStatus.Live;
+
+        if (age <=
+            TimeSpan.FromSeconds(
+                LiveTimeoutSeconds))
+        {
+            return LiveLocationStatus.Live;
+        }
+
+        if (age <=
+            TimeSpan.FromSeconds(
+                StaleTimeoutSeconds))
+        {
+            return LiveLocationStatus.Stale;
+        }
+
+        return LiveLocationStatus.Offline;
+    }
+
+    public static TimeSpan GetAge(
+        LiveEmployeeLocation location)
+    {
+        if (location == null)
+            return TimeSpan.MaxValue;
+
+        var age =
+            DateTime.UtcNow -
+            location.LastUpdatedUtc;
+
+        return age < TimeSpan.Zero
+            ? TimeSpan.Zero
+            : age;
+    }
+
+    public static TimeSpan GetSessionDuration(
+        LiveEmployeeLocation location)
+    {
+        if (location == null)
+            return TimeSpan.Zero;
+
+        var end =
+            location.LastUpdatedUtc >
+            location.SessionStartedUtc
+                ? location.LastUpdatedUtc
+                : DateTime.UtcNow;
+
+        var duration =
+            end -
+            location.SessionStartedUtc;
+
+        return duration < TimeSpan.Zero
+            ? TimeSpan.Zero
+            : duration;
+    }
+
+    private static bool IsValidCoordinate(
+        double latitude,
+        double longitude)
+    {
+        return
+            !double.IsNaN(latitude) &&
+            !double.IsNaN(longitude) &&
+            !double.IsInfinity(latitude) &&
+            !double.IsInfinity(longitude) &&
+            latitude >= -90 &&
+            latitude <= 90 &&
+            longitude >= -180 &&
+            longitude <= 180;
+    }
+
+    private static bool IsValidPositiveNumber(
+        double value)
+    {
+        return
+            !double.IsNaN(value) &&
+            !double.IsInfinity(value) &&
+            value >= 0;
+    }
+}
+
+public enum LiveLocationStatus
+{
+    Live,
+    Stale,
+    Offline
+}
+
+public sealed class LiveEmployeeLocation
+{
+    public int EmployeeId { get; init; }
+
+    public double Latitude { get; init; }
+
+    public double Longitude { get; init; }
+
+    public double AccuracyMeters { get; init; }
+
+    public double DistanceMeters { get; init; }
+
+    public int AllowedRadiusMeters { get; init; }
+
+    public bool IsWithinAllowedRadius { get; init; }
+
+    public DateTime LastUpdatedUtc { get; init; }
+
+    public DateTime SessionStartedUtc { get; init; }
+
+    public Guid SessionId { get; init; }
+}

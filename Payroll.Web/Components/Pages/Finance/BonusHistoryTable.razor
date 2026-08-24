@@ -1,0 +1,58 @@
+﻿@using System.Globalization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+
+<div class="card shadow-sm">
+    <div class="card-header bg-light">
+        <h5 class="mb-0 text-secondary">Bonus History</h5>
+    </div>
+    <div class="card-body">
+        @if (IsLoading)
+        {
+            <p><em>Loading...</em></p>
+        }
+        else if (Bonuses == null || !Bonuses.Any())
+        {
+            <p class="text-muted">No bonuses found.</p>
+        }
+        else
+        {
+            <table class="table table-sm table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Employee</th>
+                        <th>Description</th>
+                        <th class="text-end">Amount</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Bonuses.OrderByDescending(b => b.BonusDate))
+                    {
+                        <tr>
+                            <td>@item.BonusDate.ToString("dd-MMM-yyyy")</td>
+                            <td>@(Employees?.FirstOrDefault(e => e.EmployeeID == item.EmployeeID)?.Name ?? "Unknown")</td>
+                            <td>@item.Description</td>
+                            <td class="text-end text-success fw-bold">@item.Amount.ToString("C", InrCulture)</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => OnDelete.InvokeAsync(item)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<BonusRecord>? Bonuses { get; set; }
+    [Parameter] public List<Employee>? Employees { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback<BonusRecord> OnDelete { get; set; }
+
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+}

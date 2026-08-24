@@ -1,0 +1,48 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<PublishTrimmed>false</PublishTrimmed>
+		<IsTrimmable>false</IsTrimmable>
+		<PreserveCompilationContext>true</PreserveCompilationContext>
+		<MvcRazorExcludeRefAssembliesFromPublish>false</MvcRazorExcludeRefAssembliesFromPublish>
+		<BaseOutputPath>E:\Project\Toupgradeneed\BioMetric\Payroll.Web\bin\Release\net8.0\win-x64</BaseOutputPath>
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- Blazored Toast -->
+		<PackageReference Include="Blazor-ApexCharts" Version="6.0.2" />
+		<PackageReference Include="Blazored.Toast" Version="4.2.1" />
+		<!-- Hangfire -->
+		<PackageReference Include="Hangfire.AspNetCore" Version="1.8.22" />
+		<PackageReference Include="Hangfire.Core" Version="1.8.22" />
+		<PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />
+		<!-- Identity (ONLY these 4 are required) -->
+		<PackageReference Include="Microsoft.AspNetCore.Cryptography.Internal" Version="8.0.21" />
+		<PackageReference Include="Microsoft.AspNetCore.Cryptography.KeyDerivation" Version="8.0.21" />
+		<PackageReference Include="Microsoft.AspNetCore.Http" Version="2.2.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.21" />
+		<PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="8.0.21" />
+		<PackageReference Include="Microsoft.AspNetCore.Identity" Version="2.2.0" />
+		<!-- EF Core -->
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.21">
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.21" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.21" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="8.0.21" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="8.0.21" PrivateAssets="all" />
+		<PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+		<!-- PostgreSQL -->
+		<PackageReference Include="MysticMind.PostgresEmbed" Version="4.0.0" />
+		<!-- Windows Service Support -->
+		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+		<PackageReference Include="Npgsql" Version="8.0.8" />
+		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+		<PackageReference Include="Plotly.Blazor" Version="6.0.2" />
+		<PackageReference Include="QuestPDF" Version="2025.7.4" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Payroll.Shared\Payroll.Shared.csproj" />
+	</ItemGroup>
+</Project>

@@ -1,0 +1,163 @@
+﻿@using global::Payroll.Shared.Models
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Services
+@using System.Reflection
+@using System.Globalization
+
+<div class="table-responsive">
+    @if (Data == null || !Data.Any())
+    {
+        <div class="alert alert-info">No data found matching the parameters.</div>
+    }
+    else
+    {
+        <table class="table table-striped table-hover table-sm" style="font-size: 0.9em;">
+            <thead class="table-dark">
+                <tr>
+                    @if (Data.FirstOrDefault() is DailySummary)
+                    {
+                        @* --- DETAILED ATTENDANCE LOG HEADER --- *@
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Scheduled</th>
+                        <th>Worked</th>
+                        <th class="text-danger">Penalty</th>
+                        <th>OT</th>
+                        <th>Lateness</th>
+                        <th>Break Pen.</th>
+                    }
+                    else
+                    {
+                        @* --- GENERIC/AGGREGATED HEADER --- *@
+                        @foreach (var header in GetHeaders(Data.First()))
+                        {
+                            // Skip the Raw DTO EmployeeID in generic view
+                            if (header == "EmployeeID") continue;
+
+                            <th class="@(header.Contains("Pay") || header.Contains("Cost") || header.Contains("Net") || header.Contains("Amount") ? "text-end" : "")">
+                                @FormatHeader(header)
+                            </th>
+                        }
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Data)
+                {
+                    <tr>
+                        @if (item is DailySummary summary)
+                        {
+                            @* --- DETAILED ATTENDANCE LOG BODY --- *@
+                            <td>@summary.ShiftDate.ToString("dd-MMM (ddd)")</td>
+                            <td><span class="badge @GetStatusColor(summary.Status)">@summary.Status</span></td>
+                            <td>@FormatTimeSpan(summary.ScheduledShiftDuration)</td>
+                            <td>@FormatDecimalHoursToTime(summary.EarnedStandardHours)</td>
+                            <td class="text-danger">@FormatTimeSpan(summary.TotalPenaltyDuration)</td>
+                            <td>@FormatTimeSpan(summary.TotalOvertimeDuration)</td>
+                            <td>@FormatTimeSpan(summary.TotalLateness)</td>
+                            <td>@FormatTimeSpan(summary.TotalBreakPenalty)</td>
+                        }
+                        else
+                        {
+                            @* --- GENERIC/AGGREGATED BODY --- *@
+                            @foreach (var property in item.GetType().GetProperties())
+                            {
+                                if (property.Name == "EmployeeID") continue; // Skip ID in body
+                                var value = property.GetValue(item);
+                                <td class="@GetCellClass(property.Name, value)">
+                                    @RenderValue(value)
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Parameter] public IEnumerable<object>? Data { get; set; }
+    [Parameter] public bool IsFinance { get; set; } = false;
+    [Parameter] public bool DetailedView { get; set; } = false;
+
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+
+    private List<string> GetHeaders(object item)
+    {
+        return item.GetType().GetProperties()
+            .Select(p => p.Name)
+            .ToList();
+    }
+
+    private string FormatHeader(string name)
+    {
+        return name
+            .Replace("Total", "")
+            .Replace("Duration", "")
+            .Replace("Employee", "")
+            .Replace("Roll", "Payroll")
+            .Replace("PayrollVariancePercent", "Variance %")
+            .Replace("Cost", "Cost (₹)")
+            .Replace("Name", "Employee")
+            .Replace("Value", "Days/Hrs")
+            .Replace("Sub", "")
+            .Trim();
+    }
+
+    private string GetStatusColor(string status) => status switch
+    {
+        "Present" => "bg-success",
+        "Absent" => "bg-danger",
+        "Half Day" => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    private string GetCellClass(string propertyName, object? value)
+    {
+        string css = "";
+        if (propertyName.Contains("Pay") || propertyName.Contains("Net") || propertyName.Contains("Cost") || propertyName.Contains("Amount"))
+        {
+            css += " text-end fw-bold";
+        }
+        if (value is decimal d && d < 0)
+        {
+            css += " text-danger";
+        }
+        if (value is string s && s.Contains('%'))
+        {
+            css += " text-warning";
+        }
+        return css;
+    }
+
+    private MarkupString RenderValue(object? value)
+    {
+        if (value == null) return new MarkupString("-");
+
+        if (value is TimeSpan ts)
+        {
+            return new MarkupString(FormatTimeSpan(ts));
+        }
+        else if (value is decimal d)
+        {
+            if (IsFinance)
+                return new MarkupString($"{(d < 0 ? "(" : "")}₹ {Math.Abs(d).ToString("N0", InrCulture)}{(d < 0 ? ")" : "")}");
+            return new MarkupString(d.ToString("N2"));
+        }
+        else if (value is int i)
+        {
+             return new MarkupString(i.ToString());
+        }
+        else if (value is string s && s.Contains("Hrs"))
+        {
+            // For PerformerDto SubValue
+            return new MarkupString($"<span class='badge bg-light text-muted border'>{s}</span>");
+        }
+
+        return new MarkupString(value.ToString() ?? "-");
+    }
+
+    private string FormatTimeSpan(TimeSpan ts) => $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}";
+    private string FormatDecimalHoursToTime(decimal hours) => FormatTimeSpan(TimeSpan.FromHours((double)hours));
+}

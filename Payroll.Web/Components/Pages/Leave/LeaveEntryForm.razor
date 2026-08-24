@@ -1,0 +1,67 @@
+﻿@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Forms
+
+<details class="mb-4 border rounded p-2">
+    <summary class="fw-bold text-primary" style="cursor:pointer;">
+        <i class="bi bi-plus-circle me-2"></i> Add New Leave Entry (Admin)
+    </summary>
+    <div class="card-body mt-2 border-top pt-3">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label small fw-bold">Employee</label>
+                <select class="form-select form-select-sm" @bind="NewRequest.EmployeeID">
+                    <option value="0">-- Select --</option>
+                    @if (Employees != null)
+                    {
+                        @foreach (var emp in Employees)
+                        {
+                            <option value="@emp.EmployeeID">@emp.Name</option>
+                        }
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold">Date</label>
+                <input type="date" class="form-control form-control-sm" @bind="RequestDate" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold">Type</label>
+                <select class="form-select form-select-sm" @bind="NewRequest.LeaveType">
+                    <option value="Paid Leave">Paid Leave</option>
+                    <option value="Sick Leave">Sick Leave</option>
+                    <option value="Vacation">Vacation</option>
+                    <option value="Loss of Pay">Loss of Pay</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="NewRequest.IsHalfDay" id="halfDayCheck">
+                    <label class="form-check-label small" for="halfDayCheck">Half-Day</label>
+                </div>
+            </div>
+            <div class="col-md-9">
+                <input type="text" class="form-control form-control-sm" @bind="NewRequest.Notes" placeholder="Notes (Optional)" />
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-success btn-sm w-100" @onclick="OnSave" disabled="@IsLoading">
+                    <i class="bi bi-check-lg"></i> Save Approved
+                </button>
+            </div>
+        </div>
+    </div>
+</details>
+
+@code {
+    [Parameter] public LeaveRequest NewRequest { get; set; } = new();
+    [Parameter] public List<Employee>? Employees { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSave { get; set; }
+
+    // Date Helper
+    public DateTime? RequestDate
+    {
+        get => NewRequest.LeaveDate;
+        set => NewRequest.LeaveDate = value;
+    }
+}

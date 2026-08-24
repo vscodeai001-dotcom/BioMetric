@@ -1,0 +1,312 @@
+@import '_content/Blazored.Toast/Blazored.Toast.bundle.scp.css';
+
+/* _content/Payroll.Web/Components/Layout/MainLayout.razor.rz.scp.css */
+/* --- TOP ROW STYLES (Structural) --- */
+.top-row[b-3xvggg1msr] {
+    background-color: #343a40 !important; /* Solid dark color */
+    border-bottom: 1px solid #495057;
+    height: 3.5rem;
+    display: flex;
+    align-items: center;
+    padding: 0;
+    margin: 0;
+    position: sticky; /* Keep sticky on the main content column */
+    top: 0;
+    z-index: 1020;
+    width: 100%; /* Ensure it spans the whole main area */
+}
+
+/* Wrapper for brand and auth */
+.header-content-wrapper[b-3xvggg1msr] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between; /* This spaces them out */
+    width: 100%;
+    padding: 0 1.5rem; /* Re-apply padding here */
+}
+
+/* Style the new brand */
+.top-row .navbar-brand[b-3xvggg1msr] {
+    color: white;
+    font-size: 1.2rem;
+    text-decoration: none;
+}
+
+/* Style the auth section */
+.auth-section .nav-link[b-3xvggg1msr],
+.auth-section button.nav-link[b-3xvggg1msr] {
+    color: white !important; /* Force white text */
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    padding: 0 0.5rem;
+    background: none;
+    border: none;
+    font-size: 0.9rem;
+}
+
+/* --- PAGE & MAIN LAYOUT --- */
+.page[b-3xvggg1msr] {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    /* --- MODIFICATION: Set the page background --- */
+    background-color: #e3e6ec !important; /* Soft, modern light blue/gray */
+}
+
+main[b-3xvggg1msr] {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background-color: transparent !important;
+    padding: 1.5rem;
+}
+
+.sidebar[b-3xvggg1msr] {
+    background-image: linear-gradient(180deg, rgb(5, 39, 103) 0%, #3a0647 70%);
+}
+
+/* --- Error UI --- */
+#blazor-error-ui[b-3xvggg1msr] {
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+    #blazor-error-ui .dismiss[b-3xvggg1msr] {
+        cursor: pointer;
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }
+
+/* --- Mobile Styles --- */
+@media (max-width: 640.98px) {
+    .header-content-wrapper[b-3xvggg1msr] {
+        padding: 0 1rem;
+    }
+
+    main[b-3xvggg1msr] {
+        padding: 1rem;
+    }
+}
+
+/* --- Desktop Styles --- */
+@media (min-width: 641px) {
+    .page[b-3xvggg1msr] {
+        flex-direction: row;
+    }
+
+    .sidebar[b-3xvggg1msr] {
+        width: 250px;
+        height: 100vh;
+        position: sticky;
+        top: 0;
+        flex-shrink: 0; /* Prevent sidebar from shrinking */
+    }
+
+    main[b-3xvggg1msr] {
+        flex-grow: 1; /* Allow main to grow and fill space */
+        display: flex; /* Use flexbox for vertical layout */
+        flex-direction: column; /* Stack top-row and article */
+    }
+
+    article.content[b-3xvggg1msr] {
+        flex-grow: 1; /* Allow article to fill remaining vertical space */
+        background-color: #F4F7F6 !important; /* A light, warm off-white that contrasts nicely */
+        border-radius: 6px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.05); /* Soften shadow */
+        padding: 1.5rem;
+    }
+}
+
+/* --- UI POLISH (Keep these) --- */
+.card[b-3xvggg1msr], .border.rounded[b-3xvggg1msr], .table-responsive[b-3xvggg1msr] {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+}
+
+/* --- MODIFICATION: Ensure cards, modals, and light bgs are white --- */
+.card-body[b-3xvggg1msr], .bg-light[b-3xvggg1msr], .modal-content[b-3xvggg1msr] {
+    background-color: #FFFFFF !important; /* Explicitly set to white */
+}
+
+.form-control[b-3xvggg1msr], .form-select[b-3xvggg1msr] {
+    border-radius: 6px;
+    border: 1px solid #bdbdbd;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+    .form-control:focus[b-3xvggg1msr], .form-select:focus[b-3xvggg1msr] {
+        border-color: #5c6bc0;
+        box-shadow: 0 0 0 0.2rem rgba(92, 107, 192, 0.25);
+    }
+
+.btn[b-3xvggg1msr] {
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: none;
+    transition: background-color 0.2s, box-shadow 0.2s;
+    box-shadow: none;
+}
+
+.btn-primary[b-3xvggg1msr] {
+    background-color: #5c6bc0;
+    border-color: #5c6bc0;
+}
+
+.btn-success[b-3xvggg1msr] {
+    background-color: #66bb6a;
+    border-color: #66bb6a;
+}
+/* _content/Payroll.Web/Components/Layout/NavMenu.razor.rz.scp.css */
+.navbar-toggler[b-qyh692624o] {
+    appearance: none;
+    cursor: pointer;
+    width: 3.5rem;
+    height: 2.5rem;
+    color: white;
+    position: absolute;
+    top: 0.5rem;
+    right: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.55%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") no-repeat center/1.75rem rgba(255, 255, 255, 0.1);
+}
+
+    .navbar-toggler:checked[b-qyh692624o] {
+        background-color: rgba(255, 255, 255, 0.5);
+    }
+
+/* Base Nav Item Styles (for "Home") */
+.nav-item[b-qyh692624o] {
+    font-size: 0.9rem;
+    padding-bottom: 0.5rem;
+}
+
+    .nav-item:first-of-type[b-qyh692624o] {
+        padding-top: 1rem;
+    }
+
+    .nav-item:last-of-type[b-qyh692624o] {
+        padding-bottom: 1rem;
+    }
+
+    .nav-item[b-qyh692624o]  .nav-link {
+        color: #d7d7d7;
+        background: none;
+        border: none;
+        border-radius: 4px;
+        height: 3rem;
+        display: flex;
+        align-items: center;
+        line-height: 3rem;
+        width: 100%;
+    }
+
+    .nav-item[b-qyh692624o]  a.active {
+        background-color: rgba(255,255,255,0.37);
+        color: white;
+    }
+
+    .nav-item[b-qyh692624o]  .nav-link:hover {
+        background-color: rgba(255,255,255,0.1);
+        color: white;
+    }
+
+/* NEW Nav Group Styles */
+.nav-group[b-qyh692624o] {
+    margin-bottom: 0.5rem;
+}
+
+    .nav-group summary[b-qyh692624o] {
+        list-style: none; /* Remove default triangle */
+        cursor: pointer;
+        padding: 0.75rem 1rem; /* Use padding from px-3 */
+        color: #d7d7d7;
+        font-weight: 500;
+        transition: background-color 0.2s;
+        border-radius: 4px;
+        margin: 0 1rem; /* Match px-3 */
+    }
+
+        .nav-group summary:hover[b-qyh692624o] {
+            background-color: rgba(255,255,255,0.1);
+            color: white;
+        }
+
+    /* Style for the nested NavLink items */
+    .nav-group .nav-item[b-qyh692624o] {
+        font-size: 0.85rem;
+        padding-bottom: 0;
+        padding-left: 0; /* Remove parent padding */
+    }
+
+        .nav-group .nav-item[b-qyh692624o]  .nav-link {
+            color: #adb5bd; /* Lighter gray for sub-items */
+            height: 2.5rem; /* Make sub-items shorter */
+            /* THIS IS THE FIX: 
+          Adjusted padding to align sub-items with icons
+        */
+            padding-left: 2.75rem;
+        }
+
+            .nav-group .nav-item[b-qyh692624o]  .nav-link .bi {
+                font-size: 0.6rem; /* Make sub-item icon smaller */
+                margin-right: 0.5rem;
+            }
+
+            .nav-group .nav-item[b-qyh692624o]  .nav-link:hover {
+                color: white;
+                background-color: rgba(255,255,255,0.05);
+            }
+
+        .nav-group .nav-item[b-qyh692624o]  a.active {
+            color: white;
+            background-color: rgba(255,255,255,0.2);
+        }
+
+/* Mobile/Desktop Toggle Styles */
+.nav-scrollable[b-qyh692624o] {
+    display: none;
+}
+
+.navbar-toggler:checked ~ .nav-scrollable[b-qyh692624o] {
+    display: block;
+}
+
+@media (min-width: 641px) {
+    .navbar-toggler[b-qyh692624o] {
+        display: none;
+    }
+
+    .nav-scrollable[b-qyh692624o] {
+        display: block;
+        height: calc(100vh - 3.5rem);
+        overflow-y: auto;
+    }
+}
+
+/* Rich Scrollbar */
+.nav-scrollable[b-qyh692624o]::-webkit-scrollbar {
+    width: 8px;
+}
+
+.nav-scrollable[b-qyh692624o]::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.nav-scrollable[b-qyh692624o]::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+}
+
+    .nav-scrollable[b-qyh692624o]::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.5);
+    }

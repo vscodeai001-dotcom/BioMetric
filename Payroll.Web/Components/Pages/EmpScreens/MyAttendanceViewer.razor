@@ -1,0 +1,334 @@
+@page "/my-attendance"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Models
+@using global::Payroll.Shared.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ILogger<MyAttendanceViewer> _logger
+@inject IToastService toastService
+@inject UserManager<IdentityUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+@attribute [Authorize(Roles = "Employee")]
+
+<PageTitle>My Attendance</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>Attendance viewing is disabled or you do not have permission to access this page.</p>
+            <hr>
+            <p class="mb-0">Please contact your administrator or <a href="/" class="alert-link">return to the dashboard</a>.</p>
+        </div>
+    </div>
+}
+else
+{
+    <h3>My Attendance Logs</h3>
+    <p>Daily breakdown of your punches and calculated work duration from the final daily summary.</p>
+
+    @* --- FILTER CONTROLS --- *@
+    <div class="row p-3 mb-4 border rounded bg-light">
+        <div class="col-md-4">
+            <label class="form-label">Start Date</label>
+            <input type="date" class="form-control" @bind="startDate" />
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">End Date</label>
+            <input type="date" class="form-control" @bind="endDate" />
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+            <button class="btn btn-primary w-100" @onclick="LoadLogsAsync" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                }
+                else
+                {
+                    <span class="bi bi-search"></span>
+                }
+                Search
+            </button>
+        </div>
+    </div>
+
+    @* --- CUMULATIVE SUMMARY BAR --- *@
+    @if (!isLoading && cumulativeSummary != null)
+    {
+        <div class="card mb-3 shadow-sm">
+            <div class="card-header bg-primary text-white">
+                Cumulative Summary (@startDate?.ToString("dd-MMM") to @endDate?.ToString("dd-MMM-yyyy"))
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col">
+                        <h5 class="text-info">@FormatTimeSpan(cumulativeSummary.TotalScheduledHours)</h5>
+                        <span class="text-muted small">Total Scheduled (HH:MM)</span>
+                    </div>
+                    <div class="col">
+                        <h5 class="text-success">@FormatTimeScreen(cumulativeSummary.TotalWorkedHours)</h5>
+                        <span class="text-muted small">Total Worked (HH:MM)</span>
+                    </div>
+                    <div class="col">
+                        <h5 class="text-danger">@FormatTimeSpan(cumulativeSummary.TotalOverallPenalty)</h5>
+                        <span class="text-muted small">Total Penalty (HH:MM)</span>
+                    </div>
+                    <div class="col">
+                        <h5 class="text-primary">@FormatTimeSpan(cumulativeSummary.TotalOvertime)</h5>
+                        <span class="text-muted small">Total OT (HH:MM)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* --- DATA TABLE --- *@
+    @if (isLoading)
+    {
+        <p><em>@statusMessage</em></p>
+    }
+    else if (dailySummaries == null || !dailySummaries.Any())
+    {
+        <p><em>@statusMessage</em></p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped table-bordered mt-3" style="font-size: 0.85em; white-space: nowrap;">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th class="text-center">Scheduled (HH:MM)</th>
+                        <th class="text-center">Worked (HH:MM)</th>
+                        <th class="text-center">Penalty (HH:MM)</th>
+                        <th class="text-center">OT (HH:MM)</th>
+                        <th>Raw Punches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var record in dailySummaries.OrderByDescending(r => r.Date))
+                    {
+                        <tr>
+                            <td>@record.Date.ToString("dd-MMM-yyyy (ddd)")</td>
+                            <td>@record.Status</td>
+                            <td class="text-center">@FormatTimeSpan(record.ScheduledShiftDuration)</td>
+                            <td class="text-center" style="font-weight: bold;">@FormatTimeScreen(record.FinalWorkedHours)</td>
+                            <td class="text-center">@FormatTimeSpan(record.TotalPenalty)</td>
+                            <td class="text-center">@FormatTimeSpan(record.OvertimeDuration)</td>
+                            <td>@record.Punches</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+<AttendanceRefreshListener
+    OnAttendanceChanged="LoadLogsAsync" />
+
+@code {
+    private List<DailyAttendanceRecord> dailySummaries = new();
+    private CompanyCumulativeSummary? cumulativeSummary;
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private bool isLoading = false;
+    private bool isAccessDenied = false;
+    private string statusMessage = "Search for your attendance data.";
+    private Employee? linkedEmployee;
+
+    private class DailyAttendanceRecord
+    {
+        public DateOnly Date { get; set; }
+        public string Status { get; set; } = "Absent";
+        public TimeSpan ScheduledShiftDuration { get; set; }
+        public TimeSpan TotalPenalty { get; set; }
+        public TimeSpan OvertimeDuration { get; set; }
+        public decimal FinalWorkedHours { get; set; }
+        public string Punches { get; set; } = string.Empty;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckPermissionsAndLoadData();
+    }
+
+    private async Task CheckPermissionsAndLoadData()
+    {
+        isLoading = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. SECURITY CHECK
+            var settings = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            if (settings != null)
+            {
+                // Strict Hierarchy: EnableEmployeeManagement (Core) AND EmployeeCanViewAttendance (Child)
+                bool isModuleEnabled = settings.EnableEmployeeManagement;
+                bool canView = settings.EmployeeCanViewAttendance;
+
+                if (!isModuleEnabled || !canView)
+                {
+                    isAccessDenied = true;
+                    isLoading = false;
+                    return;
+                }
+            }
+
+            // 2. Initialize Defaults
+            var today = DateTime.Now.Date;
+            startDate = new DateTime(today.Year, today.Month, 1);
+            endDate = today;
+
+            // 3. Load Data
+            await LoadLinkedEmployee(dbContext);
+            if (linkedEmployee != null)
+            {
+                await LoadLogsAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error initializing MyAttendanceViewer.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadLinkedEmployee(AppDbContext dbContext)
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userEmail = authState.User.Identity?.Name;
+
+        if (userEmail != null)
+        {
+            linkedEmployee = await dbContext.Employees
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Email == userEmail);
+
+            if (linkedEmployee == null)
+            {
+                statusMessage = "Your account is not linked to an employee record.";
+            }
+        }
+    }
+
+    private async Task LoadLogsAsync()
+    {
+        if (linkedEmployee == null) return;
+
+        if (!startDate.HasValue || !endDate.HasValue || startDate.Value > endDate.Value)
+        {
+            toastService.ShowWarning("Please select a valid date range.");
+            return;
+        }
+
+        isLoading = true;
+        dailySummaries.Clear();
+        cumulativeSummary = null;
+        statusMessage = "Loading attendance data...";
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var emp = linkedEmployee!;
+            var filterStartDate = DateOnly.FromDateTime(startDate.Value);
+            var filterEndDate = DateOnly.FromDateTime(endDate.Value);
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            var loadedSummaries = await dbContext.DailySummaries.AsNoTracking()
+                .Where(ds => ds.EmployeeID == emp.EmployeeID &&
+                             ds.ShiftDate >= filterStartDate && ds.ShiftDate <= filterEndDate)
+                .ToListAsync();
+
+            if (!loadedSummaries.Any())
+            {
+                statusMessage = "No attendance records found for this period.";
+                isLoading = false;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            var relevantLogs = await dbContext.AttendanceLogs.AsNoTracking()
+                .Where(log => log.EmployeeID == emp.EmployeeID &&
+                              log.PunchTime.Date >= startDate.Value.Date && log.PunchTime.Date <= endDate.Value.Date)
+                .OrderBy(log => log.PunchTime)
+                .ToListAsync();
+
+            var cumulative = new CompanyCumulativeSummary
+            {
+                TotalEmployeesProcessed = 1,
+                EmployeeName = emp.Name
+            };
+
+            foreach (var ds in loadedSummaries)
+            {
+                decimal workedHours = ds.EarnedStandardHours + (decimal)ds.TotalOvertimeDuration.TotalHours;
+                cumulative.TotalScheduledHours += ds.ScheduledShiftDuration;
+                cumulative.TotalWorkedHours += workedHours;
+                cumulative.TotalOverallPenalty += ds.TotalPenaltyDuration;
+                cumulative.TotalOvertime += ds.TotalOvertimeDuration;
+
+                var punchesForDay = relevantLogs
+                    .Where(l => l.PunchTime.Date == ds.ShiftDate.ToDateTime(TimeOnly.MinValue).Date)
+                    .Select(l => l.PunchTime.ToString("HH:mm"));
+
+                dailySummaries.Add(new DailyAttendanceRecord
+                {
+                    Date = ds.ShiftDate,
+                    Status = ds.Status,
+                    ScheduledShiftDuration = ds.ScheduledShiftDuration,
+                    TotalPenalty = ds.TotalPenaltyDuration,
+                    OvertimeDuration = ds.TotalOvertimeDuration,
+                    FinalWorkedHours = workedHours,
+                    Punches = string.Join(" / ", punchesForDay)
+                });
+            }
+
+            cumulativeSummary = cumulative;
+            statusMessage = "";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"An error occurred: {ex.Message}";
+            _logger.LogError(ex, "Error loading logs");
+        }
+        finally
+        {
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // --- Helper Formatting ---
+    private string FormatTimeSpan(TimeSpan ts)
+    {
+        if (ts < TimeSpan.Zero) ts = TimeSpan.Zero;
+        ts = TimeSpan.FromMinutes(Math.Round(ts.TotalMinutes));
+        return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}";
+    }
+
+    private string FormatTimeScreen(object? value)
+    {
+        if (value == null) return "00:00";
+        if (value is decimal dec)
+        {
+            var ts = TimeSpan.FromHours((double)dec);
+            ts = TimeSpan.FromMinutes(Math.Round(ts.TotalMinutes));
+            return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}";
+        }
+        return value.ToString() ?? "00:00";
+    }
+}

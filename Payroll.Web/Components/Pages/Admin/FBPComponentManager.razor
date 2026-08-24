@@ -1,0 +1,150 @@
+﻿@page "/admin/fbp-components"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject FBPService FBPService
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@attribute [Authorize(Roles = "SuperAdmin")]
+
+<PageTitle>FBP Component Management</PageTitle>
+
+<h3 class="text-danger fw-bold mb-3"><i class="bi bi-bank me-2"></i>FBP Component Configuration</h3>
+<p class="text-muted small">Define the benefit baskets (e.g., Fuel, LTA, Books) employees can allocate their salary towards. Only SuperAdmins can modify annual limits.</p>
+
+@if (isLoading)
+{
+    <p><em>Loading components...</em></p>
+}
+else
+{
+    @* --- ADD/EDIT FORM --- *@
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title">@((editingComponent.ComponentId == 0) ? "Add New Component" : $"Edit {editingComponent.Name}")</h5>
+            <div class="row g-3 mt-2">
+                <div class="col-md-4">
+                    <label class="form-label">Name</label>
+                    <input class="form-control" @bind="editingComponent.Name" placeholder="e.g., Fuel Allowance" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Max Annual Limit (₹)</label>
+                    <input type="number" class="form-control" @bind="editingComponent.MaxAnnualLimit" />
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" @bind="editingComponent.IsTaxExempt" id="isTaxExempt">
+                        <label class="form-check-label" for="isTaxExempt">Tax Exempt?</label>
+                    </div>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn @(editingComponent.ComponentId == 0 ? "btn-success" : "btn-primary") w-100" @onclick="SaveComponent" disabled="@isSaving">
+                        <i class="bi bi-save"></i> @(editingComponent.ComponentId == 0 ? "Save New" : "Update")
+                    </button>
+                    @if (editingComponent.ComponentId != 0)
+                    {
+                        <button class="btn btn-outline-secondary ms-2" @onclick="ResetForm">Cancel</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* --- COMPONENT LIST TABLE --- *@
+    <div class="card shadow-sm">
+        <div class="card-body p-0 overflow-auto">
+            <table class="table table-sm table-striped table-hover mb-0">
+                <thead class="sticky-top table-dark">
+                    <tr>
+                        <th>Name</th>
+                        <th class="text-end">Max Limit</th>
+                        <th>Tax Exempt</th>
+                        <th>Active</th>
+                        <th class="text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var comp in components.OrderBy(c => c.Name))
+                    {
+                        <tr>
+                            <td class="fw-bold">@comp.Name</td>
+                            <td class="text-end">@comp.MaxAnnualLimit.ToString("N0")</td>
+                            <td><span class="badge @(comp.IsTaxExempt ? "bg-success" : "bg-danger")">@(comp.IsTaxExempt ? "Yes" : "No")</span></td>
+                            <td><span class="badge @(comp.IsActive ? "bg-primary" : "bg-secondary")">@(comp.IsActive ? "Active" : "Inactive")</span></td>
+                            <td class="text-center">
+                                <button class="btn btn-sm btn-outline-primary py-0" @onclick="() => EditComponent(comp)"><i class="bi bi-pencil"></i></button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<FBPComponent> components = new();
+    private FBPComponent editingComponent = new();
+    private bool isLoading = true;
+    private bool isSaving = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadComponents();
+    }
+
+    private async Task LoadComponents()
+    {
+        isLoading = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            components = await db.FBPComponents.AsNoTracking().ToListAsync();
+        }
+        finally { isLoading = false; }
+    }
+
+    private void ResetForm()
+    {
+        editingComponent = new();
+    }
+
+    private void EditComponent(FBPComponent comp)
+    {
+        // Clone for safe editing
+        editingComponent = new FBPComponent
+        {
+            ComponentId = comp.ComponentId,
+            Name = comp.Name,
+            MaxAnnualLimit = comp.MaxAnnualLimit,
+            IsActive = comp.IsActive,
+            IsTaxExempt = comp.IsTaxExempt
+        };
+    }
+
+    private async Task SaveComponent()
+    {
+        if (string.IsNullOrWhiteSpace(editingComponent.Name) || editingComponent.MaxAnnualLimit <= 0)
+        {
+            toastService.ShowWarning("Name and a positive Max Limit are required.");
+            return;
+        }
+        
+        isSaving = true;
+        try
+        {
+            await FBPService.SaveComponentAsync(editingComponent);
+            toastService.ShowSuccess($"Component '{editingComponent.Name}' saved.");
+            ResetForm();
+            await LoadComponents();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error saving: {ex.Message}");
+        }
+        finally { isSaving = false; }
+    }
+}

@@ -1,0 +1,249 @@
+﻿@page "/my-fbp-declaration"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject FBPService FBPService
+@inject AuthenticationStateProvider AuthState
+@inject IToastService toastService
+@inject NavigationManager Navigation
+@attribute [Authorize(Roles = "Employee, SuperAdmin")]
+
+<PageTitle>FBP Declaration</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Flexible Benefit Plan (FBP)</strong> module is currently disabled or you do not have permission to view this page.</p>
+            <hr>
+            <p class="mb-0">Please contact your administrator or <a href="/" class="alert-link">return to the dashboard</a>.</p>
+        </div>
+    </div>
+}
+else if (isLoading)
+{
+    <p><em>Loading your profile...</em></p>
+}
+else if (linkedEmployee == null)
+{
+    <div class="alert alert-danger">Employee record not found.</div>
+}
+else
+{
+    <div class="d-flex flex-column h-100">
+        <h3 class="text-danger fw-bold mb-3 flex-shrink-0"><i class="bi bi-bank2 me-2"></i>Flexible Benefit Plan (FBP) Declaration</h3>
+        <p class="text-muted small mb-4 flex-shrink-0">
+            Allocate your annual FBP allowance to tax-exempt components. Allocations are locked for the financial year (@currentYear - @(currentYear + 1)).
+        </p>
+
+        @* --- TOP PANEL: SUMMARY & STATUS --- *@
+        <div class="row g-3 mb-4 flex-shrink-0">
+            <div class="col-md-4">
+                <div class="card bg-light border-0 py-2 h-100">
+                    <div class="card-body">
+                        <small class="text-muted d-block mb-1">Annual FBP Allowance</small>
+                        <h4 class="fw-bold mb-0 text-primary">₹ @AvailableAllowance.ToString("N0", InrCulture)</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-light border-0 py-2 h-100">
+                    <div class="card-body">
+                        <small class="text-muted d-block mb-1">Total Allocated</small>
+                        <h4 class="fw-bold mb-0 text-success">₹ @TotalAllocated.ToString("N0", InrCulture)</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card @(RemainingToAllocate < 0 ? "bg-danger text-white" : "bg-warning text-dark") border-0 py-2 h-100">
+                    <div class="card-body">
+                        <small class="d-block mb-1">Remaining Balance</small>
+                        <h4 class="fw-bold mb-0">₹ @RemainingToAllocate.ToString("N0", InrCulture)</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* --- ALLOCATION FORM --- *@
+        <div class="flex-grow-1 overflow-auto">
+            <div class="card shadow-sm h-100 d-flex flex-column">
+                <div class="card-header bg-white fw-bold">Benefit Baskets</div>
+                <div class="card-body p-0 overflow-auto">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="sticky-top table-light">
+                            <tr>
+                                <th style="width: 30%;">Component</th>
+                                <th style="width: 25%;">Annual Limit</th>
+                                <th style="width: 25%;">Your Allocation (₹)</th>
+                                <th style="width: 20%;">Monthly Payout (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var comp in availableComponents)
+                            {
+                                var declaration = declarations.FirstOrDefault(d => d.ComponentName == comp.Name);
+                                if (declaration == null)
+                                {
+                                    declaration = new FlexibleBenefitDeclaration { ComponentName = comp.Name, FinancialYear = currentYear, EmployeeId = linkedEmployee!.EmployeeID };
+                                    declarations.Add(declaration);
+                                }
+
+                                bool isLocked = declaration.Status == "Locked" || declaration.Status == "Approved";
+
+                                <tr>
+                                    <td class="fw-bold">
+                                        @comp.Name
+                                        @if (declaration.Status != "Draft")
+                                        {
+                                            <span class="badge @GetBadge(declaration.Status) ms-2">@declaration.Status</span>
+                                        }
+                                    </td>
+                                    <td class="text-end text-muted">@comp.MaxAnnualLimit.ToString("N0", InrCulture)</td>
+
+                                    <td>
+                                        <input type="number"
+                                               class="form-control form-control-sm text-end @(declaration.AnnualAllocatedAmount > comp.MaxAnnualLimit ? "is-invalid" : "")"
+                                               @bind="declaration.AnnualAllocatedAmount"
+                                               @bind:after="CalculateTotals"
+                                               disabled="@isLocked"
+                                               min="0" max="@comp.MaxAnnualLimit" />
+                                        @if (declaration.AnnualAllocatedAmount > comp.MaxAnnualLimit)
+                                        {
+                                            <div class="invalid-feedback small">Exceeds compliance limit!</div>
+                                        }
+                                    </td>
+                                    <td class="text-end fw-bold text-success">
+                                        @((declaration.AnnualAllocatedAmount / 12m).ToString("N0", InrCulture))
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="card-footer bg-light text-end">
+                    <button class="btn btn-primary btn-lg" @onclick="SubmitDeclaration" disabled="@(isSaving || RemainingToAllocate < 0)">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        <i class="bi bi-check-lg"></i> Finalize Declaration
+                    </button>
+                    @if (RemainingToAllocate < 0)
+                    {
+                        <span class="text-danger small ms-3">Total allocation exceeds limit!</span>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isAccessDenied = false;
+    private Employee? linkedEmployee;
+    private List<FBPComponent> availableComponents = new();
+    private List<FlexibleBenefitDeclaration> declarations = new();
+    private int currentYear = DateTime.Now.Month >= 4 ? DateTime.Now.Year : DateTime.Now.Year - 1;
+
+    private decimal AvailableAllowance = 0;
+    private decimal TotalAllocated => declarations.Sum(d => d.AnnualAllocatedAmount);
+    private decimal RemainingToAllocate => AvailableAllowance - TotalAllocated;
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            // 1. SECURITY CHECK
+            var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            if (features != null && !features.EnableFlexibleBenefits)
+            {
+                isAccessDenied = true;
+                isLoading = false;
+                return;
+            }
+
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var email = auth.User.Identity?.Name;
+            linkedEmployee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Email == email);
+
+            if (linkedEmployee != null)
+            {
+                // Simple calculation placeholder
+                AvailableAllowance = linkedEmployee.MonthlySalary * 12 * 0.10m;
+
+                availableComponents = await FBPService.GetActiveComponentsAsync();
+                declarations = await FBPService.GetDeclarationsAsync(linkedEmployee.EmployeeID, currentYear);
+            }
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error loading FBP data: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void CalculateTotals()
+    {
+        StateHasChanged();
+    }
+
+    private async Task SubmitDeclaration()
+    {
+        if (linkedEmployee == null || RemainingToAllocate < 0)
+        {
+            toastService.ShowError("Total allocated amount cannot exceed the available allowance.");
+            return;
+        }
+
+        if (!declarations.Any(d => d.AnnualAllocatedAmount > 0))
+        {
+            toastService.ShowWarning("Please allocate an amount greater than zero to at least one component.");
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            await FBPService.SaveDeclarationsAsync(linkedEmployee!.EmployeeID, currentYear, declarations);
+            toastService.ShowSuccess("FBP Declaration Submitted Successfully!");
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Submission failed: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private string GetBadge(string status) => status switch
+    {
+        "Locked" => "bg-danger",
+        "Approved" => "bg-success",
+        "Submitted" => "bg-info text-dark",
+        _ => "bg-secondary"
+    };
+}

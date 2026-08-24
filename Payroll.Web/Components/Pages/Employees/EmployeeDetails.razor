@@ -1,0 +1,385 @@
+﻿@page "/employees/details/{EmployeeId:int}"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Web.Components.UI.Leave
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Services
+@using global::Payroll.Web.Components.Pages.Employees
+@using global::Payroll.Web.Models
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<EmployeeDetails> _logger
+@inject IToastService toastService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+@if (EmployeeId == 0)
+{
+    <div class="alert alert-danger">Invalid Employee ID.</div>
+}
+else if (employee == null)
+{
+    <div class="p-4 text-center">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2">Loading Employee Profile...</p>
+    </div>
+}
+else
+{
+    <PageTitle>Details - @employee.Name</PageTitle>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>Details for @employee.Name</h3>
+        <div>
+            <button class="btn btn-primary me-2" @onclick="ShowEditEmployeeModal" title="Edit Profile">
+                <i class="bi bi-pencil-square me-2"></i> Edit Employee
+            </button>
+            <button class="btn btn-secondary" @onclick="GoBack">
+                <i class="bi bi-arrow-left me-2"></i> Back
+            </button>
+        </div>
+    </div>
+    
+    <div class="row">
+        @* --- EMPLOYEE INFO CARD --- *@
+        <div class="col-md-6">
+             <div class="card mb-4 h-100 shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <i class="bi bi-person-vcard me-2"></i> Employee Information
+                </div>
+                <div class="card-body small">
+                    <div class="row g-2">
+                        <div class="col-6"><strong>ID:</strong> @employee.EmployeeID</div>
+                        <div class="col-6"><strong>Bio ID:</strong> <span class="badge bg-light text-dark border">@employee.BiometricID</span></div>
+                        
+                        <div class="col-6"><strong>Role:</strong> @employee.Role</div>
+                        <div class="col-6"><strong>Joined:</strong> @employee.HireDate?.ToString("dd-MMM-yyyy")</div>
+                        
+                        <div class="col-6">
+                            <strong>Pay:</strong> 
+                            @(employee.DirectHourlyWage > 0 
+                                ? $"{employee.DirectHourlyWage:C}/hr" 
+                                : $"{employee.MonthlySalary:C}/mo")
+                        </div>
+                        <div class="col-6">
+                            <strong>Shift:</strong> @(employee.ShiftStartTime?.ToString("hh:mm tt") ?? "-") to @(employee.ShiftEndTime?.ToString("hh:mm tt") ?? "-")
+                        </div>
+                        
+                        <div class="col-12"><hr class="my-1" /></div>
+                        
+                        <div class="col-6"><strong>OT Rule:</strong> @employee.OT_Rule</div>
+                        <div class="col-6 text-truncate" title="@employee.Email"><strong>Email:</strong> @(employee.Email ?? "-")</div>
+
+                        @if (employee.EnablePF || employee.EnableESI) {
+                            <div class="col-12 mt-2 bg-light p-2 rounded border">
+                                @if(employee.EnablePF) { <span class="badge bg-primary me-2">PF: @employee.UAN</span> }
+                                @if(employee.EnableESI) { <span class="badge bg-info text-dark">ESI: @employee.ESINumber</span> }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* --- ATTENDANCE SUMMARY CARD --- *@
+        <div class="col-md-6">
+            <LeaveBalanceCard Employee="employee" />
+             <AttendanceSummaryCard Month="displayMonth" Summary="currentMonthAttendance" IsLoading="isLoadingAttendance" />
+        </div>
+    </div>
+
+    @* --- HISTORY TABS --- *@
+    <EmployeeFinancialHistory PayrollHistory="payrollHistory"
+                              Advances="advanceHistory"
+                              Leaves="leaveHistory"
+                              Bonuses="bonusHistory"
+                              AuditLogs="auditHistory"
+                              OnViewPayslip="ViewPayslip" />
+}
+
+@* --- MODAL FOR EDITING (Updated Logic) --- *@
+@if (showEditModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-dialog-right"> 
+            <div class="modal-content">
+
+                <div class="modal-header bg-light py-3 border-bottom">
+                    <h5 class="modal-title fw-bold">Edit @currentEmployee.Name</h5>
+                    <button type="button" class="btn-close" @onclick="CloseEditModal" disabled="@isSaving"></button>
+                </div>
+
+                <div class="modal-body py-4 px-4">
+                     <EmployeeForm Employee="currentEmployee" 
+                                   CompanySettings="companySettings" 
+                                   FeatureSettings="featureSettings" 
+                                   IsSuperAdmin="isSuperAdmin"
+                                   @bind-Dob="modalDob"
+                                   @bind-HireDate="modalHireDate"
+                                   @bind-TerminationDate="modalTerminationDate"
+                                   @bind-ShiftStartTime="modalShiftStartTime"
+                                   @bind-ShiftEndTime="modalShiftEndTime" />
+                </div>
+                
+                <div class="modal-footer bg-light py-3 px-4">
+                    <button type="button" class="btn btn-outline-secondary me-auto" @onclick="CloseEditModal" disabled="@isSaving">Cancel</button>
+                    
+                    <button type="button" class="btn btn-success px-4" @onclick="SaveEmployee" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span><span>Saving...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-lg me-2"></i><span>Update Changes</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public int EmployeeId { get; set; }
+
+    // Data Models
+    private Employee? employee;
+    private CompanySetting? companySettings;
+    private FeatureSettings? featureSettings;
+    private List<SalaryAdvance>? advanceHistory;
+    private List<LeaveRequest>? leaveHistory;
+    private List<PayrollHistory>? payrollHistory;
+    private List<BonusRecord>? bonusHistory;
+    private List<AuditLog>? auditHistory;    
+    private AttendanceSummaryDto? currentMonthAttendance;
+
+    // UI State
+    private CultureInfo inrCulture = new CultureInfo("en-IN");
+    private bool isLoadingAttendance = false;
+    private DateTime displayMonth = DateTime.Now;
+    private bool isSuperAdmin = false;
+    
+    // Modal State
+    private bool showEditModal = false;
+    private bool isSaving = false; // NEW: To prevent double clicks and show spinner
+    private Employee currentEmployee = new();
+
+    // Binding Helpers
+    private DateTime? modalDob, modalHireDate, modalTerminationDate, modalShiftStartTime, modalShiftEndTime;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        isSuperAdmin = auth.User.IsInRole("SuperAdmin");
+        await LoadPageData();
+    }
+
+    private async Task LoadPageData()
+    {
+        isLoadingAttendance = true;
+        // We invoke StateHasChanged to ensure the "Loading..." spinner appears
+        await InvokeAsync(StateHasChanged);
+
+        displayMonth = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        DateTime yearAgo = DateTime.Now.AddYears(-1);
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            
+            // 1. Load Settings
+            featureSettings = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            companySettings = await dbContext.CompanySettings.AsNoTracking().FirstOrDefaultAsync(s => s.SettingID == 1);
+
+            // 2. Load Employee
+            employee = await dbContext.Employees.FindAsync(EmployeeId);
+            if (employee == null) 
+            { 
+                Navigation.NavigateTo("/employees"); 
+                return; 
+            }
+
+            // 3. Load Histories
+            advanceHistory = await dbContext.SalaryAdvances.Where(a => a.EmployeeID == EmployeeId).OrderByDescending(a => a.AdvanceDate).ToListAsync();
+            leaveHistory = await dbContext.LeaveRequests.Where(l => l.EmployeeID == EmployeeId).OrderByDescending(l => l.LeaveDate).ToListAsync();
+            payrollHistory = await dbContext.PayrollHistories.Where(p => p.EmployeeID == EmployeeId && p.PayYear >= yearAgo.Year).OrderByDescending(p => p.PayYear).ThenByDescending(p => p.PayMonth).ToListAsync();
+            bonusHistory = await dbContext.BonusRecords.Where(b => b.EmployeeID == EmployeeId).OrderByDescending(b => b.BonusDate).ToListAsync(); // <-- NEW
+            auditHistory = await dbContext.AuditLogs
+    .Where(a => a.EntityID == EmployeeId.ToString() && a.EntityType == "Employee")
+    .OrderByDescending(a => a.Timestamp)
+    .Take(20) 
+    .ToListAsync();
+
+            // 4. Calc Attendance
+            currentMonthAttendance = await CalculateAttendanceSummary(displayMonth, displayMonth.AddMonths(1), employee);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading employee details");
+            toastService.ShowError("Failed to load employee data.");
+        }
+        finally 
+        { 
+            isLoadingAttendance = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // --- ACTIONS ---
+    private void GoBack() => Navigation.NavigateTo("/employees");
+    private void ViewPayslip(int payrollId) => Navigation.NavigateTo($"/payslip/{payrollId}");
+
+    private void ShowEditEmployeeModal()
+    {
+        if (employee == null) return;
+
+        // Clone to avoid editing the main object directly
+        currentEmployee = new Employee
+        {
+            EmployeeID = employee.EmployeeID,
+            Name = employee.Name,
+            BiometricID = employee.BiometricID,
+            Role = employee.Role,
+            Email = employee.Email,
+            
+            MonthlySalary = employee.MonthlySalary,
+            DirectHourlyWage = employee.DirectHourlyWage,
+
+            SalaryCalculationMethod = employee.SalaryCalculationMethod,
+            
+            OT_Rule = employee.OT_Rule,
+            OT_FlatRate = employee.OT_FlatRate,
+
+            StandardBreakMinutes = employee.StandardBreakMinutes,
+            CompOffDayOfWeek = employee.CompOffDayOfWeek,
+            NightShiftAllowance = employee.NightShiftAllowance,
+
+            EnablePF = employee.EnablePF,
+            UAN = employee.UAN,
+            EnableESI = employee.EnableESI,
+            ESINumber = employee.ESINumber,
+            
+            // Dates handled by helpers below
+            DOB = employee.DOB,
+            HireDate = employee.HireDate,
+            TerminationDate = employee.TerminationDate,
+            ShiftStartTime = employee.ShiftStartTime,
+            ShiftEndTime = employee.ShiftEndTime
+        };
+
+        // Init Helpers
+        modalDob = currentEmployee.DOB?.ToDateTime(TimeOnly.MinValue);
+        modalHireDate = currentEmployee.HireDate?.ToDateTime(TimeOnly.MinValue);
+        modalTerminationDate = currentEmployee.TerminationDate?.ToDateTime(TimeOnly.MinValue);
+        
+        var baseD = DateTime.Today;
+        modalShiftStartTime = currentEmployee.ShiftStartTime.HasValue ? baseD.Add(currentEmployee.ShiftStartTime.Value.ToTimeSpan()) : null;
+        modalShiftEndTime = currentEmployee.ShiftEndTime.HasValue ? baseD.Add(currentEmployee.ShiftEndTime.Value.ToTimeSpan()) : null;
+
+        showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        showEditModal = false;
+        isSaving = false;
+    }
+
+    private async Task SaveEmployee()
+    {
+        if (string.IsNullOrWhiteSpace(currentEmployee.Name)) 
+        {
+            toastService.ShowWarning("Name is required.");
+            return;
+        }
+
+        isSaving = true;
+        await InvokeAsync(StateHasChanged);
+
+        // 1. Sync Helpers back to Object (Crucial for Date/Time)
+        currentEmployee.DOB = modalDob.HasValue ? DateOnly.FromDateTime(modalDob.Value) : null;
+        currentEmployee.HireDate = modalHireDate.HasValue ? DateOnly.FromDateTime(modalHireDate.Value) : null;
+        currentEmployee.TerminationDate = modalTerminationDate.HasValue ? DateOnly.FromDateTime(modalTerminationDate.Value) : null;
+        currentEmployee.ShiftStartTime = modalShiftStartTime.HasValue ? TimeOnly.FromDateTime(modalShiftStartTime.Value) : null;
+        currentEmployee.ShiftEndTime = modalShiftEndTime.HasValue ? TimeOnly.FromDateTime(modalShiftEndTime.Value) : null;
+
+        // 2. Cleanup Statutory
+        if (!currentEmployee.EnablePF) currentEmployee.UAN = null;
+        if (!currentEmployee.EnableESI) currentEmployee.ESINumber = null;
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var existing = await dbContext.Employees.FindAsync(currentEmployee.EmployeeID);
+            
+            if (existing != null)
+            {
+                dbContext.Entry(existing).CurrentValues.SetValues(currentEmployee);
+                await dbContext.SaveChangesAsync();
+                
+                toastService.ShowSuccess("Profile Updated!");
+                CloseEditModal();
+                
+                // Reload data to reflect changes on the main page
+                await LoadPageData(); 
+            }
+            else
+            {
+                toastService.ShowError("Employee not found in database.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating employee");
+            toastService.ShowError($"Update failed: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // --- Attendance Calc Logic ---
+    private async Task<AttendanceSummaryDto> CalculateAttendanceSummary(DateTime startDate, DateTime endDate, Employee emp)
+    {
+        var summary = new AttendanceSummaryDto();
+        // Basic Implementation for Summary Card
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var dStart = DateOnly.FromDateTime(startDate);
+            var dEnd = DateOnly.FromDateTime(endDate.AddDays(-1));
+
+            var summaries = await dbContext.DailySummaries.AsNoTracking()
+                .Where(ds => ds.EmployeeID == emp.EmployeeID && ds.ShiftDate >= dStart && ds.ShiftDate <= dEnd)
+                .ToListAsync();
+
+            // FIX: Ensure EarnedStandardHours is used as it's the decimal hours field
+            summary.TotalHoursCalculated = summaries.Sum(s => s.EarnedStandardHours + (decimal)s.TotalOvertimeDuration.TotalHours);
+            summary.PresentDays = summaries.Count(s => s.Status == "Present" || s.Status == "Half Day");
+            summary.AbsentDays = summaries.Count(s => s.Status.Contains("Absent") || s.Status.Contains("Loss"));
+            summary.LeaveDays = summaries.Count(s => s.Status.Contains("Leave") || s.Status == "Holiday" || s.Status == "Weekly Off"); // Include Weekly Off
+
+            // Working days estimation (excluding weekends if not set)
+            int workDays = 0;
+            for (var d = dStart; d <= dEnd; d = d.AddDays(1))
+            {
+                if (!emp.CompOffDayOfWeek.HasValue || d.DayOfWeek != emp.CompOffDayOfWeek.Value) workDays++;
+            }
+            summary.WorkingDays = workDays;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Calc Error");
+        }
+
+        return summary;
+    }
+}

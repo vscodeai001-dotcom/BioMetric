@@ -1,0 +1,158 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
+
+@inject IJSRuntime JSRuntime
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@inject IHttpContextAccessor HttpContextAccessor
+
+<AuthorizeView>
+
+    <Authorized>
+
+        <div class="login-display-wrapper">
+
+            <!-- =====================================================
+                 LOGGED-IN USER
+                 ===================================================== -->
+
+            <a class="nav-link login-user-link"
+               href="/Identity/Account/Manage"
+               title="@context.User.Identity?.Name">
+
+                <span class="hello-text">
+                    Hello,
+                </span>
+
+                <span class="user-name">
+                    @context.User.Identity?.Name
+                </span>
+
+            </a>
+
+
+            <!-- =====================================================
+                 LOGOUT
+                 ===================================================== -->
+
+            <form id="employee-logout-form"
+                  class="logout-form"
+                  method="post"
+                  action="/Identity/Account/Logout">
+
+                <input type="hidden"
+                       name="__RequestVerificationToken"
+                       value="@Antiforgery.GetAndStoreTokens(
+                                                  HttpContextAccessor.HttpContext!).RequestToken" />
+
+
+                <button type="button"
+                        class="logout-button"
+                        disabled="@loggingOut"
+                        @onclick="LogoutAsync"
+                        title="Logout"
+                        aria-label="Logout">
+
+                    @if (loggingOut)
+                    {
+                        <span class="spinner-border spinner-border-sm"
+                              role="status"
+                              aria-hidden="true">
+                        </span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-box-arrow-right logout-icon"
+                           aria-hidden="true">
+                        </i>
+                    }
+
+                    <span class="logout-text">
+                        @(loggingOut ? "Logging out..." : "Logout")
+                    </span>
+
+                </button>
+
+            </form>
+
+        </div>
+
+    </Authorized>
+
+
+    <NotAuthorized>
+
+        <a class="nav-link text-light me-2"
+           href="/Identity/Account/Register">
+            Register
+        </a>
+
+        <a class="nav-link text-light"
+           href="/Identity/Account/Login">
+            Login
+        </a>
+
+    </NotAuthorized>
+
+</AuthorizeView>
+
+
+@code
+{
+    private bool loggingOut;
+
+
+    private async Task LogoutAsync()
+    {
+        if (loggingOut)
+            return;
+
+
+        loggingOut = true;
+
+
+        try
+        {
+            /*
+             * ========================================================
+             * STOP GPS WATCHER
+             * ========================================================
+             */
+
+            try
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "stopPersistentEmployeeGps");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"Unable to stop employee GPS during logout: {ex}");
+            }
+
+
+            /*
+             * Give browser GPS watcher a moment to stop.
+             */
+
+            await Task.Delay(150);
+
+
+            /*
+             * ========================================================
+             * NORMAL ASP.NET CORE IDENTITY LOGOUT
+             * ========================================================
+             */
+
+            await JSRuntime.InvokeVoidAsync(
+                "submitEmployeeLogoutForm",
+                "employee-logout-form");
+        }
+        catch (Exception ex)
+        {
+            loggingOut = false;
+
+            Console.Error.WriteLine(
+                $"Employee logout failed: {ex}");
+        }
+    }
+}

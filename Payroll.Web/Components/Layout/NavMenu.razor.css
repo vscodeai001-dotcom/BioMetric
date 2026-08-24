@@ -1,0 +1,400 @@
+/* ============================================================
+   NAV MENU
+   FINAL MOBILE + DESKTOP VERSION
+   ============================================================ */
+
+
+/* ============================================================
+   NAV BUTTON
+   ============================================================ */
+
+.navbar-toggler {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    cursor: pointer !important;
+    width: 2.45rem !important;
+    height: 2.45rem !important;
+    min-width: 2.45rem !important;
+    min-height: 2.45rem !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    color: white !important;
+    border: 1px solid rgba(255,255,255,0.30) !important;
+    border-radius: 6px !important;
+    background-color: #343a40 !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='white' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2.2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 1.25rem 1.25rem !important;
+    box-shadow: 0 2px 7px rgba(0,0,0,0.35) !important;
+    touch-action: manipulation !important;
+}
+
+    .navbar-toggler:hover {
+        background-color: #495057 !important;
+    }
+
+    .navbar-toggler:focus {
+        outline: none !important;
+    }
+
+    .navbar-toggler:checked {
+        background-color: #495057 !important;
+    }
+
+
+/* ============================================================
+   NAV ITEMS
+   ============================================================ */
+
+.nav-item {
+    font-size: 0.9rem;
+    padding-bottom: 0.5rem;
+}
+
+    .nav-item:first-of-type {
+        padding-top: 1rem;
+    }
+
+    .nav-item:last-of-type {
+        padding-bottom: 1rem;
+    }
+
+    .nav-item ::deep .nav-link {
+        color: #d7d7d7;
+        background: transparent;
+        border: none;
+        border-radius: 5px;
+        height: 3rem;
+        display: flex;
+        align-items: center;
+        line-height: 1;
+        width: 100%;
+        padding: 0 1rem;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .nav-item ::deep a.active {
+        background-color: rgba(255,255,255,0.25);
+        color: white;
+    }
+
+    .nav-item ::deep .nav-link:hover {
+        background-color: rgba(255,255,255,0.10);
+        color: white;
+    }
+
+
+/* ============================================================
+   NAV GROUP
+   ============================================================ */
+
+.nav-group {
+    margin-bottom: 0.5rem;
+}
+
+    .nav-group summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 0.75rem 1rem;
+        color: #d7d7d7;
+        font-weight: 500;
+        border-radius: 5px;
+        margin: 0 0.75rem;
+    }
+
+        .nav-group summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .nav-group summary:hover {
+            background-color: rgba(255,255,255,0.10);
+            color: white;
+        }
+
+
+    /* ============================================================
+   SUB ITEMS
+   ============================================================ */
+
+    .nav-group .nav-item {
+        font-size: 0.82rem;
+        padding-bottom: 0;
+        padding-left: 0;
+    }
+
+        .nav-group .nav-item ::deep .nav-link {
+            color: #adb5bd;
+            height: 2.5rem;
+            padding-left: 2.35rem;
+            padding-right: 0.6rem;
+        }
+
+            .nav-group .nav-item ::deep .nav-link .bi {
+                font-size: 0.72rem;
+                width: 1rem;
+                min-width: 1rem;
+                margin-right: 0.55rem;
+                text-align: center;
+                flex-shrink: 0;
+            }
+
+            .nav-group .nav-item ::deep .nav-link:hover {
+                color: white;
+                background-color: rgba(255,255,255,0.07);
+            }
+
+        .nav-group .nav-item ::deep a.active {
+            color: white;
+            background-color: rgba(255,255,255,0.22);
+            box-shadow: inset 3px 0 0 rgba(255,255,255,0.65);
+        }
+
+
+/* ============================================================
+   MENU CLOSED
+   ============================================================ */
+
+.nav-scrollable {
+    display: none;
+}
+
+
+/* ============================================================
+   MENU OPEN
+   ============================================================ */
+
+.navbar-toggler:checked ~ .nav-scrollable {
+    display: block;
+}
+
+
+/* ============================================================
+   DESKTOP
+   ============================================================ */
+
+@media (min-width: 641px) {
+
+    .navbar-toggler {
+        display: none !important;
+    }
+
+    .nav-scrollable {
+        display: block;
+        height: calc(100vh - 3.5rem);
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+}
+
+
+/* ============================================================
+   MOBILE
+   ============================================================ */
+
+@media (max-width: 640.98px) {
+
+    /* --------------------------------------------------------
+       SIDEBAR HOST
+       -------------------------------------------------------- */
+
+    .sidebar {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        z-index: 5000 !important;
+        pointer-events: auto !important;
+    }
+
+
+    /* --------------------------------------------------------
+       HAMBURGER
+       -------------------------------------------------------- */
+
+    .navbar-toggler {
+        display: block !important;
+        position: fixed !important;
+        top: 0.5rem !important;
+        right: 0.55rem !important;
+        width: 2.45rem !important;
+        height: 2.45rem !important;
+        min-width: 2.45rem !important;
+        min-height: 2.45rem !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        z-index: 10000 !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+        transform: none !important;
+        position: fixed !important;
+        border: 1px solid rgba(255,255,255,0.30) !important;
+        border-radius: 6px !important;
+        background-color: #343a40 !important;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='white' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2.2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") !important;
+        background-repeat: no-repeat !important;
+        background-position: center !important;
+        background-size: 1.25rem 1.25rem !important;
+        box-shadow: 0 2px 7px rgba(0,0,0,0.40) !important;
+    }
+
+
+        /* --------------------------------------------------------
+       MOBILE DRAWER
+       -------------------------------------------------------- */
+
+        .navbar-toggler:checked ~ .nav-scrollable {
+            display: block !important;
+            position: fixed !important;
+            top: 3.5rem !important;
+            left: 0.45rem !important;
+            width: 280px !important;
+            max-width: calc(100vw - 0.9rem) !important;
+            height: calc(100vh - 3.95rem) !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            z-index: 9000 !important;
+            padding: 0.4rem 0.35rem 1rem !important;
+            background-image: linear-gradient( 180deg, rgb(5,39,103) 0%, #24105d 50%, #3a0647 100% ) !important;
+            border: 1px solid rgba(255,255,255,0.16) !important;
+            border-radius: 0 10px 10px 10px !important;
+            box-shadow: 4px 8px 25px rgba(0,0,0,0.40) !important;
+            pointer-events: auto !important;
+            animation: mobileMenuOpen 0.16s ease-out;
+        }
+
+
+    @keyframes mobileMenuOpen {
+
+        from {
+            opacity: 0;
+            transform: translateY(-5px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+
+    /* --------------------------------------------------------
+       MOBILE ITEMS
+       -------------------------------------------------------- */
+
+    .nav-item {
+        font-size: 0.78rem;
+        padding-bottom: 0.15rem;
+    }
+
+        .nav-item:first-of-type {
+            padding-top: 0.25rem;
+        }
+
+        .nav-item:last-of-type {
+            padding-bottom: 0.75rem;
+        }
+
+    .nav-scrollable .nav-item ::deep .nav-link {
+        height: 2.65rem;
+        min-height: 2.65rem;
+        padding-left: 0.85rem;
+        padding-right: 0.7rem;
+        margin: 0.08rem 0;
+        border-radius: 6px;
+        font-size: 0.78rem;
+        display: flex;
+        align-items: center;
+    }
+
+        .nav-scrollable .nav-item ::deep .nav-link:hover {
+            background-color: rgba(255,255,255,0.10);
+            color: white;
+        }
+
+    .nav-scrollable .nav-item ::deep a.active {
+        background-color: rgba(255,255,255,0.20);
+        color: white;
+        box-shadow: inset 3px 0 0 rgba(255,255,255,0.65);
+    }
+
+
+    /* --------------------------------------------------------
+       MOBILE GROUP
+       -------------------------------------------------------- */
+
+    .nav-scrollable .nav-group {
+        margin-bottom: 0.25rem;
+    }
+
+        .nav-scrollable .nav-group summary {
+            padding: 0.65rem 0.75rem;
+            margin: 0.1rem 0;
+            min-height: 2.65rem;
+            display: flex;
+            align-items: center;
+            border-radius: 6px;
+            font-size: 0.78rem;
+        }
+
+
+        /* --------------------------------------------------------
+       MOBILE SUB ITEMS
+       -------------------------------------------------------- */
+
+        .nav-scrollable .nav-group .nav-item {
+            padding-left: 0;
+        }
+
+            .nav-scrollable
+            .nav-group
+            .nav-item
+            ::deep
+            .nav-link {
+                height: 2.45rem;
+                min-height: 2.45rem;
+                padding-left: 2rem;
+                padding-right: 0.35rem;
+                font-size: 0.74rem;
+                color: #d0d5df;
+            }
+
+                .nav-scrollable
+                .nav-group
+                .nav-item
+                ::deep
+                .nav-link
+                .bi {
+                    font-size: 0.72rem;
+                    width: 1rem;
+                    min-width: 1rem;
+                    margin-right: 0.55rem;
+                    text-align: center;
+                    flex-shrink: 0;
+                }
+}
+
+
+/* ============================================================
+   SCROLLBAR
+   ============================================================ */
+
+.nav-scrollable::-webkit-scrollbar {
+    width: 6px;
+}
+
+.nav-scrollable::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.18);
+}
+
+.nav-scrollable::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.28);
+    border-radius: 4px;
+}
+
+    .nav-scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(255,255,255,0.45);
+    }

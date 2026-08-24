@@ -1,0 +1,319 @@
+@page "/attendance/punch-approval"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Identity.UI.Services
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject AttendanceCalculatorService Calculator
+@inject AttendanceScheduleService ScheduleService
+@inject AttendanceDayTypeService DayTypeService
+@inject AttendancePunchProcessor PunchProcessor
+@inject NotificationService NoteService
+@inject UserManager<IdentityUser> UserManager
+@inject DailySummaryBuilder SummaryBuilder
+@inject IToastService toastService
+@inject AttendanceRefreshService AttendanceRefreshService
+@inject IJSRuntime JSRuntime
+@inject ILogger<PunchCorrectionApproval> _logger
+@inject Payroll.Web.Services.AuditService AuditService
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Punch Correction Approval</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Punch Correction</strong> module is currently disabled or you do not have permission to manage approvals.</p>
+            <hr>
+            <p class="mb-0">Please contact your SuperAdmin.</p>
+        </div>
+    </div>
+}
+else if (isLoading)
+{
+    <p><em>Loading punch correction requests...</em></p>
+}
+else if (!pendingPunches.Any())
+{
+    <div class="d-flex flex-column h-100">
+        <h3>Punch Correction Requests</h3>
+        <div class="mb-3 text-end">
+            <button class="btn btn-primary" @onclick="LoadRequests" disabled="@isLoading">
+                <i class="bi bi-arrow-repeat"></i> Refresh
+            </button>
+        </div>
+        <div class="alert alert-success">
+            <i class="bi bi-check-circle me-2"></i> No pending punch correction requests found.
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex flex-column h-100">
+        <h3>Punch Correction Requests</h3>
+        <p class="text-muted small">Review and approve/reject manually entered punches. Only approved punches count toward attendance calculation.</p>
+
+        <div class="mb-3 text-end">
+            <button class="btn btn-primary" @onclick="LoadRequests" disabled="@isLoading">
+                <i class="bi bi-arrow-repeat"></i> Load Pending Requests
+            </button>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-striped table-bordered table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Employee</th>
+                        <th>Date / Time</th>
+                        <th>Type</th>
+                        <th>Device/Source</th>
+                        <th class="text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var punch in pendingPunches.OrderBy(p => p.PunchTime))
+                    {
+                        <tr>
+                            <td>@(GetEmployeeName(punch.EmployeeID ?? 0))</td>
+                            <td><strong>@punch.PunchTime.ToString("dd-MMM-yyyy hh:mm:ss tt")</strong></td>
+                            <td><span class="badge bg-warning text-dark">@punch.LogType</span></td>
+                            <td>@punch.DeviceID</td>
+                            <td class="text-center text-nowrap">
+                                <button class="btn btn-sm btn-success me-2" @onclick="() => ApproveRequest(punch)" title="Approve Punch">
+                                    <i class="bi bi-check-lg"></i> Approve
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => RejectRequest(punch)" title="Reject Punch (Deletes)">
+                                    <i class="bi bi-x-lg"></i> Reject
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AttendanceLog> pendingPunches = new();
+    private List<Employee> employeeList = new();
+    private bool isLoading = true;
+    private bool isAccessDenied = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckPermissionsAndLoadData();
+    }
+
+    private async Task CheckPermissionsAndLoadData()
+    {
+        isLoading = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. GATE CHECK
+            var features = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            if (features != null)
+            {
+                // Strict Hierarchy: EnablePunchCorrection (Parent) -> AdminCanManagePunchApprovals (Child)
+                bool isModuleEnabled = features.EnablePunchCorrection;
+                bool canManage = features.AdminCanManagePunchApprovals;
+
+                // SuperAdmin bypasses the "canManage" check logically, but the module must be ON.
+                // However, following strict hierarchy: If Module is Disabled -> DENY EVERYONE.
+                if (!isModuleEnabled)
+                {
+                    isAccessDenied = true;
+                    return;
+                }
+
+                // If role is Admin (not SuperAdmin), check specific permission
+                var authState = await AuthState.GetAuthenticationStateAsync();
+                var user = authState.User;
+                if (user.IsInRole("Admin") && !user.IsInRole("SuperAdmin"))
+                {
+                    if (!canManage)
+                    {
+                        isAccessDenied = true;
+                        return;
+                    }
+                }
+            }
+
+            // 2. Load Data
+            employeeList = await dbContext.Employees.AsNoTracking().ToListAsync();
+            await LoadRequests(dbContext); // Pass context or create new? Let's use standard pattern.
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadRequests(AppDbContext? db = null)
+    {
+        bool dispose = false;
+        if (db == null)
+        {
+            db = await DbFactory.CreateDbContextAsync();
+            dispose = true;
+        }
+
+        try
+        {
+            pendingPunches = await db.AttendanceLogs
+                .Where(l => !l.IsApproved && l.LogType == "Correction Request" && l.EmployeeID.HasValue)
+                .OrderBy(l => l.PunchTime)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading pending punch corrections.");
+            toastService.ShowError("Error loading requests.");
+            pendingPunches = new List<AttendanceLog>();
+        }
+        finally
+        {
+            if (dispose) await db.DisposeAsync();
+        }
+    }
+
+    // Helper wrapper for button click re-load
+    private async Task LoadRequests()
+    {
+        isLoading = true;
+        await LoadRequests(null);
+        isLoading = false;
+    }
+
+    private string GetEmployeeName(int id) => employeeList.FirstOrDefault(e => e.EmployeeID == id)?.Name ?? $"ID:{id} (Unknown)";
+
+    private async Task ApproveRequest(AttendanceLog punch)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Approve punch for {GetEmployeeName(punch.EmployeeID ?? 0)} at {punch.PunchTime:hh:mm tt}?")) return;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var dbPunch = await dbContext.AttendanceLogs.FindAsync(punch.LogID);
+
+            if (dbPunch != null)
+            {
+                dbPunch.IsApproved = true;
+                await dbContext.SaveChangesAsync();
+
+                // Notify Employee
+                var emp = employeeList.FirstOrDefault(e => e.EmployeeID == dbPunch.EmployeeID);
+                if (emp?.Email != null)
+                {
+                    var user = await UserManager.FindByEmailAsync(emp.Email);
+                    if (user != null)
+                    {
+                        await NoteService.SendNotificationAsync(user.Id, "Punch Approved", $"Your punch correction for {dbPunch.PunchTime:dd-MMM} at {dbPunch.PunchTime:HH:mm} was approved.", "my-attendance");
+                    }
+                }
+
+                // Audit Log
+                await AuditService.LogAsync("APPROVE", "AttendanceLog", dbPunch.LogID.ToString(), $"Punch correction approved for EmpID: {dbPunch.EmployeeID} at {dbPunch.PunchTime:hh:mm tt}");
+
+                // Recalculate
+                await RecalculateSingleDay(dbContext, dbPunch.EmployeeID!.Value, dbPunch.PunchTime.Date);
+
+                await AttendanceRefreshService
+                    .NotifyAttendanceChangedAsync(
+                        dbPunch.EmployeeID!.Value,
+                        DateOnly.FromDateTime(dbPunch.PunchTime.Date));
+
+                toastService.ShowSuccess("Punch approved. Daily summary updated.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error approving punch correction.");
+            toastService.ShowError("Approval failed.");
+        }
+        finally
+        {
+            await LoadRequests();
+        }
+    }
+
+    private async Task RecalculateSingleDay(AppDbContext dbContext, int employeeId, DateTime day)
+    {
+        var dayOnly = DateOnly.FromDateTime(day);
+        var emp = await dbContext.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.EmployeeID == employeeId);
+        var settings = await dbContext.CompanySettings.AsNoTracking().FirstOrDefaultAsync(s => s.SettingID == 1) ?? new CompanySetting();
+        var features = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1) ?? new FeatureSettings();
+        var holidays = await dbContext.CompanyHolidays.Where(h => h.HolidayDate == dayOnly).ToListAsync();
+        var punches = await dbContext.AttendanceLogs.Where(l => l.EmployeeID == employeeId && l.PunchTime.Date == day).ToListAsync();
+        var schedule = await dbContext.ShiftSchedules.FirstOrDefaultAsync(s => s.EmployeeID == employeeId && s.ShiftDate == dayOnly);
+        var leave = await dbContext.LeaveRequests.FirstOrDefaultAsync(l => l.EmployeeID == employeeId && l.LeaveDate.HasValue && l.LeaveDate.Value.Date == day);
+
+        if (emp == null) return;
+
+        var result = Calculator.CalculateDailyResult(emp, day, punches, leave, schedule, settings, holidays, features);
+        var existingSummary = await dbContext.DailySummaries.FirstOrDefaultAsync(s => s.EmployeeID == employeeId && s.ShiftDate == dayOnly);
+
+        if (existingSummary == null)
+        {
+            existingSummary = new DailySummary { EmployeeID = employeeId, ShiftDate = dayOnly };
+            dbContext.DailySummaries.Add(existingSummary);
+        }
+
+        existingSummary.Status = result.Status;
+        existingSummary.EarnedStandardHours = (decimal)result.EarnedStandardDuration.TotalHours;
+        existingSummary.TotalOvertimeDuration = result.TotalOvertimeDuration;
+        existingSummary.TotalPenaltyDuration = result.TotalPenalty;
+        existingSummary.TotalLateness = result.TotalLateness;
+        existingSummary.TotalBreakPenalty = result.TotalBreakPenalty;
+        existingSummary.ScheduledShiftDuration = result.ScheduledShiftDuration;
+        existingSummary.ShiftAllowanceEarned = result.ShiftAllowanceEarned;
+        existingSummary.IsManualOverride = false;
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task RejectRequest(AttendanceLog punch)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Reject and delete punch for {GetEmployeeName(punch.EmployeeID ?? 0)}?")) return;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var dbPunch = await dbContext.AttendanceLogs.FindAsync(punch.LogID);
+
+            if (dbPunch != null)
+            {
+                dbContext.AttendanceLogs.Remove(dbPunch);
+                await dbContext.SaveChangesAsync();
+
+                if (dbPunch.EmployeeID.HasValue)
+                {
+                    await AttendanceRefreshService
+                        .NotifyAttendanceChangedAsync(
+                            dbPunch.EmployeeID.Value,
+                            DateOnly.FromDateTime(dbPunch.PunchTime.Date));
+                }
+
+                await AuditService.LogAsync("REJECT/DELETE", "AttendanceLog", dbPunch.LogID.ToString(), $"Punch correction rejected and deleted for EmpID: {dbPunch.EmployeeID} at {dbPunch.PunchTime:hh:mm tt}");
+                toastService.ShowSuccess("Punch rejected and deleted.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error rejecting punch correction.");
+            toastService.ShowError("Rejection failed.");
+        }
+        finally
+        {
+            await LoadRequests();
+        }
+    }
+}

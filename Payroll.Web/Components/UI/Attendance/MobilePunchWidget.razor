@@ -1,0 +1,1073 @@
+﻿@using global::Payroll.Web.Services
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+@inject GeoLocationService GeoService
+@inject IToastService toastService
+@inject GeoFeatureAccessService GeoAccess
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+@if (isModuleEnabled)
+{
+    <div class="card border-0 shadow-sm bg-primary bg-opacity-10 mb-3">
+        <div class="card-body text-center p-3">
+            <h6 class="text-primary fw-bold mb-2">
+                <i class="bi bi-geo-alt-fill me-1"></i>
+                Remote Punch
+            </h6>
+
+            @if (isProcessing)
+            {
+                <div class="py-3">
+                    <div class="spinner-border text-primary spinner-border-sm" role="status"></div>
+                    <span class="ms-2 small text-primary">@processingMessage</span>
+
+                    @if (automaticTrackingAttempts > 1)
+                    {
+                        <div class="small text-muted mt-1">Trying again...</div>
+                    }
+                </div>
+            }
+            else
+            {
+                @if (hasLocation)
+                {
+                    <div class="geo-map-panel mb-3">
+                        <div class="geo-map-title">
+                            <i class="bi bi-signpost-2 me-1"></i>
+                            Office to Your Location
+                        </div>
+
+                        <div class="geo-map-wrapper">
+                            <div id="@mapId" class="geo-real-map"></div>
+
+                            @if (!mapReady)
+                            {
+                                <div class="geo-map-loading">
+                                    <div class="text-muted small">
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                        Loading map...
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="geo-map-legend">
+                            <span>
+                                <i class="bi bi-building-fill text-secondary"></i>
+                                Office
+                            </span>
+                            <span>
+                                <i class="bi bi-geo-alt-fill text-primary"></i>
+                                You
+                            </span>
+                        </div>
+
+                        <div class="geo-summary">
+                            <div class="geo-summary-item">
+                                <span>Distance</span>
+                                <strong>@FormatDistance(distanceMeters)</strong>
+                            </div>
+
+                            <div class="geo-summary-divider"></div>
+
+                            <div class="geo-summary-item">
+                                <span>Allowed</span>
+                                <strong>@radius m</strong>
+                            </div>
+
+                            <div class="geo-summary-divider"></div>
+
+                            <div class="geo-summary-item">
+                                <span>GPS Accuracy</span>
+                                <strong>@FormatAccuracy(accuracyMeters)</strong>
+                            </div>
+                        </div>
+
+                        @if (isWithinRadius)
+                        {
+                            <div class="geo-status geo-status-success">
+                                <i class="bi bi-check-circle-fill me-1"></i>
+                                Within allowed range
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="geo-status geo-status-danger">
+                                <i class="bi bi-x-circle-fill me-1"></i>
+                                Outside allowed range
+                            </div>
+                        }
+
+                        @if (isLiveTracking)
+                        {
+                            <div class="geo-live-session">
+                                <div class="geo-live-status">
+                                    <span class="geo-live-dot"></span>
+                                    Live location active
+                                </div>
+
+                                @if (liveSessionStartedAt.HasValue)
+                                {
+                                    <div class="geo-session-info">
+                                        <span>
+                                            Started @liveSessionStartedAt.Value.ToString("HH:mm:ss")
+                                        </span>
+                                        <span>
+                                            Duration @FormatDuration(GetLiveDuration())
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="geo-live-session geo-live-warning">
+                                <div class="geo-live-status geo-status-warning-text">
+                                    <span class="geo-live-dot geo-live-dot-warning"></span>
+                                    Location tracking inactive
+                                </div>
+                            </div>
+                        }
+
+                        @if (lastLocationTime.HasValue)
+                        {
+                            <div class="geo-updated">
+                                <i class="bi bi-clock me-1"></i>
+                                Last GPS update @lastLocationTime.Value.ToString("HH:mm:ss")
+                            </div>
+                        }
+                    </div>
+                }
+                else if (!string.IsNullOrWhiteSpace(locationMessage))
+                {
+                    <div class="geo-location-message mb-3">
+                        <i class="bi bi-geo-alt me-1"></i>
+                        @locationMessage
+                    </div>
+
+                    @* 
+                       Automatic location request is attempted first.
+                       This single fallback button exists only when the
+                       browser requires a user gesture to request location.
+                       Clicking it directly calls the native browser
+                       geolocation permission flow.
+                    *@
+                    @if (!hasLocation)
+                    {
+                        <button class="btn btn-outline-primary w-100 fw-semibold mb-3"
+                                @onclick="AllowLocationAsync"
+                                disabled="@isRefreshingLocation">
+
+                            @if (isRefreshingLocation)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                <span>Allowing Location...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-geo-alt-fill me-2"></i>
+                                <span>ALLOW LOCATION</span>
+                            }
+                        </button>
+                    }
+                }
+
+                <button class="btn btn-primary w-100 fw-bold shadow-sm"
+                        @onclick="AttemptPunch"
+                        disabled="@(!CanPunch)">
+
+                    @if (isPunching)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        <span>Processing...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-fingerprint me-2"></i>
+                        <span>PUNCH IN / OUT</span>
+                    }
+                </button>
+
+                <small class="d-block mt-2 text-muted" style="font-size:.75em;">
+                    @if (isLiveTracking)
+                    {
+                        <span>GPS tracking is active. </span>
+                    }
+                    else if (hasLocation)
+                    {
+                        <span>Location available. </span>
+                    }
+                    else
+                    {
+                        <span>Location access required. </span>
+                    }
+
+                    Max range: @radius m.
+                </small>
+            }
+        </div>
+    </div>
+}
+
+<style>
+    .payroll-office-marker, .payroll-user-marker {
+        background: transparent !important;
+        border: 0 !important
+    }
+
+    .payroll-map-office, .payroll-map-user {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        background: #fff;
+        box-shadow: 0 2px 7px rgba(0,0,0,.25)
+    }
+
+    .payroll-map-office {
+        color: #495057;
+        border: 3px solid #6c757d
+    }
+
+    .payroll-map-user {
+        color: #0d6efd;
+        border: 3px solid #0d6efd;
+        width: 38px;
+        height: 38px;
+        font-size: 18px
+    }
+
+    .leaflet-control-attribution {
+        font-size: 8px !important
+    }
+
+    .leaflet-popup-content {
+        font-size: 12px
+    }
+
+    .geo-map-panel {
+        background: rgba(255,255,255,.82);
+        border: 1px solid rgba(13,110,253,.15);
+        border-radius: 12px;
+        padding: 8px;
+        overflow: hidden
+    }
+
+    .geo-map-title {
+        font-size: .78rem;
+        font-weight: 700;
+        color: #6c757d;
+        margin-bottom: 7px
+    }
+
+    .geo-map-wrapper {
+        position: relative;
+        width: 100%;
+        height: 190px;
+        min-height: 190px;
+        overflow: hidden;
+        border-radius: 9px
+    }
+
+    .geo-real-map {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 190px;
+        min-height: 190px;
+        border-radius: 9px;
+        overflow: hidden;
+        border: 1px solid rgba(13,110,253,.15);
+        background: #e9ecef;
+        z-index: 1
+    }
+
+    .geo-map-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9px;
+        background: rgba(233,236,239,.88);
+        pointer-events: none
+    }
+
+    .geo-map-legend {
+        display: flex;
+        justify-content: space-between;
+        padding: 5px 4px 2px;
+        font-size: .67rem;
+        color: #6c757d
+    }
+
+        .geo-map-legend i {
+            margin-right: 2px
+        }
+
+    .geo-summary {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 5px;
+        padding: 7px 4px;
+        border-top: 1px solid rgba(0,0,0,.08);
+        border-bottom: 1px solid rgba(0,0,0,.08)
+    }
+
+    .geo-summary-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px
+    }
+
+        .geo-summary-item span {
+            font-size: .67rem;
+            color: #6c757d
+        }
+
+        .geo-summary-item strong {
+            font-size: .85rem;
+            color: #212529
+        }
+
+    .geo-summary-divider {
+        width: 1px;
+        height: 28px;
+        background: rgba(0,0,0,.12)
+    }
+
+    .geo-status {
+        font-size: .78rem;
+        font-weight: 700;
+        margin-top: 8px;
+        padding: 5px 8px;
+        border-radius: 6px
+    }
+
+    .geo-status-success {
+        color: #198754;
+        background: rgba(25,135,84,.08)
+    }
+
+    .geo-status-danger {
+        color: #dc3545;
+        background: rgba(220,53,69,.08)
+    }
+
+    .geo-live-session {
+        margin-top: 6px;
+        padding: 6px 8px;
+        border-radius: 7px;
+        background: rgba(25,135,84,.06)
+    }
+
+    .geo-live-warning {
+        background: rgba(255,193,7,.08)
+    }
+
+    .geo-live-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: .68rem;
+        font-weight: 600;
+        color: #198754
+    }
+
+    .geo-status-warning-text {
+        color: #856404
+    }
+
+    .geo-live-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #198754;
+        animation: geoLivePulse 1.5s infinite
+    }
+
+    .geo-live-dot-warning {
+        background: #ffc107;
+        animation: none
+    }
+
+    .geo-session-info {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 3px;
+        font-size: .63rem;
+        color: #6c757d
+    }
+
+    .geo-updated {
+        font-size: .65rem;
+        color: #6c757d;
+        margin-top: 5px
+    }
+
+    .geo-location-message {
+        font-size: .8rem;
+        color: #6c757d;
+        padding: 10px;
+        border-radius: 8px;
+        background: rgba(108,117,125,.08)
+    }
+
+    body.dark .geo-map-panel {
+        background: rgba(33,37,41,.9);
+        border-color: rgba(13,110,253,.3)
+    }
+
+    body.dark .geo-map-title, body.dark .geo-map-legend, body.dark .geo-updated, body.dark .geo-summary-item span, body.dark .geo-session-info {
+        color: #adb5bd
+    }
+
+    body.dark .geo-summary-item strong {
+        color: #f8f9fa
+    }
+
+    body.dark .geo-summary {
+        border-color: rgba(255,255,255,.1)
+    }
+
+    body.dark .geo-summary-divider {
+        background: rgba(255,255,255,.12)
+    }
+
+    body.dark .geo-real-map {
+        border-color: rgba(13,110,253,.3)
+    }
+
+    body.dark .geo-map-loading {
+        background: rgba(33,37,41,.88)
+    }
+
+    @@keyframes geoLivePulse {
+        0% {
+            opacity: 1;
+            transform: scale(1)
+        }
+
+        50% {
+            opacity: .35;
+            transform: scale(.75)
+        }
+
+        100% {
+            opacity: 1;
+            transform: scale(1)
+        }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public int EmployeeId { get; set; }
+
+    private bool isModuleEnabled;
+    private bool isProcessing;
+    private bool isRefreshingLocation;
+    private bool isPunching;
+    private bool isLiveTracking;
+    private bool hasLocation;
+    private bool isWithinRadius;
+    private bool mapNeedsUpdate;
+    private bool mapReady;
+    private bool locationSettingsLoaded;
+    private bool automaticTrackingCompleted;
+    private bool automaticTrackingStarting;
+    private readonly CancellationTokenSource automaticLocationCts = new();
+    private int automaticTrackingAttempts;
+    private int radius = 100;
+    private double distanceMeters;
+    private double officeLatitude;
+    private double officeLongitude;
+    private double currentLatitude;
+    private double currentLongitude;
+    private double accuracyMeters;
+    private string? locationMessage;
+    private string processingMessage = "Locating you...";
+    private DateTime? lastLocationTime;
+    private DateTime? liveSessionStartedAt;
+
+    private string mapId => $"geo-map-{EmployeeId}";
+
+    private bool CanPunch =>
+        hasLocation &&
+        isWithinRadius &&
+        !isPunching &&
+        !isRefreshingLocation;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            var company = await db.CompanySettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.SettingID == 1);
+
+            isModuleEnabled = await GeoAccess.IsEnabledAsync();
+            radius = company?.GeoRadiusMeters ?? 100;
+            officeLatitude = company?.OfficeLatitude ?? 0;
+            officeLongitude = company?.OfficeLongitude ?? 0;
+
+            if (isModuleEnabled && (officeLatitude == 0 || officeLongitude == 0))
+            {
+                locationMessage = "Office location is not configured.";
+            }
+        }
+        catch (Exception ex)
+        {
+            isModuleEnabled = false;
+            locationMessage = "Unable to load location settings.";
+            Console.Error.WriteLine($"MobilePunchWidget initialization error: {ex}");
+        }
+
+        locationSettingsLoaded = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (locationSettingsLoaded &&
+            isModuleEnabled &&
+            EmployeeId > 0 &&
+            !automaticTrackingCompleted &&
+            !automaticTrackingStarting)
+        {
+            await EnsureAutomaticTrackingAsync();
+            return;
+        }
+
+        if (!hasLocation || !mapNeedsUpdate)
+            return;
+
+        mapNeedsUpdate = false;
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "updateGeoMap",
+                mapId,
+                officeLatitude,
+                officeLongitude,
+                currentLatitude,
+                currentLongitude,
+                radius,
+                isWithinRadius);
+
+            mapReady = true;
+        }
+        catch (Exception ex)
+        {
+            mapNeedsUpdate = true;
+            mapReady = false;
+            Console.Error.WriteLine($"Map update failed: {ex}");
+        }
+
+        if (mapReady)
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task EnsureAutomaticTrackingAsync()
+    {
+        if (!locationSettingsLoaded ||
+            !isModuleEnabled ||
+            EmployeeId <= 0 ||
+            automaticTrackingCompleted ||
+            automaticTrackingStarting ||
+            automaticLocationCts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        automaticTrackingStarting = true;
+
+        try
+        {
+            while (!automaticLocationCts.IsCancellationRequested && !hasLocation)
+            {
+                automaticTrackingAttempts++;
+
+                isProcessing = true;
+                processingMessage =
+                    automaticTrackingAttempts == 1
+                        ? "Locating you..."
+                        : "Waiting for device location...";
+
+                locationMessage = null;
+
+                await InvokeAsync(StateHasChanged);
+
+                try
+                {
+                    var coords =
+                        await JSRuntime.InvokeAsync<LocationData>("getCoords");
+
+                    await UpdateDistance(coords);
+
+                    if (hasLocation)
+                    {
+                        await StartLiveTracking();
+
+                        if (isLiveTracking)
+                        {
+                            automaticTrackingCompleted = true;
+                            break;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(
+                        $"Automatic GPS attempt {automaticTrackingAttempts} failed: {ex}");
+
+                    isLiveTracking = false;
+
+                    /*
+                     * Permission denial cannot be fixed by repeatedly
+                     * calling geolocation. Stop only in that case.
+                     *
+                     * For temporary GPS/location-service failures,
+                     * continue retrying automatically.
+                     */
+                    if (IsLocationPermissionDenied(ex))
+                    {
+                        locationMessage = GetLocationErrorMessage(ex);
+                        automaticTrackingCompleted = true;
+                        break;
+                    }
+
+                    locationMessage =
+                        "Waiting for device location...";
+                }
+                finally
+                {
+                    isProcessing = false;
+                    await InvokeAsync(StateHasChanged);
+                }
+
+                if (!hasLocation &&
+                    !automaticLocationCts.IsCancellationRequested)
+                {
+                    /*
+                     * No manual "Check My Location" button is required.
+                     * The component keeps trying automatically.
+                     *
+                     * This is intentionally a modest interval so the
+                     * browser is not hammered with GPS requests.
+                     */
+                    try
+                    {
+                        await Task.Delay(
+                            TimeSpan.FromSeconds(5),
+                            automaticLocationCts.Token);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            isProcessing = false;
+            automaticTrackingStarting = false;
+
+            if (!hasLocation &&
+                !automaticLocationCts.IsCancellationRequested &&
+                !automaticTrackingCompleted)
+            {
+                locationMessage =
+                    "Waiting for device location...";
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RefreshLocation()
+    {
+        if (isRefreshingLocation || isPunching)
+            return;
+
+        isRefreshingLocation = true;
+        isProcessing = true;
+        processingMessage = "Locating you...";
+        locationMessage = null;
+
+        try
+        {
+            var coords = await JSRuntime.InvokeAsync<LocationData>("getCoords");
+            await UpdateDistance(coords);
+
+            if (hasLocation)
+            {
+                await StartLiveTracking();
+                automaticTrackingCompleted = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            hasLocation = false;
+            mapNeedsUpdate = false;
+            mapReady = false;
+            locationMessage = GetLocationErrorMessage(ex);
+        }
+        finally
+        {
+            isProcessing = false;
+            isRefreshingLocation = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task AllowLocationAsync()
+    {
+        if (isRefreshingLocation || isPunching)
+            return;
+
+        isRefreshingLocation = true;
+        isProcessing = true;
+        processingMessage = "Allowing location...";
+        locationMessage = null;
+
+        try
+        {
+            /*
+             * This is intentionally a direct geolocation call from a
+             * user click. Browsers are most willing to display their
+             * native location permission prompt when the request is
+             * associated with a user gesture.
+             */
+            var coords =
+                await JSRuntime.InvokeAsync<LocationData>("getCoords");
+
+            await UpdateDistance(coords);
+
+            if (hasLocation)
+            {
+                await StartLiveTracking();
+                automaticTrackingCompleted = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            hasLocation = false;
+            mapNeedsUpdate = false;
+            mapReady = false;
+            locationMessage = GetLocationErrorMessage(ex);
+        }
+        finally
+        {
+            isProcessing = false;
+            isRefreshingLocation = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task StartLiveTracking()
+    {
+        isLiveTracking = true;
+
+        if (!liveSessionStartedAt.HasValue)
+        {
+            liveSessionStartedAt = DateTime.Now;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task StopLiveTracking()
+    {
+        isLiveTracking = false;
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public async Task UpdateLiveLocation(LocationData coords)
+    {
+        try
+        {
+            await UpdateDistance(coords);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Live location update failed: {ex}");
+        }
+    }
+
+    [JSInvokable]
+    public async Task LocationWatchError(string message)
+    {
+        Console.Error.WriteLine($"GPS watch message: {message}");
+
+        if (!hasLocation)
+        {
+            locationMessage = message;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AttemptPunch()
+    {
+        if (isPunching || isRefreshingLocation || !hasLocation)
+            return;
+
+        isPunching = true;
+        isProcessing = true;
+        processingMessage = "Checking your location...";
+        locationMessage = null;
+
+        try
+        {
+            var coords = await JSRuntime.InvokeAsync<LocationData>("getCoords");
+
+            await UpdateDistance(coords);
+
+            if (!hasLocation)
+            {
+                toastService.ShowError("Unable to determine your location.");
+                return;
+            }
+
+            if (!isLiveTracking)
+            {
+                await StartLiveTracking();
+            }
+
+            await InvokeAsync(StateHasChanged);
+
+            /*
+             * IMPORTANT:
+             *
+             * EmployeeGpsTracker owns the persistent GPS session.
+             * Therefore we retrieve the session currently registered
+             * in LiveLocationStore instead of generating a new GUID.
+             */
+            var liveLocation = LiveLocationStore.Get(EmployeeId);
+
+            if (liveLocation == null ||
+                liveLocation.SessionId == Guid.Empty)
+            {
+                toastService.ShowError(
+                    "Live GPS session is not active. Please wait for GPS tracking to start and try again.");
+
+                return;
+            }
+
+            var activeSessionId = liveLocation.SessionId;
+
+            var result = await GeoService.ProcessMobilePunchAsync(
+                EmployeeId,
+                coords.Latitude,
+                coords.Longitude,
+                coords.Accuracy,
+                activeSessionId);
+
+            if (result.Success)
+            {
+                toastService.ShowSuccess(result.Message);
+            }
+            else
+            {
+                toastService.ShowError(result.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            locationMessage = GetLocationErrorMessage(ex);
+            toastService.ShowError($"Punch Failed: {locationMessage}");
+        }
+        finally
+        {
+            isPunching = false;
+            isProcessing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task UpdateDistance(LocationData coords)
+    {
+        if (coords == null)
+        {
+            hasLocation = false;
+            mapNeedsUpdate = false;
+            mapReady = false;
+            locationMessage = "No GPS coordinates were received.";
+            return;
+        }
+
+        var distanceResult = await GeoService.GetDistanceFromOfficeAsync(
+            coords.Latitude,
+            coords.Longitude);
+
+        if (!distanceResult.Success)
+        {
+            hasLocation = false;
+            mapNeedsUpdate = false;
+            mapReady = false;
+            locationMessage = distanceResult.Message;
+            return;
+        }
+
+        hasLocation = true;
+        currentLatitude = coords.Latitude;
+        currentLongitude = coords.Longitude;
+        accuracyMeters = NormalizeAccuracy(coords.Accuracy);
+        distanceMeters = distanceResult.DistanceMeters;
+        radius = distanceResult.AllowedRadiusMeters;
+        isWithinRadius = distanceResult.IsWithinAllowedRadius;
+        lastLocationTime = DateTime.Now;
+        locationMessage = null;
+        mapNeedsUpdate = true;
+    }
+
+    private TimeSpan GetLiveDuration()
+    {
+        if (!liveSessionStartedAt.HasValue)
+            return TimeSpan.Zero;
+
+        return DateTime.Now - liveSessionStartedAt.Value;
+    }
+
+    private string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1)
+        {
+            return $"{(int)duration.TotalHours:00}:{duration.Minutes:00}:{duration.Seconds:00}";
+        }
+
+        return $"{duration.Minutes:00}:{duration.Seconds:00}";
+    }
+
+    private static double NormalizeAccuracy(double accuracy)
+    {
+        if (double.IsNaN(accuracy) ||
+            double.IsInfinity(accuracy) ||
+            accuracy < 0)
+        {
+            return 0;
+        }
+
+        return accuracy;
+    }
+
+    private static string FormatAccuracy(double accuracy)
+    {
+        if (accuracy <= 0)
+            return "Unknown";
+
+        return accuracy < 1000
+            ? $"±{accuracy:F0} m"
+            : $"±{accuracy / 1000:F2} km";
+    }
+
+    private string FormatDistance(double meters)
+    {
+        return meters < 1000
+            ? $"{meters:F0} m"
+            : $"{meters / 1000:F2} km";
+    }
+
+    private static bool IsLocationPermissionDenied(Exception ex)
+    {
+        var message = ex.Message ?? string.Empty;
+
+        return message.Contains(
+                   "permission was denied",
+                   StringComparison.OrdinalIgnoreCase)
+            || message.Contains(
+                   "permission denied",
+                   StringComparison.OrdinalIgnoreCase)
+            || message.Contains(
+                   "access was denied",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetLocationErrorMessage(Exception ex)
+    {
+        var message = ex.Message ?? string.Empty;
+
+        if (message.Contains("denied", StringComparison.OrdinalIgnoreCase))
+            return "Please allow BioMetric to access your location.";
+
+        if (message.Contains("permission", StringComparison.OrdinalIgnoreCase))
+            return "Please allow location access in your browser.";
+
+        if (message.Contains("unavailable", StringComparison.OrdinalIgnoreCase))
+            return "Your location is currently unavailable.";
+
+        if (message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("timeout", StringComparison.OrdinalIgnoreCase))
+            return "Location request timed out. Please try again.";
+
+        if (message.Contains("circuit", StringComparison.OrdinalIgnoreCase))
+            return "Connection to the server was interrupted. Please refresh the page.";
+
+        return "Unable to determine your location. Please try again.";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        /*
+         * DO NOT stop EmployeeGpsTracker here.
+         *
+         * EmployeeGpsTracker belongs to the employee layout and owns
+         * the persistent browser GPS watcher.
+         *
+         * This component is allowed to disappear when the employee
+         * navigates to:
+         *
+         * My Attendance
+         * My Leave History
+         * Payslips
+         * Salary Advances
+         * Regularization
+         *
+         * The employee must remain LIVE.
+         */
+
+        try
+        {
+            automaticLocationCts.Cancel();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("destroyGeoMap", mapId);
+        }
+        catch
+        {
+        }
+
+        automaticLocationCts.Dispose();
+    }
+
+    public class LocationData
+    {
+        public double Latitude { get; set; }
+        public double Longitude { get; set; }
+        public double Accuracy { get; set; }
+    }
+}

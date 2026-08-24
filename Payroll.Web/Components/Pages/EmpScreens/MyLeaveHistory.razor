@@ -1,0 +1,159 @@
+﻿@page "/my-leave-history"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ILogger<MyLeaveHistory> _logger
+@inject UserManager<IdentityUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IToastService toastService
+@inject NavigationManager Navigation
+
+@attribute [Authorize(Roles = "Employee, SuperAdmin")]
+
+<PageTitle>My Leave History</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Leave Management</strong> module is currently disabled or you do not have permission to view leave history.</p>
+            <hr>
+            <p class="mb-0">Please contact your administrator or <a href="/" class="alert-link">return to the dashboard</a>.</p>
+        </div>
+    </div>
+}
+else
+{
+    <h3>My Leave History</h3>
+    <p>This log shows all your approved leave requests and automated "Loss of Pay" days.</p>
+
+    @if (isLoading)
+    {
+        <p><em>Loading your leave history...</em></p>
+    }
+    else if (linkedEmployee == null)
+    {
+        <p class="text-danger"><em>Your user account is not linked to an employee record. Cannot load data.</em></p>
+    }
+    else if (!leaveHistory.Any())
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i> You do not have any leave records.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Half Day?</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var leave in leaveHistory.OrderByDescending(p => p.LeaveDate))
+                    {
+                        <tr class="@(leave.LeaveType == "Loss of Pay (Auto)" ? "table-danger" : "")">
+                            <td>@leave.LeaveDate?.ToString("dd-MMM-yyyy")</td>
+                            <td>@leave.LeaveType</td>
+                            <td>@(leave.IsHalfDay ? "Yes" : "No")</td>
+                            <td>
+                                @if (leave.LeaveType == "Loss of Pay (Auto)")
+                                {
+                                    <span class="badge bg-danger">Auto LOP</span>
+                                }
+                                else if (leave.IsApproved)
+                                {
+                                    <span class="badge bg-success">Approved</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark">Pending</span>
+                                }
+                            </td>
+                            <td>@leave.Notes</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private List<LeaveRequest> leaveHistory = new();
+    private bool isLoading = true;
+    private bool isAccessDenied = false;
+    private Employee? linkedEmployee;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckPermissionsAndLoadData();
+    }
+
+    private async Task CheckPermissionsAndLoadData()
+    {
+        isLoading = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. SECURITY CHECK: Load Feature Flags
+            var settings = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            if (settings != null)
+            {
+                // Strict Hierarchy Check: Parent (Leave) AND Child (View Leave)
+                bool isModuleEnabled = settings.EnableLeaveManagement;
+                bool canView = settings.EmployeeCanViewLeave;
+
+                if (!isModuleEnabled || !canView)
+                {
+                    isAccessDenied = true;
+                    isLoading = false;
+                    return;
+                }
+            }
+
+            // 2. Load Data
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var email = user.Identity.Name;
+                linkedEmployee = await dbContext.Employees
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Email == email);
+
+                if (linkedEmployee != null)
+                {
+                    leaveHistory = await dbContext.LeaveRequests
+                        .Where(p => p.EmployeeID == linkedEmployee.EmployeeID)
+                        .OrderByDescending(p => p.LeaveDate)
+                        .ToListAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading employee leave history.");
+            toastService.ShowError("An error occurred while loading your data.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

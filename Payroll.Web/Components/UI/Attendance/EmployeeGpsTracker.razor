@@ -1,0 +1,638 @@
+﻿@using global::Payroll.Web.Services
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+@inject GeoLocationService GeoService
+@inject GeoFeatureAccessService GeoAccess
+
+@*
+    Persistent employee GPS tracker.
+
+    SESSION RULES
+    -------------
+    1. Normal navigation does NOT create a new GPS session.
+    2. Circuit disposal does NOT end the database GPS session.
+    3. Browser tab close does NOT immediately mark the employee logged out.
+    4. The database session is allowed to timeout naturally.
+    5. A real logout explicitly ends the GPS session.
+    6. If an old browser session has already timed out, a new SessionId
+       is automatically generated.
+    
+    LIVE STATUS
+    -----------
+    0-30 sec       LIVE
+    30-120 sec     STALE
+    120+ sec       OFFLINE
+*@
+
+@code
+{
+    [Parameter]
+    public int EmployeeId { get; set; }
+
+    private bool disposed;
+    private bool started;
+    private bool starting;
+    private bool trackingEnabled;
+    private bool sessionStarted;
+
+    private DotNetObjectReference<EmployeeGpsTracker>? dotNetReference;
+
+    private Guid liveLocationSessionId;
+
+    private DateTime lastHistorySavedUtc =
+        DateTime.MinValue;
+
+    private const int LocationHistoryIntervalSeconds = 10;
+
+    /*
+     * IMPORTANT:
+     *
+     * localStorage is used instead of sessionStorage.
+     *
+     * sessionStorage disappears when the browser tab is closed.
+     *
+     * localStorage allows:
+     *
+     * Close tab
+     *     ↓
+     * Open tab again
+     *     ↓
+     * Same browser GPS SessionId
+     *
+     * The key is employee-specific so different employees on the
+     * same device do not accidentally share the same GPS session.
+     */
+    private const string BrowserSessionStorageKey =
+        "payroll_employee_gps_session_id";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (EmployeeId <= 0)
+        {
+            trackingEnabled = false;
+            return;
+        }
+
+        try
+        {
+            trackingEnabled =
+                await GeoAccess.IsEnabledAsync();
+
+            if (!trackingEnabled)
+            {
+                Console.WriteLine(
+                    $"Employee GPS disabled. EmployeeId={EmployeeId}");
+            }
+        }
+        catch (Exception ex)
+        {
+            trackingEnabled = false;
+
+            Console.Error.WriteLine(
+                $"Employee GPS feature check failed. " +
+                $"EmployeeId={EmployeeId}. Error={ex}");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(
+        bool firstRender)
+    {
+        if (disposed ||
+            !trackingEnabled ||
+            EmployeeId <= 0 ||
+            started ||
+            starting)
+        {
+            return;
+        }
+
+        await StartTracking();
+    }
+
+    private async Task StartTracking()
+    {
+        if (disposed ||
+            started ||
+            starting ||
+            !trackingEnabled ||
+            EmployeeId <= 0)
+        {
+            return;
+        }
+
+        starting = true;
+
+        try
+        {
+            /*
+             * Employee-specific browser session ID.
+             *
+             * This survives closing/reopening the tab.
+             */
+            var sessionIdText =
+                await JSRuntime.InvokeAsync<string>(
+                    "getOrCreateEmployeeGpsSessionId",
+                    BrowserSessionStorageKey,
+                    EmployeeId);
+
+            if (!Guid.TryParse(
+                    sessionIdText,
+                    out liveLocationSessionId) ||
+                liveLocationSessionId == Guid.Empty)
+            {
+                Console.Error.WriteLine(
+                    $"Invalid employee GPS session ID. " +
+                    $"EmployeeId={EmployeeId}");
+
+                return;
+            }
+
+            dotNetReference ??=
+                DotNetObjectReference.Create(this);
+
+            /*
+             * Start browser GPS watcher.
+             */
+            var gpsStarted =
+                await JSRuntime.InvokeAsync<bool>(
+                    "startPersistentEmployeeGps",
+                    dotNetReference);
+
+            if (!gpsStarted)
+            {
+                Console.Error.WriteLine(
+                    $"Browser GPS watcher could not start. " +
+                    $"EmployeeId={EmployeeId}");
+
+                return;
+            }
+
+            /*
+             * Try to reuse the existing database session.
+             */
+            sessionStarted =
+                await GeoService.StartGpsSessionAsync(
+                    EmployeeId,
+                    liveLocationSessionId);
+
+            /*
+             * If the stored SessionId already ended/timed out,
+             * create a completely new SessionId.
+             */
+            if (!sessionStarted)
+            {
+                Console.WriteLine(
+                    $"Stored GPS session has ended. " +
+                    $"Creating a new session. " +
+                    $"EmployeeId={EmployeeId}, " +
+                    $"OldSessionId={liveLocationSessionId}");
+
+                var newSessionIdText =
+                    await JSRuntime.InvokeAsync<string>(
+                        "createNewEmployeeGpsSessionId",
+                        BrowserSessionStorageKey,
+                        EmployeeId);
+
+                if (!Guid.TryParse(
+                        newSessionIdText,
+                        out liveLocationSessionId) ||
+                    liveLocationSessionId == Guid.Empty)
+                {
+                    Console.Error.WriteLine(
+                        $"Unable to create new GPS session ID. " +
+                        $"EmployeeId={EmployeeId}");
+
+                    return;
+                }
+
+                sessionStarted =
+                    await GeoService.StartGpsSessionAsync(
+                        EmployeeId,
+                        liveLocationSessionId);
+            }
+
+            if (!sessionStarted)
+            {
+                Console.Error.WriteLine(
+                    $"GPS database session could not start. " +
+                    $"EmployeeId={EmployeeId}, " +
+                    $"SessionId={liveLocationSessionId}");
+
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync(
+                        "stopPersistentEmployeeGps");
+                }
+                catch
+                {
+                }
+
+                return;
+            }
+
+            started = true;
+
+            Console.WriteLine(
+                $"Employee GPS started. " +
+                $"EmployeeId={EmployeeId}, " +
+                $"SessionId={liveLocationSessionId}");
+        }
+        catch (JSException ex)
+        {
+            Console.Error.WriteLine(
+                $"Employee GPS JavaScript error. " +
+                $"EmployeeId={EmployeeId}. Error={ex}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(
+                $"Employee GPS circuit error. " +
+                $"EmployeeId={EmployeeId}. Error={ex}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Employee GPS start failed. " +
+                $"EmployeeId={EmployeeId}. Error={ex}");
+        }
+        finally
+        {
+            starting = false;
+        }
+    }
+
+    [JSInvokable]
+    public async Task UpdatePersistentEmployeeLocation(
+        LocationData coords)
+    {
+        if (disposed ||
+            EmployeeId <= 0 ||
+            coords == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!double.IsFinite(coords.Latitude) ||
+                !double.IsFinite(coords.Longitude))
+            {
+                return;
+            }
+
+            if (coords.Latitude < -90 ||
+                coords.Latitude > 90 ||
+                coords.Longitude < -180 ||
+                coords.Longitude > 180)
+            {
+                return;
+            }
+
+            var accuracy =
+                NormalizeAccuracy(
+                    coords.Accuracy);
+
+            var distanceResult =
+                await GeoService.GetDistanceFromOfficeAsync(
+                    coords.Latitude,
+                    coords.Longitude);
+
+            /*
+             * Temporary GPS/network/database problems do NOT
+             * terminate the GPS session.
+             */
+            if (!distanceResult.Success)
+            {
+                Console.Error.WriteLine(
+                    $"Employee GPS validation failed. " +
+                    $"EmployeeId={EmployeeId}. " +
+                    $"Message={distanceResult.Message}");
+
+                return;
+            }
+
+            /*
+             * Recover the database session if necessary.
+             */
+            if (!sessionStarted)
+            {
+                sessionStarted =
+                    await GeoService.StartGpsSessionAsync(
+                        EmployeeId,
+                        liveLocationSessionId);
+
+                if (!sessionStarted)
+                {
+                    Console.Error.WriteLine(
+                        $"Unable to recover GPS database session. " +
+                        $"EmployeeId={EmployeeId}");
+
+                    return;
+                }
+            }
+
+            /*
+             * Update live in-memory location.
+             */
+            var liveUpdated =
+                LiveLocationStore.Update(
+                    EmployeeId,
+                    coords.Latitude,
+                    coords.Longitude,
+                    accuracy,
+                    distanceResult.DistanceMeters,
+                    distanceResult.AllowedRadiusMeters,
+                    distanceResult.IsWithinAllowedRadius,
+                    liveLocationSessionId);
+
+            if (!liveUpdated)
+            {
+                Console.Error.WriteLine(
+                    $"GPS update rejected because session is no longer current. " +
+                    $"EmployeeId={EmployeeId}, " +
+                    $"SessionId={liveLocationSessionId}");
+
+                return;
+            }
+
+            /*
+             * Persist session statistics.
+             */
+            try
+            {
+                await GeoService.UpdateGpsSessionAsync(
+                    EmployeeId,
+                    liveLocationSessionId,
+                    coords.Latitude,
+                    coords.Longitude,
+                    accuracy,
+                    distanceResult.DistanceMeters,
+                    distanceResult.AllowedRadiusMeters,
+                    distanceResult.IsWithinAllowedRadius);
+            }
+            catch (Exception sessionEx)
+            {
+                Console.Error.WriteLine(
+                    $"GPS session statistics update failed. " +
+                    $"EmployeeId={EmployeeId}. " +
+                    $"Error={sessionEx}");
+            }
+
+            /*
+             * Save detailed GPS history every 10 seconds.
+             */
+            var nowUtc =
+                DateTime.UtcNow;
+
+            if ((nowUtc - lastHistorySavedUtc).TotalSeconds >=
+                LocationHistoryIntervalSeconds)
+            {
+                lastHistorySavedUtc =
+                    nowUtc;
+
+                try
+                {
+                    await GeoService.SaveLocationHistoryAsync(
+                        EmployeeId,
+                        liveLocationSessionId,
+                        coords.Latitude,
+                        coords.Longitude,
+                        distanceResult.DistanceMeters,
+                        distanceResult.AllowedRadiusMeters,
+                        distanceResult.IsWithinAllowedRadius,
+                        accuracy);
+                }
+                catch (Exception historyEx)
+                {
+                    Console.Error.WriteLine(
+                        $"GPS history save failed. " +
+                        $"EmployeeId={EmployeeId}. " +
+                        $"Error={historyEx}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            /*
+             * Never terminate GPS because of a temporary exception.
+             */
+            Console.Error.WriteLine(
+                $"Persistent employee GPS update failed. " +
+                $"EmployeeId={EmployeeId}. " +
+                $"Error={ex}");
+        }
+    }
+
+    [JSInvokable]
+    public Task PersistentEmployeeGpsError(
+        string message)
+    {
+        if (disposed)
+        {
+            return Task.CompletedTask;
+        }
+
+        Console.Error.WriteLine(
+            $"Employee GPS watcher error. " +
+            $"EmployeeId={EmployeeId}. " +
+            $"Message={message}");
+
+        /*
+         * DO NOT end the database session.
+         *
+         * LIVE
+         *   ↓
+         * STALE
+         *   ↓
+         * OFFLINE
+         *
+         * If GPS resumes, the same session becomes LIVE again.
+         */
+        return Task.CompletedTask;
+    }
+
+    /*
+     * ============================================================
+     * REAL LOGOUT
+     * ============================================================
+     *
+     * ONLY call this from the actual employee logout flow.
+     */
+    public async Task StopTracking()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "stopPersistentEmployeeGps");
+        }
+        catch
+        {
+        }
+
+        started = false;
+
+        if (sessionStarted)
+        {
+            try
+            {
+                await GeoService.EndGpsSessionAsync(
+                    EmployeeId,
+                    liveLocationSessionId,
+                    "LOGGED_OUT");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"GPS session logout update failed. " +
+                    $"EmployeeId={EmployeeId}. " +
+                    $"Error={ex}");
+            }
+
+            sessionStarted = false;
+        }
+
+        try
+        {
+            LiveLocationStore.Remove(
+                EmployeeId,
+                liveLocationSessionId);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Live GPS session removal failed. " +
+                $"EmployeeId={EmployeeId}. " +
+                $"Error={ex}");
+        }
+
+        /*
+         * IMPORTANT:
+         *
+         * Clear the persistent browser GPS session ONLY on
+         * an actual logout.
+         */
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "clearEmployeeGpsSessionId",
+                BrowserSessionStorageKey,
+                EmployeeId);
+        }
+        catch
+        {
+        }
+    }
+
+    /*
+     * ============================================================
+     * CIRCUIT DISPOSAL
+     * ============================================================
+     *
+     * IMPORTANT:
+     *
+     * Circuit disposal != logout.
+     *
+     * Therefore NEVER call EndGpsSessionAsync() here.
+     */
+    public async ValueTask DisposeAsync()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        disposed = true;
+
+        /*
+         * Stop only the browser watcher associated with this
+         * Blazor circuit.
+         */
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "stopPersistentEmployeeGps");
+        }
+        catch
+        {
+        }
+
+        /*
+         * Remove the in-memory live location.
+         *
+         * The DATABASE session remains active temporarily.
+         *
+         * MarkTimedOutSessionsAsync() will eventually close it
+         * if GPS updates do not resume.
+         */
+        try
+        {
+            if (sessionStarted)
+            {
+                LiveLocationStore.Remove(
+                    EmployeeId,
+                    liveLocationSessionId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"GPS live location cleanup failed. " +
+                $"EmployeeId={EmployeeId}. " +
+                $"Error={ex}");
+        }
+
+        try
+        {
+            dotNetReference?.Dispose();
+        }
+        catch
+        {
+        }
+
+        dotNetReference = null;
+
+        started = false;
+        starting = false;
+
+        /*
+         * DO NOT:
+         *
+         * EndGpsSessionAsync()
+         *
+         * clearEmployeeGpsSessionId()
+         *
+         * here.
+         *
+         * Those belong only to real logout.
+         */
+    }
+
+    private static double NormalizeAccuracy(
+        double accuracy)
+    {
+        if (double.IsNaN(accuracy) ||
+            double.IsInfinity(accuracy) ||
+            accuracy < 0)
+        {
+            return 0;
+        }
+
+        return accuracy;
+    }
+
+    public sealed class LocationData
+    {
+        public double Latitude { get; set; }
+
+        public double Longitude { get; set; }
+
+        public double Accuracy { get; set; }
+    }
+}

@@ -1,0 +1,94 @@
+﻿@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using System.Globalization
+@inject IToastService toastService
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<details class="mb-4 border rounded p-3">
+    <summary class="fw-bold text-primary" style="cursor:pointer;">
+        <i class="bi bi-cash-coin me-2"></i> Add New Salary Advance
+    </summary>
+    <div class="card-body mt-2 border-top pt-3">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Select Employee</label>
+                <select class="form-select" @bind="NewAdvance.EmployeeID">
+                    <option value="0">-- Select an employee --</option>
+                    @if (Employees != null)
+                    {
+                        @foreach (var emp in Employees.OrderBy(e => e.Name))
+                        {
+                            <option value="@emp.EmployeeID">@emp.Name</option>
+                        }
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Advance Date</label>
+                <input type="date" class="form-control" @bind="DateHelper" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Advance Type</label>
+                <select class="form-select" @bind="NewAdvance.AdvanceType">
+                    <option value="General">General</option>
+                    <option value="Emergency">Emergency</option>
+                    <option value="Travel">Travel</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Amount (₹)</label>
+                <input type="number" class="form-control" @bind="NewAdvance.Amount" />
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+                <button class="btn btn-success w-100" @onclick="SaveAdvance" disabled="@IsSaving">
+                    <i class="bi bi-plus-lg"></i> Add
+                </button>
+            </div>
+        </div>
+    </div>
+</details>
+
+@code {
+    [Parameter] public List<Employee>? Employees { get; set; }
+    [Parameter] public SalaryAdvance NewAdvance { get; set; } = new();
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [Parameter] public bool IsSaving { get; set; }
+
+    // Helper for Date binding
+    public DateTime? DateHelper
+    {
+        get => NewAdvance.AdvanceDate;
+        set => NewAdvance.AdvanceDate = value;
+    }
+
+    private async Task SaveAdvance()
+    {
+        if (NewAdvance.EmployeeID == 0 || NewAdvance.Amount <= 0 || string.IsNullOrEmpty(NewAdvance.AdvanceType) || !NewAdvance.AdvanceDate.HasValue)
+        {
+            toastService.ShowWarning("Please select an employee, date, type, and enter an amount greater than zero.");
+            return;
+        }
+
+        // We invoke the Save method on the parent (SalaryAdvancePage)
+        // The parent page will handle setting IsSaving=true/false
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            dbContext.SalaryAdvances.Add(NewAdvance);
+            await dbContext.SaveChangesAsync();
+
+            toastService.ShowSuccess("Advance saved successfully.");
+            
+            // Reset form
+            NewAdvance = new SalaryAdvance() { AdvanceDate = DateTime.Now.Date, AdvanceType = "General" };
+            
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error saving advance: {ex.Message}");
+        }
+    }
+}

@@ -1,0 +1,675 @@
+﻿@page "/admin/feature-toggles"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Services
+@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Authorization
+
+@attribute [Authorize(Roles = "SuperAdmin, Admin")]
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@inject FeatureCleanUpService CleanerService
+@inject ILogger<FeatureToggleManager> _logger
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Feature & Permission Manager</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h3 class="mb-0 text-primary fw-bold">Feature & Permission Manager</h3>
+        <p class="text-muted small mb-0">Master control panel for system modules and role capabilities.</p>
+    </div>
+    @* Only SuperAdmin can save all settings *@
+    @if (userIsSuperAdmin)
+    {
+        <button class="btn btn-primary shadow-sm" @onclick="SaveAllSettings" disabled="@(isSaving || isLoading)">
+            @if (isSaving)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                <span>Saving...</span>
+            }
+            else
+            {
+                <i class="bi bi-save me-2"></i>
+                <span>Save All Changes</span>
+            }
+        </button>
+    }
+</div>
+
+@if (isLoading || !authCheckCompleted)
+{
+    <div class="text-center py-5 text-muted">
+        <div class="spinner-border text-secondary mb-2" role="status"></div>
+        <p>Loading configuration...</p>
+    </div>
+}
+else if (settings == null)
+{
+    <div class="alert alert-danger shadow-sm">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <strong>CRITICAL:</strong> Could not initialize feature settings. Check database connection.
+    </div>
+}
+else
+{
+    @* --- TABS NAVIGATION --- *@
+    <ul class="nav nav-tabs nav-tabs-bordered mb-0 border-bottom-0">
+        @if (userIsSuperAdmin)
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "modules" ? "active fw-bold" : "")" @onclick="@(() => activeTab = "modules")">
+                    <i class="bi bi-grid-fill me-2"></i> Core Modules
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "admin" ? "active fw-bold" : "")" @onclick="@(() => activeTab = "admin")">
+                    <i class="bi bi-person-lock me-2"></i> Admin Permissions
+                </button>
+            </li>
+        }
+        
+        @if (userIsSuperAdmin || settings.AdminCanManageEmployeePermissions)
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "employee" ? "active fw-bold" : "")" @onclick="@(() => activeTab = "employee")">
+                    <i class="bi bi-people-fill me-2"></i> Employee Permissions
+                </button>
+            </li>
+        }
+
+        @if (userIsSuperAdmin)
+        {
+            <li class="nav-item ms-auto">
+                <button class="nav-link text-danger @(activeTab == "danger" ? "active fw-bold" : "")" @onclick="@(() => activeTab = "danger")">
+                    <i class="bi bi-radioactive me-2"></i> Danger Zone
+                </button>
+            </li>
+        }
+    </ul>
+
+    @* --- MAIN CONTENT CONTAINER --- *@
+    <div class="card shadow-sm border-top-0 rounded-bottom-3">
+        <div class="card-body p-4 bg-light-subtle">
+
+            @* ====================================================================================== *@
+            @* TAB 1: CORE MODULES (SuperAdmin Only) *@
+            @* ====================================================================================== *@
+            @if (userIsSuperAdmin)
+            {
+                <div class="@(activeTab == "modules" ? "" : "d-none")">
+                    
+                    @* --- ROW 1: 3 Columns --- *@
+                    <div class="row g-4 mb-4">
+                        
+                        @* 1. PAYROLL & COMPENSATION *@
+                        <div class="col-md-4">
+                            <div class="card h-100 border-0 shadow-sm">
+                                <div class="card-header bg-white fw-bold text-primary border-bottom py-3">
+                                    <i class="bi bi-wallet2 me-2"></i> Payroll & Compensation
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnablePayroll" id="c_payroll" />
+                                        <label class="form-check-label" for="c_payroll">Run Payroll</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableSalaryAdvance" id="c_advance" />
+                                        <label class="form-check-label" for="c_advance">Salary Advance</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableBonusManagement" id="c_bonus" />
+                                        <label class="form-check-label" for="c_bonus">Bonus Management</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2 ms-4">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EmployeeCanViewBonus" disabled="@(!settings.EnableBonusManagement)" id="c_emp_bonus" />
+                                        <label class="form-check-label small text-muted" for="c_emp_bonus">↳ Employee View Bonuses</label>
+                                    </div>
+                                    <hr class="my-2 text-muted opacity-25">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableYearEndSummary" id="c_yearend" />
+                                        <label class="form-check-label" for="c_yearend">Year-End Summary</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableFlexibleBenefits" id="c_fbp" />
+                                        <label class="form-check-label fw-bold text-danger" for="c_fbp">FBP / Comp. Structuring</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* 2. STATUTORY & TAX *@
+                        <div class="col-md-4">
+                            <div class="card h-100 border-0 shadow-sm">
+                                <div class="card-header bg-white fw-bold text-danger border-bottom py-3">
+                                    <i class="bi bi-bank me-2"></i> Statutory & Tax
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableStatutoryCompliance" id="c_pf_esi" />
+                                        <label class="form-check-label" for="c_pf_esi">PF & ESI Compliance</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableProfessionalTax" id="c_pt" />
+                                        <label class="form-check-label" for="c_pt">Professional Tax</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableTdsDeduction" id="c_tds_ded" />
+                                        <label class="form-check-label" for="c_tds_ded">Enable TDS Deduction</label>
+                                    </div>
+                                    <hr class="my-2 text-muted opacity-25">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableTaxDeclarations" id="c_tds" />
+                                        <label class="form-check-label fw-bold text-primary" for="c_tds">Tax Declarations (IT Proofs)</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* 3. WORKFORCE & ATTENDANCE *@
+                        <div class="col-md-4">
+                            <div class="card h-100 border-0 shadow-sm">
+                                <div class="card-header bg-white fw-bold text-info border-bottom py-3">
+                                    <i class="bi bi-people-fill me-2"></i> Workforce & Attendance
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableEmployeeManagement" id="c_emp_mgmt" />
+                                        <label class="form-check-label" for="c_emp_mgmt">Employee Management</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableShiftScheduling" id="c_shift" />
+                                        <label class="form-check-label" for="c_shift">Shift Scheduling</label>
+                                    </div>
+                                    
+                                    <div class="form-check form-switch mb-2 ms-4">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableAutoShiftRotation" id="c_auto_shift" disabled="@(!settings.EnableShiftScheduling)" />
+                                        <label class="form-check-label fw-bold text-primary small" for="c_auto_shift">↳ Auto Shift Rotation</label>
+                                    </div>
+
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableShiftAllowance" id="c_shift_allow" />
+                                        <label class="form-check-label" for="c_shift_allow">Night Shift Allowance</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnablePunchCorrection" id="c_punch" />
+                                        <label class="form-check-label" for="c_punch">Punch Correction & Approvals</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableGeoFencing" id="c_geo" />
+                                        <label class="form-check-label fw-bold text-primary" for="c_geo">Enable Geo-Fencing (Mobile)</label>
+                                    </div>
+                                    <hr class="my-2 text-muted opacity-25">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableCompanyReports" id="c_reports" />
+                                        <label class="form-check-label" for="c_reports">Company Reports & Analytics</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableCustomReporting" id="c_cust_report" />
+                                        <label class="form-check-label" for="c_cust_report">Enable Custom Reporting</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableRegularizationRequest" id="c_reg_req" />
+                                        <label class="form-check-label fw-bold text-success" for="c_reg_req">Regularization Requests (Emp)</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @* --- ROW 2: 2 Columns --- *@
+                    <div class="row g-4">
+                        
+                        @* --- CARD 4: LEAVE MANAGEMENT & EXIT --- *@
+                        <div class="col-md-6">
+                            <div class="card h-100 border-0 shadow-sm">
+                                <div class="card-header bg-white fw-bold text-success border-bottom py-3">
+                                    <i class="bi bi-calendar-check me-2"></i> Leave & Exit Lifecycle
+                                </div>
+                                <div class="card-body pt-0">
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableLeaveManagement" id="c_leave" />
+                                        <label class="form-check-label fw-bold" for="c_leave">Enable Leave Module</label>
+                                    </div>
+
+                                    @* --- GATED SUB-FEATURES (Accrual and Sandwich) --- *@
+                                    @* CRITICAL FIX: The disabled attribute must check the master toggle *@
+                                    <div class="row g-2 ms-2 border-start ps-3 mb-4 bg-light rounded py-2">
+                                        <div class="col-md-6">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableLeaveAccrual"
+                                                       disabled="@(!settings.EnableLeaveManagement)" id="c_accrual" />
+                                                <label class="form-check-label small" for="c_accrual">Leave Accrual (Credits)</label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableSandwichRule"
+                                                       disabled="@(!settings.EnableLeaveManagement)" id="c_sandwich" />
+                                                <label class="form-check-label small" for="c_sandwich">Sandwich Rule Logic</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    @* --- END GATED SUB-FEATURES --- *@
+
+                                    <hr class="my-2 text-muted opacity-25">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableResignationModule" id="c_exit" />
+                                        <label class="form-check-label fw-bold text-danger" for="c_exit">Exit & FnF Settlement</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* 5. SYSTEM & TOOLS *@
+                        <div class="col-md-6">
+                            <div class="card h-100 border-0 shadow-sm">
+                                <div class="card-header bg-white fw-bold text-secondary border-bottom py-3">
+                                    <i class="bi bi-gear-wide-connected me-2"></i> System & Tools
+                                </div>
+                                <div class="card-body">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <div class="form-check form-switch mb-3">
+                                                <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableEmailNotifications" id="c_email" />
+                                                <label class="form-check-label" for="c_email">Email Notifications</label>
+                                            </div>
+                                            <div class="form-check form-switch mb-3">
+                                                <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableInAppNotifications" id="c_in_app" />
+                                                <label class="form-check-label fw-bold text-primary" for="c_in_app">In-App Notification Bell</label>
+                                            </div>
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" role="switch" @bind="settings.ShowThemeToggle" id="c_theme" />
+                                                <label class="form-check-label" for="c_theme">Dark/Light Toggle</label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="form-check form-switch mb-3">
+                                                <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableAuditLog" id="c_audit" />
+                                                <label class="form-check-label" for="c_audit">Enable Audit Trails</label>
+                                            </div>
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableRecycleBin" id="c_recycle" />
+                                                <label class="form-check-label" for="c_recycle">Enable Recycle Bin</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* ====================================================================================== *@
+            @* TAB 2: ADMIN PERMISSIONS *@
+            @* ====================================================================================== *@
+            @if (userIsSuperAdmin)
+            {
+                <div class="@(activeTab == "admin" ? "" : "d-none")">
+                    <h5 class="text-success mb-3 border-bottom pb-2">Admin Role Permissions</h5>
+                    
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="card bg-light border-0 h-100 shadow-sm">
+                                <div class="card-body">
+                                    <h6 class="fw-bold text-dark mb-3">Core Views</h6>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanViewDashboard" id="a1" />
+                                        <label class="form-check-label" for="a1">View Dashboard</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanViewAttendance" id="a2" />
+                                        <label class="form-check-label" for="a2">View Attendance Logs</label>
+                                    </div>
+                                     <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanViewReports" id="a5" />
+                                        <label class="form-check-label" for="a5">View Reports</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                             <div class="card bg-light border-0 h-100 shadow-sm">
+                                <div class="card-body">
+                                    <h6 class="fw-bold text-dark mb-3">Management</h6>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanManageEmployees" id="a3" />
+                                        <label class="form-check-label" for="a3">Manage Employees</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanManageShifts" id="a4" />
+                                        <label class="form-check-label" for="a4">Manage Shifts</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanManagePunchApprovals" id="a9" />
+                                        <label class="form-check-label" for="a9">Punch Approval Requests</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                             <div class="card border-danger border-2 h-100 shadow-sm">
+                                <div class="card-body">
+                                    <h6 class="fw-bold text-danger mb-3">High Risk Actions</h6>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanRunPayroll" id="a6" />
+                                        <label class="form-check-label" for="a6">Run Payroll Calculation</LAbel>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanEditSettings" id="a7" />
+                                        <label class="form-check-label" for="a7">Edit Global Settings</LAbel>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.AdminCanManageEmployeePermissions" id="a8" />
+                                        <label class="form-check-label" for="a8">Manage Employee Perms</LAbel>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            
+
+            @* ====================================================================================== *@
+            @* TAB 3: EMPLOYEE PERMISSIONS *@
+            @* ====================================================================================== *@
+            @if (userIsSuperAdmin || settings.AdminCanManageEmployeePermissions)
+            {
+                <div class="@(activeTab == "employee" ? "" : "d-none")">
+                    <h5 class="text-info mb-3 border-bottom pb-2">Employee Portal Permissions</h5>
+                    <p class="text-muted small">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Note: Permissions for modules disabled by SuperAdmin are automatically locked.
+                    </p>
+
+                    <div class="row g-4">
+                        @* MENU VISIBILITY *@
+                        <div class="col-md-6">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-header bg-light fw-bold">Menu Visibility</div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EmployeeCanViewDashboard" id="e1" />
+                                        <label class="form-check-label" for="e1">Show "Employee Home" Dashboard</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EmployeeToolsVisible" id="e2" />
+                                        <label class="form-check-label" for="e2">Show "Employee Tools" Sidebar Menu</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* SELF SERVICE FEATURES *@
+                        <div class="col-md-6">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-header bg-light fw-bold">Self-Service Features</div>
+                                <div class="card-body">
+                                    @* ATTENDANCE GROUP *@
+                                    <div class="mb-3 border-bottom pb-2">
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EmployeeCanViewAttendance" id="e4" />
+                                            <label class="form-check-label" for="e4">View "My Attendance"</label>
+                                        </div>
+
+                                        @* LINKED TO: EnableShiftScheduling *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EmployeeCanViewShifts"
+                                                   disabled="@(!settings.EnableShiftScheduling)"
+                                                   id="e_shift" />
+                                            <label class="form-check-label @(!settings.EnableShiftScheduling ? "text-muted" : "")" for="e_shift">
+                                                View "My Shift Schedule"
+                                            </label>
+                                        </div>
+
+                                        @* LINKED TO: EnableRegularizationRequest *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EnableRegularizationRequest"
+                                                   id="e_reg_req" />
+                                            <label class="form-check-label" for="e_reg_req">Request Attendance Correction</label>
+                                        </div>
+                                    </div>
+
+                                    @* PAYROLL GROUP *@
+                                    <div class="mb-3 border-bottom pb-2">
+                                        @* LINKED TO: EnablePayroll *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EmployeeCanViewPayslip"
+                                                   disabled="@(!settings.EnablePayroll)"
+                                                   id="e3" />
+                                            <label class="form-check-label @(!settings.EnablePayroll ? "text-muted" : "")" for="e3">
+                                                View "My Payslips"
+                                            </label>
+                                        </div>
+
+                                        @* LINKED TO: EnableBonusManagement *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EmployeeCanViewBonus"
+                                                   disabled="@(!settings.EnableBonusManagement)"
+                                                   id="e7" />
+                                            <label class="form-check-label @(!settings.EnableBonusManagement ? "text-muted" : "")" for="e7">
+                                                View "My Bonuses"
+                                            </label>
+                                        </div>
+
+                                        @* LINKED TO: EnableSalaryAdvance *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EmployeeCanViewAdvance"
+                                                   disabled="@(!settings.EnableSalaryAdvance)"
+                                                   id="e6" />
+                                            <label class="form-check-label @(!settings.EnableSalaryAdvance ? "text-muted" : "")" for="e6">
+                                                View "My Salary Advances"
+                                            </label>
+                                        </div>
+
+                                        @* LINKED TO: EnableTaxDeclarations *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EmployeeCanViewTax"
+                                                   disabled="@(!settings.EnableTaxDeclarations)"
+                                                   id="e_tax" />
+                                            <label class="form-check-label @(!settings.EnableTaxDeclarations ? "text-muted" : "")" for="e_tax">
+                                                Submit Tax Declarations
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    @* LIFECYCLE GROUP *@
+                                    <div>
+                                        @* LINKED TO: EnableLeaveManagement *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EmployeeCanViewLeave"
+                                                   disabled="@(!settings.EnableLeaveManagement)"
+                                                   id="e5" />
+                                            <label class="form-check-label @(!settings.EnableLeaveManagement ? "text-muted" : "")" for="e5">
+                                                View Leave History & Request
+                                            </label>
+                                        </div>
+
+                                        @* LINKED TO: EnableResignationModule *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EmployeeCanViewResignation"
+                                                   disabled="@(!settings.EnableResignationModule)"
+                                                   id="e_res" />
+                                            <label class="form-check-label @(!settings.EnableResignationModule ? "text-muted" : "")" for="e_res">
+                                                Submit Resignation
+                                            </label>
+                                        </div>
+
+                                        @* LINKED TO: EnableCustomReporting *@
+                                        <div class="form-check form-switch mb-1">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   @bind="settings.EmployeeCanViewReports"
+                                                   disabled="@(!settings.EnableCustomReporting)"
+                                                   id="e_reports" />
+                                            <label class="form-check-label @(!settings.EnableCustomReporting ? "text-muted" : "")" for="e_reports">
+                                                View My Reports
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @* Admin Save Button *@
+                    @if (!userIsSuperAdmin)
+                    {
+                        <hr />
+                        <div class="text-end">
+                            <button class="btn btn-primary" @onclick="SaveAllSettings" disabled="@(isSaving || isLoading)">
+                                <span class="bi bi-save"></span> Save Permissions
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+            }
+
+            @* ====================================================================================== *@
+            @* TAB 4: DANGER ZONE *@
+            @* ====================================================================================== *@
+            @if (userIsSuperAdmin)
+            {
+             <div class="@(activeTab == "danger" ? "" : "d-none")">
+                    <h5 class="text-danger mb-3 border-bottom border-danger pb-2">Danger Zone</h5>
+                    
+                    <div class="row g-3">
+                      <div class="col-md-6">
+                            <div class="card border-danger h-100 shadow-sm">
+                                <div class="card-body text-center">
+                                    <i class="bi bi-arrow-counterclockwise text-danger fs-1 mb-2"></i>
+                                    <h6 class="fw-bold">Reset Feature Toggles</h6>
+                                    <p class="small text-muted mb-3">Revert all settings on this page to factory defaults.</p>
+                                    <button class="btn btn-outline-danger w-100" @onclick="ConfirmResetToggles">Reset Toggles</button>
+                                </div>
+                            </div>
+                        </div>
+                         <div class="col-md-6">
+                            <div class="card bg-danger text-white h-100 shadow-sm">
+                                <div class="card-body text-center">
+                                    <i class="bi bi-database-x fs-1 mb-2"></i>
+                                    <h6 class="fw-bold">Wipe All Data</h6>
+                                    <p class="small mb-3" style="opacity:0.9">Permanently delete employees, logs, payroll, and users. Cannot be undone.</p>
+                                    <button class="btn btn-light text-danger w-100 fw-bold" @onclick="ConfirmWipeData">Wipe Data</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+        </div>
+    </div>
+}
+
+@code {
+    private FeatureSettings? settings;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string activeTab = "modules";
+    private bool userIsSuperAdmin = false;
+    private bool authCheckCompleted = false;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+        userIsSuperAdmin = user.IsInRole("SuperAdmin");
+
+        if (!userIsSuperAdmin)
+        {
+            activeTab = "employee";
+        }
+        
+        authCheckCompleted = true;
+        await LoadAllSettings();
+    }
+    
+    private async Task LoadAllSettings()
+    {
+        isLoading = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            settings = await dbContext.FeatureSettings.FirstOrDefaultAsync(s => s.Id == 1);
+
+            if (settings == null)
+            {
+                _logger.LogWarning("FeatureSettings not found, inserting defaults.");
+                settings = new FeatureSettings();
+                dbContext.FeatureSettings.Add(settings);
+                await dbContext.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading feature settings.");
+            toastService.ShowError("Error loading feature settings.");
+            settings = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveAllSettings()
+    {
+        if (settings == null) return;
+        isSaving = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var existing = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            if (existing != null) dbContext.Entry(existing).State = EntityState.Detached;
+
+            dbContext.FeatureSettings.Update(settings);
+            await dbContext.SaveChangesAsync();
+            toastService.ShowSuccess("Feature settings saved!");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving feature settings.");
+            toastService.ShowError($"Error saving settings: {ex.Message}");
+        }
+        finally { isSaving = false; }
+    }
+
+    private async Task ConfirmResetToggles()
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm", "Reset all toggles to default?"))
+        {
+            await CleanerService.ResetAllTogglesAsync();
+            toastService.ShowSuccess("Toggles reset.");
+            await LoadAllSettings();
+        }
+    }
+
+    private async Task ConfirmWipeData()
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "WARNING: Wipe ALL data?")) return;
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "FINAL WARNING: This cannot be undone. Confirm?")) return;
+        try {
+            await CleanerService.WipeAllTransactionalDataAsync();
+            toastService.ShowSuccess("System reset.");
+        } catch (Exception ex) {
+             toastService.ShowError("Wipe failed.");
+            _logger.LogError(ex, "Wipe failed");
+        }
+    }
+}

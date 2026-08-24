@@ -1,0 +1,168 @@
+﻿@page "/settings/company"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Web.Components.Pages.Settings
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JSRuntime
+@inject ILogger<CompanySettings> _logger
+@inject IToastService toastService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Company Settings</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h3 class="mb-0">Company Settings</h3>
+    <button class="btn btn-primary" @onclick="SaveSettings" disabled="@isSaving">
+        @if (isSaving)
+        {
+            <span class="spinner-border spinner-border-sm"></span>
+        
+            <span> Saving...</span>
+        }
+        else
+        {
+            <span class="bi bi-save"></span>
+        
+            <span> Save Settings</span>
+        }
+    </button>
+</div>
+
+@if (settings == null)
+{
+    <p><em>Loading settings...</em></p>
+}
+else
+{
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "general" ? "active" : "")" @onclick="@(() => activeTab = "general")"><i class="bi bi-building"></i> General & Rules</button>
+        </li>
+
+        @if (isSuperAdmin || features?.EnableStatutoryCompliance == true || features?.EnableProfessionalTax == true)
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "statutory" ? "active" : "")" @onclick="@(() => activeTab = "statutory")"><i class="bi bi-bank"></i> Statutory (Tax)</button>
+            </li>
+        }
+
+        @if (isSuperAdmin || features?.EnableEmailNotifications == true)
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "email" ? "active" : "")" @onclick="@(() => activeTab = "email")"><i class="bi bi-envelope"></i> Email Config</button>
+            </li>
+        }
+        @if (isSuperAdmin || features?.EnableLeaveManagement == true)
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "leave" ? "active" : "")" @onclick="@(() => activeTab = "leave")">
+                    <i class="bi bi-calendar-check"></i> Leave Rules
+                </button>
+            </li>
+        }
+    </ul>
+
+    <div class="card shadow-sm">
+        <div class="card-body p-3">
+
+            <div class="@(activeTab == "general" ? "" : "d-none")">
+                <GeneralTab Settings="settings" />
+            </div>
+
+            <div class="@(activeTab == "statutory" ? "" : "d-none")">
+                <StatutoryTab Settings="settings" Features="features" IsSuperAdmin="isSuperAdmin" />
+            </div>
+
+            <div class="@(activeTab == "email" ? "" : "d-none")">
+                <EmailTab Settings="settings" />
+            </div> 
+            
+            <div class="@(activeTab == "leave" ? "" : "d-none")">
+                <LeaveSettingsTab Settings="settings" Features="features" IsSuperAdmin="isSuperAdmin" />
+            </div>
+
+        </div>
+    </div>
+}
+
+<style>
+    body.dark .table-striped > tbody > tr:nth-of-type(odd) > * {
+        --bs-table-accent-bg: #2c3034;
+        color: #fff;
+    }
+
+    body.dark .table-striped > tbody > tr:nth-of-type(even) > * {
+        background-color: #212529;
+        color: #fff;
+    }
+
+    body.dark .modal-content {
+        background-color: #343a40;
+        color: white;
+    }
+
+    body.dark .form-control, body.dark .form-select {
+        background-color: #495057;
+        color: white;
+        border-color: #6c757d;
+    }
+
+    body.dark .nav-tabs .nav-link.active {
+        background-color: #343a40;
+        color: #fff;
+        border-color: #dee2e6 #dee2e6 #343a40;
+    }
+
+    body.dark .nav-tabs .nav-link {
+        color: #adb5bd;
+    }
+</style>
+
+@code {
+    private CompanySetting? settings;
+    private FeatureSettings? features;
+    private bool isSaving = false;
+    private bool isSuperAdmin = false;
+    private string activeTab = "general";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        isSuperAdmin = authState.User.IsInRole("SuperAdmin");
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            settings = await dbContext.CompanySettings.AsNoTracking().FirstOrDefaultAsync(s => s.SettingID == 1);
+            features = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1) ?? new FeatureSettings();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading settings.");
+            toastService.ShowError($"Error loading settings: {ex.Message}");
+        }
+        if (settings == null) settings = new CompanySetting();
+    }
+
+    private async Task SaveSettings()
+    {
+        if (settings == null) return;
+        isSaving = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            settings.SettingID = 1;
+            var existing = await dbContext.CompanySettings.AsNoTracking().FirstOrDefaultAsync(s => s.SettingID == 1);
+            if (existing == null) dbContext.CompanySettings.Add(settings);
+            else { dbContext.Entry(existing).State = EntityState.Detached; dbContext.CompanySettings.Update(settings); }
+            await dbContext.SaveChangesAsync();
+            toastService.ShowSuccess("Settings saved!");
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Error saving."); toastService.ShowError("Save failed."); }
+        finally { isSaving = false; }
+    }
+}

@@ -1,0 +1,35 @@
+﻿@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        // 1️⃣ Get current auth state
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        // 2️⃣ Determine redirect target
+        string targetPath = "/";
+
+        if (user.IsInRole("Employee") && !user.IsInRole("Admin") && !user.IsInRole("SuperAdmin"))
+        {
+            targetPath = "/employee-home";
+        }
+        else if (user.IsInRole("Admin") || user.IsInRole("SuperAdmin"))
+        {
+            targetPath = "/";
+        }
+
+        // 3️⃣ Prevent redirect loop even if query string exists
+        var currentPath = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?')[0];
+
+        if ($"/{currentPath}".Equals(targetPath, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        // 4️⃣ Perform safe redirect
+        Navigation.NavigateTo(targetPath, replace: true);
+    }
+}

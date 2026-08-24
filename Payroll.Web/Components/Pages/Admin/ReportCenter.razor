@@ -1,0 +1,318 @@
+﻿@page "/admin/report-center"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Services
+@using global::Payroll.Shared.Models
+@using global::Payroll.Web.Components.UI.Reports
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ReportService ReportService
+@inject IToastService toastService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Report Center</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Reporting Module</strong> is disabled or you do not have permission to view reports.</p>
+            <hr>
+            <p class="mb-0">Please contact your SuperAdmin.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex flex-column h-100">
+        <h3 class="text-dark fw-bold mb-4 flex-shrink-0">
+            <span class="text-primary me-2"><i class="bi bi-journal-check"></i></span> Report Center
+        </h3>
+
+        @* --- 1. REPORT SELECTION TILES --- *@
+        <div class="row g-3 mb-4 flex-shrink-0">
+            @foreach (var def in activeReports)
+            {
+                <div class="col-6 col-md-4 col-xl-3">
+                    <div class="report-tile @(selectedReportType == def.ReportType ? "active" : "")" 
+                         @onclick="() => SelectReport(def.ReportType)">
+                        
+                        <div class="tile-icon @GetIconColor(def.ReportType)">
+                            <i class="bi @GetIconClass(def.ReportType)"></i>
+                        </div>
+                        <h6 class="fw-bold mb-1 text-dark">@def.ReportName</h6>
+                        <small class="text-muted">@def.Description</small>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* --- 2. FILTER & GENERATE BAR --- *@
+        @if (!string.IsNullOrEmpty(selectedReportType))
+        {
+            <div class="card shadow-sm border-0 mb-4 flex-shrink-0" style="border-radius:12px;">
+                <div class="card-body p-4">
+                    <div class="row g-3 align-items-end">
+                        
+                        @* Show Employee Filter for Attendance Report *@
+                        @if (selectedReportType == "ATTENDANCE_MONTHLY_SUMMARY")
+                        {
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold text-secondary text-uppercase">Filter by Employee</label>
+                                <select class="form-select" @bind="selectedEmployeeId">
+                                    <option value="0">-- All Employees (Summary) --</option>
+                                    @if (employees != null)
+                                    {
+                                        @foreach (var emp in employees)
+                                        {
+                                            <option value="@emp.EmployeeID">@emp.Name</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Start Date</label>
+                            <input type="date" class="form-control" @bind="startDate" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-secondary text-uppercase">End Date</label>
+                            <input type="date" class="form-control" @bind="endDate" />
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-primary w-100 py-2 fw-bold shadow-sm" @onclick="GenerateReport" disabled="@isLoading">
+                                 @if (isLoading)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span> <span>Processing...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-lightning-charge-fill me-2"></i> <span>Generate Report</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* --- 3. REPORT VIEW AREA --- *@
+        <div class="flex-grow-1 overflow-auto">
+            @if (isLoading)
+            {
+                 <div class="d-flex justify-content-center align-items-center h-50 text-muted">
+                    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;"></div>
+                </div>
+            }
+            else if (reportData == null)
+            {
+                 @if (!string.IsNullOrEmpty(selectedReportType))
+                 {
+                     <div class="text-center py-5 text-muted opacity-75">
+                        <i class="bi bi-table display-4 mb-3"></i>
+                        <h5>Click "Generate Report" to view data.</h5>
+                    </div>
+                 }
+            }
+            else
+            {
+                <div class="card shadow-sm border-0 h-100" style="border-radius:12px;">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center border-bottom">
+                        <h5 class="mb-0 fw-bold text-dark">Results</h5>
+                        <span class="badge bg-light text-dark border">@startDate.ToString("dd-MMM") to @endDate.ToString("dd-MMM")</span>
+                    </div>
+                    <div class="card-body p-0 overflow-auto">
+                        @* DYNAMIC REPORT RENDERING *@
+                        
+                        @if (reportData is List<DailySummary> dailyList) 
+                        {
+                            <ReportTable Data="dailyList.Cast<object>().ToList()" IsFinance="false" />
+                        }
+                        else if (reportData is List<ConsolidatedAttendanceRow> summaryList)
+                        {
+                            <ReportTable Data="summaryList.Cast<object>().ToList()" IsFinance="false" />
+                        }
+                        else if (reportData is List<PayrollVarianceRow> varianceList)
+                        {
+                            <ReportTable Data="varianceList.Cast<object>().ToList()" IsFinance="true" />
+                        }
+                        else if (reportData is List<FinancialRegisterRow> registerList)
+                        {
+                            <ReportTable Data="registerList.Cast<object>().ToList()" IsFinance="true" />
+                        }
+                        else
+                        {
+                            <div class="p-4 text-muted">No data returned.</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<style>
+    .report-tile {
+        border: 1px solid #e9ecef;
+        border-radius: 12px;
+        padding: 1.5rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        height: 100%;
+        background-color: white;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    .report-tile:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+        border-color: #0d6efd;
+    }
+    .report-tile.active {
+        background-color: #f8f9fa;
+        border-color: #0d6efd;
+        box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.15);
+    }
+    .tile-icon {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .icon-bg-blue { background: rgba(13, 110, 253, 0.1); color: #0d6efd; }
+    .icon-bg-green { background: rgba(25, 135, 84, 0.1); color: #198754; }
+    .icon-bg-purple { background: rgba(111, 66, 193, 0.1); color: #6f42c1; }
+    .icon-bg-orange { background: rgba(253, 126, 20, 0.1); color: #fd7e14; }
+</style>
+
+@code {
+    private bool isLoading = true;
+    private bool isAccessDenied = false; // Fixed: Variable declared correctly
+    private List<ReportDefinition> allReports = new();
+    private List<ReportDefinition> activeReports => allReports.Where(r => r.IsActive && (r.TargetRole == "Admin" || r.TargetRole == "All")).ToList();
+    private List<Employee>? employees;
+    private string selectedReportType = "";
+    private int selectedEmployeeId = 0;
+    private DateTime startDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private DateTime endDate = DateTime.Now.Date;
+    private object? reportData;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInitialData();
+    }
+
+    private async Task LoadInitialData()
+    {
+        isLoading = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            
+            // 1. GATE CHECK
+            var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            if (features != null)
+            {
+                // Strict Hierarchy: EnableCustomReporting (Parent) -> AdminCanViewReports (Child)
+                bool isModuleEnabled = features.EnableCustomReporting;
+                bool canView = features.AdminCanViewReports;
+
+                if (!isModuleEnabled)
+                {
+                    isAccessDenied = true;
+                    return;
+                }
+
+                // If role is Admin (not SuperAdmin), check permission
+                var authState = await AuthState.GetAuthenticationStateAsync();
+                var user = authState.User;
+                if (user.IsInRole("Admin") && !user.IsInRole("SuperAdmin"))
+                {
+                    if (!canView)
+                    {
+                        isAccessDenied = true;
+                        return;
+                    }
+                }
+            }
+
+            // 2. Load Data
+            if (!await db.ReportDefinitions.AnyAsync())
+            {
+                await SeedDefaultReports(db);
+            }
+            allReports = await db.ReportDefinitions.AsNoTracking().ToListAsync();
+            employees = await db.Employees.AsNoTracking().OrderBy(e => e.Name).ToListAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void SelectReport(string type)
+    {
+        selectedReportType = type;
+        reportData = null; 
+        selectedEmployeeId = 0;
+    }
+
+    private async Task GenerateReport()
+    {
+        if (string.IsNullOrEmpty(selectedReportType)) return;
+        isLoading = true;
+        reportData = null;
+        
+        try
+        {
+            int? empIdArg = selectedEmployeeId > 0 ? selectedEmployeeId : null;
+            reportData = await ReportService.GenerateReportAsync(selectedReportType, startDate, endDate, empIdArg);
+            if (reportData == null) toastService.ShowInfo("No records found for the selected criteria.");
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SeedDefaultReports(AppDbContext db)
+    {
+         db.ReportDefinitions.AddRange(new[]
+        {
+            new ReportDefinition { ReportName = "Monthly Attendance", ReportType = "ATTENDANCE_MONTHLY_SUMMARY", TargetRole = "Admin", Description = "Worked hours & OT summary." },
+            new ReportDefinition { ReportName = "Payroll Variance", ReportType = "PAYROLL_VARIANCE", TargetRole = "Admin", Description = "Compare Net Pay vs last month." },
+            new ReportDefinition { ReportName = "Financial Register", ReportType = "FINANCIAL_REGISTER", TargetRole = "Admin", Description = "Full salary & deduction breakdown." }
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private string GetIconClass(string type) => type switch
+    {
+        "ATTENDANCE_MONTHLY_SUMMARY" => "bi-clock-history",
+        "PAYROLL_VARIANCE" => "bi-graph-up-arrow",
+        "FINANCIAL_REGISTER" => "bi-table",
+        _ => "bi-file-earmark-text"
+    };
+    
+    private string GetIconColor(string type) => type switch
+    {
+        "ATTENDANCE_MONTHLY_SUMMARY" => "icon-bg-blue",
+        "PAYROLL_VARIANCE" => "icon-bg-purple",
+        "FINANCIAL_REGISTER" => "icon-bg-green",
+        _ => "icon-bg-orange"
+    };
+}

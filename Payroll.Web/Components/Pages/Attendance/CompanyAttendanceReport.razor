@@ -1,0 +1,231 @@
+@page "/company-attendance-report"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Services
+@using global::Payroll.Shared.Models
+@using global::Payroll.Web.Services
+@using System.Text
+@using System.IO
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JSRuntime
+@inject ILogger<CompanyAttendanceReport> _logger
+@inject IToastService toastService
+@inject CsvExportService CsvService
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Company Attendance Report</PageTitle>
+
+<h3>Company Attendance Report</h3>
+<p>Cumulative attendance summary for all employees from the final, processed daily summaries.</p>
+
+<div class="mb-3 text-end">
+    <button class="btn btn-outline-success" @onclick="ExportCompanyReportToCsv" disabled="@(isLoading || companySummary == null)">
+        <span class="bi bi-file-earmark-spreadsheet"></span> Export to CSV
+    </button>
+</div>
+
+<div class="row p-3 mb-4 border rounded bg-light">
+    <div class="col-md-4">
+        <label class="form-label">Start Date</label>
+        <input type="date" class="form-control" @bind="startDate" />
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">End Date</label>
+        <input type="date" class="form-control" @bind="endDate" />
+    </div>
+    <div class="col-md-4 d-flex align-items-end">
+        <button class="btn btn-primary w-100" @onclick="GenerateReport" disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+                <span> Generating...</span>
+            }
+            else
+            {
+                <span class="bi bi-calculator"></span>
+                <span> Generate Report</span>
+            }
+        </button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <p><em>Calculating company-wide totals...</em></p>
+}
+else if (companySummary != null)
+{
+    <div class="card mb-3 shadow-sm">
+        <div class="card-header bg-success text-white">
+            Company-Wide Cumulative Summary (@startDate?.ToString("dd-MMM") to @endDate?.ToString("dd-MMM-yyyy"))
+        </div>
+        <div class="card-body">
+            <div class="row text-center">
+                <div class="col">
+                    <h5 class="text-secondary">@companySummary.TotalEmployeesProcessed</h5>
+                    <span class="text-muted small">Employees Processed</span>
+                </div>
+                <div class="col">
+                    <h5 class="text-info">@FormatTimeSpan(companySummary.TotalScheduledHours)</h5>
+                    <span class="text-muted small">Total Scheduled (HH:MM)</span>
+                </div>
+                <div class="col">
+                    <h5 class="text-success">@FormatTimeSpan(TimeSpan.FromHours((double)companySummary.TotalWorkedHours))</h5>
+                    <span class="text-muted small">Total Worked (HH:MM)</span>
+                </div>
+                <div class="col">
+                    <h5 class="text-primary">@FormatTimeSpan(companySummary.TotalOvertime)</h5>
+                    <span class="text-muted small">Total OT (HH:MM)</span>
+                </div>
+                <div class="col">
+                    <h5 class="text-danger">@FormatTimeSpan(companySummary.TotalOverallPenalty)</h5>
+                    <span class="text-muted small">Total Penalty (HH:MM)</span>
+                </div>
+                <div class="col">
+                    <h5 class="text-warning">@FormatTimeSpan(companySummary.TotalLateness)</h5>
+                    <span class="text-muted small">Total Lateness</span>
+                </div>
+                <div class="col">
+                    <h5 class="text-warning">@FormatTimeSpan(companySummary.TotalBreakPenalty)</h5>
+                    <span class="text-muted small">Total Break Penalty</span>
+                </div>
+                <div class="col">
+                    <h5 class="text-warning" style="visibility: hidden;">@FormatTimeSpan(TimeSpan.Zero)</h5>
+                    <span class="text-muted small"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else if (searchPerformed)
+{
+    <p><em>No summarized attendance data found for the selected period.</em></p>
+}
+else
+{
+    <p><em>Select a date range and click "Generate Report".</em></p>
+}
+
+<AttendanceRefreshListener
+    OnAttendanceChanged="GenerateReport" />
+
+@code {
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private bool isLoading = false;
+    private bool searchPerformed = false;
+    private CompanyCumulativeSummary? companySummary;
+
+    protected override void OnInitialized()
+    {
+        var today = DateTime.Now.Date;
+        startDate = new DateTime(today.Year, today.Month, 1);
+        endDate = startDate.Value.AddMonths(1).AddDays(-1);
+        if (endDate > today) endDate = today;
+    }
+
+    // ---
+    // --- THIS IS THE REWRITTEN METHOD ---
+    // ---
+    private async Task GenerateReport()
+    {
+        if (!startDate.HasValue || !endDate.HasValue || startDate.Value > endDate.Value)
+        {
+            toastService.ShowWarning("Please select a valid date range.");
+            return;
+        }
+
+        isLoading = true;
+        searchPerformed = true;
+        companySummary = null;
+        StateHasChanged();
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var filterStartDate = DateOnly.FromDateTime(startDate.Value);
+            var filterEndDate = DateOnly.FromDateTime(endDate.Value);
+
+            // 1. Query the DailySummary table. This is extremely fast.
+            var summaries = await dbContext.DailySummaries.AsNoTracking()
+                .Where(ds => ds.ShiftDate >= filterStartDate && ds.ShiftDate <= filterEndDate)
+                .ToListAsync();
+
+            if (!summaries.Any())
+            {
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            // 2. Group and sum the results in memory
+            var summary = new CompanyCumulativeSummary
+            {
+                TotalEmployeesProcessed = summaries.Select(s => s.EmployeeID).Distinct().Count(),
+                // FIX 1: Calculate Ticks and convert to TimeSpan *AFTER* fetching data (in C# memory)
+                TotalScheduledHours = TimeSpan.FromTicks(summaries.Sum(s => s.ScheduledShiftDuration.Ticks)), // This part is fine because Ticks is long
+                TotalWorkedHours = summaries.Sum(s => s.EarnedStandardHours + (decimal)s.TotalOvertimeDuration.TotalHours),
+                TotalOverallPenalty = TimeSpan.FromTicks(summaries.Sum(s => s.TotalPenaltyDuration.Ticks)),
+                TotalOvertime = TimeSpan.FromTicks(summaries.Sum(s => s.TotalOvertimeDuration.Ticks)),
+                TotalLateness = TimeSpan.FromTicks(summaries.Sum(s => s.TotalLateness.Ticks)),
+                TotalBreakPenalty = TimeSpan.FromTicks(summaries.Sum(s => s.TotalBreakPenalty.Ticks)),
+
+                TotalEarlyLeave = TimeSpan.Zero // This field is not in DailySummary, so we omit it
+            };
+
+            companySummary = summary;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating company attendance report from summaries");
+            toastService.ShowError($"An error occurred: {ex.Message}");
+            companySummary = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    // This method now works perfectly with the new summary object
+    private async Task ExportCompanyReportToCsv()
+    {
+        if (companySummary == null || !startDate.HasValue || !endDate.HasValue)
+        {
+            toastService.ShowWarning("No summary data to export. Please generate a report first.");
+            return;
+        }
+
+        try
+        {
+            // Pass the summary object and date range
+            var csvData = CsvService.GenerateCompanyReportCsv(companySummary, startDate.Value, endDate.Value);
+            var fileName = $"CompanyReport_{startDate:yyyy-MM-dd}_to_{endDate:yyyy-MM-dd}.csv";
+
+            var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(csvData));
+            using var streamRef = new DotNetStreamReference(stream: memoryStream);
+
+            await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+            toastService.ShowSuccess("Export successful!");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting company report to CSV");
+            toastService.ShowError("An error occurred while exporting the file.");
+        }
+    }
+
+    private string FormatTimeSpan(TimeSpan ts)
+    {
+        if (ts < TimeSpan.Zero) ts = TimeSpan.Zero;
+        ts = TimeSpan.FromMinutes(Math.Round(ts.TotalMinutes));
+        int h = (int)Math.Floor(ts.TotalHours);
+        int m = ts.Minutes;
+        return $"{h:D2}:{m:D2}";
+    }
+}

@@ -1,0 +1,518 @@
+﻿@page "/employees"
+@rendermode InteractiveServer
+@inject NavigationManager Navigation
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Components.Pages.Employees
+@using Microsoft.EntityFrameworkCore
+@using Payroll.Web.Services
+@inject AuthenticationStateProvider AuthState
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject Payroll.Web.Services.AuditService AuditService
+@inject Payroll.Web.Services.EmployeeDeletionService DeletionService
+@inject IJSRuntime JSRuntime
+@inject ILogger<EmployeeList> _logger
+@inject IToastService toastService
+@attribute [Authorize(Roles = "Employee, SuperAdmin")]
+
+<PageTitle>Employee Management</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>Employee Management</h3>
+    @if (!showForm)
+    {
+        <button class="btn btn-primary" @onclick="OpenAddForm">
+            <span class="bi bi-plus-lg"></span> Add New Employee
+        </button>
+    }
+</div>
+
+@* --- UNIFIED FORM CARD (Used for Add & Edit) --- *@
+@if (showForm)
+{
+    <div class="card shadow-sm mb-4 border-primary">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-2">
+            <h5 class="mb-0">
+                <i class="bi @(currentEmployee.EmployeeID == 0 ? "bi-person-plus" : "bi-pencil-square") me-2"></i>
+                @(currentEmployee.EmployeeID == 0 ? "Add New Employee" : $"Edit {currentEmployee.Name}")
+            </h5>
+            <button type="button" class="btn-close btn-close-white" @onclick="CloseForm"></button>
+        </div>
+
+        <div class="card-body">
+            <EmployeeForm Employee="currentEmployee"
+                          CompanySettings="companySettings"
+                          FeatureSettings="featureSettings"
+                          IsSuperAdmin="isSuperAdmin"
+                          @bind-Dob="modalDob"
+                          @bind-HireDate="modalHireDate"
+                          @bind-TerminationDate="modalTerminationDate"
+                          @bind-ShiftStartTime="modalShiftStartTime"
+                          @bind-ShiftEndTime="modalShiftEndTime" />
+        </div>
+
+        <div class="card-footer bg-light py-2 text-end">
+            <button type="button" class="btn btn-secondary me-2" @onclick="CloseForm">Cancel</button>
+            <button type="button" class="btn btn-success px-4" @onclick="SaveEmployee">
+                <span class="bi bi-check-lg"></span>
+                @(currentEmployee.EmployeeID == 0 ? "Save Employee" : "Update Changes")
+            </button>
+        </div>
+    </div>
+}
+
+@* --- EMPLOYEE LIST TABLE --- *@
+@if (employees == null)
+{
+    <p><em>Loading employees...</em></p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped table-hover table-sm" style="font-size: 0.9em;">
+            <thead class="table-dark" style="white-space: nowrap;">
+                <tr>
+                    <th>ID</th>
+                    <th>Bio ID</th>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Hire Date</th>
+                    <th>Term. Date</th>
+                    <th class="text-end">Pay Type</th>
+                    <th class="text-center">Shift Time</th>
+                    <th class="text-center">Break</th>
+                    <th class="text-center">Comp Off</th>
+                    <th>OT Rule</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!employees.Any())
+                {
+                    <tr><td colspan="12"><p><em>No employees found. Click "Add New Employee".</em></p></td></tr>
+                }
+                else
+                {
+                    @foreach (var emp in employees)
+                    {
+                        <tr class="@(currentEmployee?.EmployeeID == emp.EmployeeID ? "table-info" : "")">
+                            <td>@emp.EmployeeID</td>
+                            <td>@emp.BiometricID</td>
+                            <td>@emp.Name</td>
+                            <td>@emp.Role</td>
+                            <td>@emp.HireDate?.ToString("dd-MMM-yyyy")</td>
+                            <td>@(emp.TerminationDate.HasValue? emp.TerminationDate.Value.ToString("dd-MMM-yyyy") : "--")</td>
+                            <td class="text-end">
+                                @if (emp.DirectHourlyWage.HasValue && emp.DirectHourlyWage > 0)
+                                {
+                                    <span>@emp.DirectHourlyWage.Value.ToString("N2", inrCulture) / hr</span>
+                                }
+                                else
+                                {
+                                    <span>@emp.MonthlySalary.ToString("N0", inrCulture) / mo</span>
+                                }
+                            </td>
+                            <td class="text-center" style="white-space: nowrap;">@(emp.ShiftStartTime?.ToString("hh:mm tt") ?? "--") - @(emp.ShiftEndTime?.ToString("hh:mm tt") ?? "--")</td>
+                            <td class="text-center">@emp.StandardBreakMinutes m</td>
+                            <td class="text-center">@(emp.CompOffDayOfWeek?.ToString() ?? "None")</td>
+                            <td>
+                                @emp.OT_Rule
+                                @if (emp.OT_Rule == "Flat" && emp.OT_FlatRate > 0)
+                                {
+                                    <span class="text-muted">(@emp.OT_FlatRate.ToString("N0", inrCulture))</span>
+                                }
+                            </td>
+                            <td style="white-space: nowrap;">
+                                <button class="btn btn-sm btn-outline-info me-1" @onclick="() => GoToDetails(emp.EmployeeID)" title="Details">
+                                    <span class="bi bi-info-circle"></span>
+                                </button>
+
+                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => OpenEditForm(emp)" title="Edit">
+                                    <span class="bi bi-pencil-square"></span>
+                                </button>
+
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEmployee(emp)" title="Delete">
+                                    <span class="bi bi-trash"></span>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@* --- DELETION CONFIRMATION MODAL --- *@
+@if (showDeletionDialog && selectedEmployeeForDeletion != null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white border-0">
+                    <h5 class="modal-title fw-bold">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Delete Employee: @selectedEmployeeForDeletion.Name
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseDeletionDialog" disabled="@isProcessingDeletion"></button>
+                </div>
+
+                <div class="modal-body">
+                    @if (isDeletionCheckLoading)
+                    {
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary mb-3" role="status"></div>
+                            <p class="text-muted">Checking employee records...</p>
+                        </div>
+                    }
+                    else if (deletionDependencies != null)
+                    {
+                        @if (deletionDependencies.CanDelete)
+                        {
+                            <div class="alert alert-warning" role="alert">
+                                <i class="bi bi-info-circle me-2"></i>
+                                <strong>This employee can be deleted.</strong> Moving to Recycle Bin will hide the record but preserve history for reporting.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-danger" role="alert">
+                                <i class="bi bi-exclamation-octagon-fill me-2"></i>
+                                <strong>Cannot delete this employee!</strong>
+                            </div>
+
+                            <div class="alert alert-info">
+                                <h6 class="fw-bold mb-3">This employee has the following related records:</h6>
+
+                                <div class="card card-body bg-light">
+                                    @{
+                                        var dependencyList = deletionDependencies.GetDependenciesList();
+                                        @foreach (var (category, count) in dependencyList)
+                                        {
+                                            <div class="row mb-2 pb-2 border-bottom">
+                                                <div class="col">
+                                                    <strong>@category</strong>
+                                                </div>
+                                                <div class="col-auto">
+                                                    <span class="badge bg-danger">@count @(count == 1 ? "record" : "records")</span>
+                                                </div>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+
+                                <div class="alert alert-warning mt-3 mb-0">
+                                    <h6 class="fw-bold mb-2">
+                                        <i class="bi bi-lightbulb me-2"></i>To delete this employee:
+                                    </h6>
+                                    <ol class="mb-0 ps-3">
+                                        <li>Delete or archive related records first</li>
+                                        <li>Start with oldest records (e.g., historical attendance)</li>
+                                        <li>Then delete current/pending records (advances, leave)</li>
+                                        <li>Once all related data is removed, you can delete the employee</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseDeletionDialog" disabled="@isProcessingDeletion">
+                        <i class="bi bi-x-circle me-2"></i>Close
+                    </button>
+
+                    @if (deletionDependencies?.CanDelete == true)
+                    {
+                        <button type="button" class="btn btn-danger" @onclick="ConfirmDeletion" disabled="@isProcessingDeletion">
+                            @if (isProcessingDeletion)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>Moving to Bin...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-trash me-2"></i>
+                                <span>Move to Recycle Bin</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+private CompanySetting? companySettings;
+private List<Employee>? employees;
+private FeatureSettings? featureSettings;
+private bool showForm = false; // Controls the unified card
+private Employee currentEmployee = new();
+private bool isSuperAdmin = false;
+
+// Deletion Dialog State
+private bool showDeletionDialog = false;
+private Employee? selectedEmployeeForDeletion;
+private bool isDeletionCheckLoading = false;
+private bool isProcessingDeletion = false;
+private EmployeeDeletionService.EmployeeDeletionDependencies? deletionDependencies;
+
+// Helpers for Data Binding
+private DateTime? modalDob, modalHireDate, modalTerminationDate, modalShiftStartTime, modalShiftEndTime;
+private CultureInfo inrCulture = new CultureInfo("en-IN");
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        isSuperAdmin = authState.User.IsInRole("SuperAdmin");
+        await LoadEmployees();
+    }
+
+    private void ValidateSalaryComponents()
+    {
+        // Simple validation: Components should not exceed the Monthly Salary
+        if (currentEmployee.MonthlySalary > 0)
+        {
+            decimal sum = currentEmployee.BasicSalaryComponent + currentEmployee.HraComponent + currentEmployee.DaComponent;
+            if (sum > currentEmployee.MonthlySalary)
+            {
+                toastService.ShowWarning("The sum of Basic, HRA, and DA cannot exceed the Monthly Gross Salary.");
+                // Optionally reset one component or prompt user to fix
+                currentEmployee.DaComponent = currentEmployee.MonthlySalary - currentEmployee.BasicSalaryComponent - currentEmployee.HraComponent;
+                if (currentEmployee.DaComponent < 0) currentEmployee.DaComponent = 0;
+            }
+        }
+    }
+
+    private async Task LoadEmployees()
+    {
+        // FIX: Do NOT set employees = null here. It causes unnecessary re-renders.
+        // Only Invoke StateHasChanged if it's the first load.
+        if (employees == null)
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // Load Feature Settings first
+            featureSettings = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+
+            // Load Company Settings
+            companySettings = await dbContext.CompanySettings.AsNoTracking().FirstOrDefaultAsync(s => s.SettingID == 1);
+
+            // Load Employees
+            var list = await dbContext.Employees
+            .Where(e => !e.IsDeleted)
+            .OrderBy(e => e.Name).ToListAsync();
+            employees = list;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading employees.");
+
+            toastService.ShowError($"Error loading employees: {ex.Message}");
+            employees = new List<Employee>();
+        }
+
+        // One final UI update
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OpenAddForm()
+    {
+        currentEmployee = new Employee
+        {
+            HireDate = DateOnly.FromDateTime(DateTime.Now.Date),
+            CompOffDayOfWeek = null,
+            StandardBreakMinutes = 60,
+            OT_Rule = "No Overtime",
+            SalaryCalculationMethod = "Pro-Rata Hourly"
+        };
+        ResetHelpers();
+        showForm = true;
+    }
+
+    private void OpenEditForm(Employee emp)
+    {
+        // Clone data to avoid editing the table row directly before saving
+        currentEmployee = new Employee
+        {
+            EmployeeID = emp.EmployeeID,
+            Name = emp.Name,
+            Role = emp.Role,
+            BiometricID = emp.BiometricID,
+            DOB = emp.DOB,
+            HireDate = emp.HireDate,
+            TerminationDate = emp.TerminationDate,
+            MonthlySalary = emp.MonthlySalary,
+            DirectHourlyWage = emp.DirectHourlyWage,
+            SalaryCalculationMethod = emp.SalaryCalculationMethod,
+            ShiftStartTime = emp.ShiftStartTime,
+            ShiftEndTime = emp.ShiftEndTime,
+            StandardBreakMinutes = emp.StandardBreakMinutes,
+            CompOffDayOfWeek = emp.CompOffDayOfWeek,
+            OT_Rule = emp.OT_Rule,
+            OT_FlatRate = emp.OT_FlatRate,
+            NightShiftAllowance = emp.NightShiftAllowance,
+            Email = emp.Email,
+            EnablePF = emp.EnablePF,
+            UAN = emp.UAN,
+            EnableESI = emp.EnableESI,
+            ESINumber = emp.ESINumber,
+            // --- NEW: ROTATION FIELDS ---
+            EnableShiftRotation = emp.EnableShiftRotation,
+            RotationGroup = emp.RotationGroup,
+            ShiftRotationPattern = emp.ShiftRotationPattern,
+            CurrentShiftIndex = emp.CurrentShiftIndex,
+        };
+        ResetHelpers();
+        showForm = true;
+    }
+
+    private void CloseForm()
+    {
+        showForm = false;
+        currentEmployee = new();
+    }
+
+    private void ResetHelpers()
+    {
+        modalDob = currentEmployee.DOB?.ToDateTime(TimeOnly.MinValue);
+        modalHireDate = currentEmployee.HireDate?.ToDateTime(TimeOnly.MinValue);
+        modalTerminationDate = currentEmployee.TerminationDate?.ToDateTime(TimeOnly.MinValue);
+
+        var baseD = DateTime.Today;
+        modalShiftStartTime = currentEmployee.ShiftStartTime.HasValue ? baseD.Add(currentEmployee.ShiftStartTime.Value.ToTimeSpan()) : null;
+        modalShiftEndTime = currentEmployee.ShiftEndTime.HasValue ? baseD.Add(currentEmployee.ShiftEndTime.Value.ToTimeSpan()) : null;
+    }
+
+    private async Task SaveEmployee()
+    {
+        if (currentEmployee == null) return;
+        ValidateSalaryComponents();
+        // Ensure logic consistency
+        if (!currentEmployee.EnablePF) currentEmployee.UAN = null;
+        if (!currentEmployee.EnableESI) currentEmployee.ESINumber = null;
+
+        if (string.IsNullOrWhiteSpace(currentEmployee.Name) || string.IsNullOrWhiteSpace(currentEmployee.BiometricID))
+        {
+            toastService.ShowWarning("Name and Biometric ID are required.");
+            return;
+        }
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            if (currentEmployee.EmployeeID == 0)
+            {
+                dbContext.Employees.Add(currentEmployee);
+            }
+            else
+            {
+                var existing = await dbContext.Employees.FindAsync(currentEmployee.EmployeeID);
+                if (existing != null)
+                {
+                    dbContext.Entry(existing).CurrentValues.SetValues(currentEmployee);
+                }
+            }
+
+            await dbContext.SaveChangesAsync();
+
+            toastService.ShowSuccess("Employee saved successfully.");
+            CloseForm();
+            await LoadEmployees();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving employee.");
+            toastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteEmployee(Employee emp)
+    {
+        // Show deletion dialog and check dependencies
+        selectedEmployeeForDeletion = emp;
+        showDeletionDialog = true;
+        isDeletionCheckLoading = true;
+        deletionDependencies = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            // Check if employee has related records
+            deletionDependencies = await DeletionService.CheckDeletionDependenciesAsync(emp.EmployeeID);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking deletion dependencies");
+            toastService.ShowError($"Error checking records: {ex.Message}");
+            deletionDependencies = new EmployeeDeletionService.EmployeeDeletionDependencies
+            {
+                EmployeeID = emp.EmployeeID,
+                EmployeeName = emp.Name,
+                CanDelete = false,
+                BlockReason = "Error checking dependencies"
+            };
+        }
+        finally
+        {
+            isDeletionCheckLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void CloseDeletionDialog()
+    {
+        showDeletionDialog = false;
+        selectedEmployeeForDeletion = null;
+        deletionDependencies = null;
+    }
+
+    private async Task ConfirmDeletion()
+    {
+        if (selectedEmployeeForDeletion == null || deletionDependencies == null) return;
+
+        isProcessingDeletion = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var entity = await dbContext.Employees.FindAsync(selectedEmployeeForDeletion.EmployeeID);
+
+            if (entity != null)
+            {
+                entity.IsDeleted = true; // SOFT DELETE ACTION
+                dbContext.Update(entity);
+                await dbContext.SaveChangesAsync();
+
+                // AUDIT LOG
+                await AuditService.LogAsync("SOFT DELETE", "Employee", entity.EmployeeID.ToString(),
+                    $"Employee moved to Recycle Bin (Soft Deleted). Dependencies: {deletionDependencies.GetTotalDependencies()} related records preserved.");
+            }
+
+            toastService.ShowSuccess($"'{selectedEmployeeForDeletion.Name}' moved to Recycle Bin. Related records preserved.");
+            CloseDeletionDialog();
+            await LoadEmployees();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during employee deletion");
+            toastService.ShowError($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isProcessingDeletion = false;
+        }
+    }
+
+    private void GoToDetails(int id) => Navigation.NavigateTo($"/employees/details/{id}");
+    private bool IsPageActive() => Navigation.Uri.EndsWith("/employees", StringComparison.OrdinalIgnoreCase);
+}

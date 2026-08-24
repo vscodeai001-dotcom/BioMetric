@@ -1,0 +1,158 @@
+﻿@page "/my-salary-advances"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ILogger<MySalaryAdvances> _logger
+@inject UserManager<IdentityUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IToastService toastService
+@inject NavigationManager Navigation
+
+@attribute [Authorize(Roles = "Employee, SuperAdmin")]
+
+<PageTitle>My Salary Advances</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Salary Advance</strong> module is currently disabled or you do not have permission to view this page.</p>
+            <hr>
+            <p class="mb-0">Please contact your administrator or <a href="/" class="alert-link">return to the dashboard</a>.</p>
+        </div>
+    </div>
+}
+else
+{
+    <h3>My Salary Advance History</h3>
+    <p>This log shows all salary advances you have taken.</p>
+
+    @if (isLoading)
+    {
+        <p><em>Loading your advance history...</em></p>
+    }
+    else if (linkedEmployee == null)
+    {
+        <p class="text-danger"><em>Your user account is not linked to an employee record. Cannot load data.</em></p>
+    }
+    else if (!advanceHistory.Any())
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i> You do not have any salary advance records.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th class="text-end">Amount</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var advance in advanceHistory.OrderByDescending(p => p.AdvanceDate))
+                    {
+                        <tr>
+                            <td>@advance.AdvanceDate?.ToString("dd-MMM-yyyy")</td>
+                            <td>@advance.AdvanceType</td>
+                            <td class="text-end">@advance.Amount.ToString("C", inrCulture)</td>
+                            <td>
+                                @if (advance.PayrollID_Paid.HasValue)
+                                {
+                                    <span class="badge bg-success rounded-pill">Paid</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark rounded-pill">Unpaid</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private List<SalaryAdvance> advanceHistory = new();
+    private bool isLoading = true;
+    private bool isAccessDenied = false; // Security Flag
+    private Employee? linkedEmployee;
+    private System.Globalization.CultureInfo inrCulture = new System.Globalization.CultureInfo("en-IN");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckPermissionsAndLoadData();
+    }
+
+    private async Task CheckPermissionsAndLoadData()
+    {
+        isLoading = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. SECURITY CHECK: Load Feature Flags
+            var settings = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            if (settings != null)
+            {
+                // Strict Hierarchy Check: Parent Module AND Child Permission
+                bool isModuleEnabled = settings.EnableSalaryAdvance;
+                bool canView = settings.EmployeeCanViewAdvance;
+
+                if (!isModuleEnabled || !canView)
+                {
+                    isAccessDenied = true;
+                    isLoading = false;
+                    return; // Stop execution immediately
+                }
+            }
+
+            // 2. Load Data (Only if authorized)
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var email = user.Identity.Name;
+                linkedEmployee = await dbContext.Employees
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Email == email);
+
+                if (linkedEmployee == null)
+                {
+                    // Not an error toast, just UI state
+                }
+                else
+                {
+                    advanceHistory = await dbContext.SalaryAdvances
+                        .Where(p => p.EmployeeID == linkedEmployee.EmployeeID)
+                        .OrderByDescending(p => p.AdvanceDate)
+                        .ToListAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading employee advance history.");
+            toastService.ShowError("An error occurred while loading your data.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

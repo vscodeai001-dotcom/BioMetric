@@ -1,0 +1,60 @@
+﻿@using System.Globalization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+
+<h5>Full Advance History (Log)</h5>
+<p class="text-muted small">This log shows all advances based on the filters. Paid advances cannot be deleted.</p>
+
+@if (IsLoading)
+{
+    <p><em>Loading history...</em></p>
+}
+else if (AllAdvances == null || !AllAdvances.Any())
+{
+    <p><em>No advance history found for the selected filters.</em></p>
+}
+else
+{
+    <table class="table table-sm table-striped">
+        <thead class="table-dark">
+            <tr>
+                <th>Employee</th>
+                <th>Date</th>
+                <th>Type</th>
+                <th class="text-end">Amount</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var advance in AllAdvances.OrderByDescending(a => a.AdvanceDate))
+            {
+                <tr class="@(advance.PayrollID_Paid.HasValue ? "table-success" : "")">
+                    <td>
+                        @(Employees?.FirstOrDefault(e => e.EmployeeID == advance.EmployeeID)?.Name ?? "Unknown")
+                    </td>
+                    <td>@advance.AdvanceDate?.ToString("dd-MMM-yyyy")</td>
+                    <td>@advance.AdvanceType</td>
+                    <td class="text-end">@advance.Amount.ToString("C", InrCulture)</td>
+                    <td>
+                        @if (advance.PayrollID_Paid.HasValue)
+                        {
+                            <span class="badge bg-success">Paid (@advance.PayrollID_Paid)</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">Unpaid</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public List<SalaryAdvance>? AllAdvances { get; set; }
+    [Parameter] public List<Employee>? Employees { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+}

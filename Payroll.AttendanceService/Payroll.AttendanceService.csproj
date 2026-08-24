@@ -1,0 +1,81 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <UserSecretsId>dotnet-Payroll.AttendanceService-5c7511b8-29f5-45f7-8029-e6eb4b9a3953</UserSecretsId>
+
+    <!-- Biometric device SDK is x86 -->
+    <PlatformTarget>x86</PlatformTarget>
+    <RuntimeIdentifiers>win-x86</RuntimeIdentifiers>
+
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <EnableComHosting>true</EnableComHosting>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+
+    <NoWarn>MSB3305</NoWarn>
+  </PropertyGroup>
+
+  <!-- COMReference only for .NET Framework -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <COMReference Include="zkemkeeper">
+      <WrapperTool>tlbimp</WrapperTool>
+      <VersionMinor>0</VersionMinor>
+      <VersionMajor>1</VersionMajor>
+      <Guid>fe9ded34-e159-408e-8490-b720a5e632c7</Guid>
+      <Lcid>0</Lcid>
+      <Isolated>false</Isolated>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </COMReference>
+  </ItemGroup>
+
+  <!-- Publish Worker configuration -->
+  <ItemGroup>
+    <Content Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+
+    <Content Update="appsettings.*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Hosting.WindowsServices" Version="8.0.22" />
+
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.22" />
+
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.22" />
+
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.22">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>
+        runtime;
+        build;
+        native;
+        contentfiles;
+        analyzers;
+        buildtransitive
+      </IncludeAssets>
+    </PackageReference>
+
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+
+    <PackageReference Include="Npgsql" Version="8.0.8" />
+
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Payroll.Shared\Payroll.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

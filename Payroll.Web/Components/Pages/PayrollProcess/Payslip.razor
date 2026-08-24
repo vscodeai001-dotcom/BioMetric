@@ -1,0 +1,572 @@
+﻿@page "/payslip/{PayrollId:int}"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IToastService toastService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Navigation
+@inject PdfExportService PdfService
+@inject IJSRuntime JSRuntime
+@inject ILogger<Payslip> _logger
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize(Roles = "Admin, SuperAdmin, Employee")]
+
+<PageTitle>Payslip</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading">
+                <i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied
+            </h4>
+            <p>You are not authorized to view this payslip.</p>
+            <hr />
+            <p class="mb-0">
+                <button class="btn btn-outline-primary btn-sm" @onclick="GoBack">
+                    Back to Payslips
+                </button>
+            </p>
+        </div>
+    </div>
+}
+else if (payslip == null || employee == null || payslipDetails == null || companyInfo == null)
+{
+    <p><em>Loading payslip details...</em></p>
+}
+else
+{
+    @* --- STANDARD A4 PAYSLIP --- *@
+    <div class="payslip-container standard-payslip mb-3 border rounded p-4 bg-white printable-payslip" id="payslip-to-print-standard">
+        <h3 class="text-center mb-1">PAYSLIP</h3>
+        <p class="text-center text-muted mb-3">For Pay Period: @(new DateTime(payslip.PayYear, payslip.PayMonth, 1).ToString("MMMM yyyy"))</p>
+
+        <div class="row mb-3 payslip-header">
+            <div class="col-6">
+                <strong>@(companyInfo?.CompanyName ?? "Your Company Name")</strong><br />
+                <small>@(companyInfo?.AddressLine1 ?? "Address Line 1")</small><br />
+                <small>@(companyInfo?.CityStatePincode ?? "City, State")</small>
+            </div>
+            <div class="col-6 text-end">
+                <strong>@employee.Name</strong><br />
+                <small>ID: @employee.BiometricID</small><br />
+                <small>Role: @employee.Role</small><br />
+                @if (payslipDetails.PfDeduction > 0 && ShowStatutory)
+                {
+                    <small>UAN: @employee.UAN</small>
+                    <br />
+                }
+            </div>
+        </div>
+        <hr />
+
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered payslip-details-table">
+                <thead class="table-light">
+                    <tr>
+                        <th>Description</th>
+                        <th class="text-end">Rate</th>
+                        <th class="text-center">Units</th>
+                        <th class="text-end">Amount (₹)</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    <tr class="table-group-divider"><td colspan="4" class="fw-bold bg-light">A. Earnings</td></tr>
+
+                    <tr>
+                        <td>Earned Pay (Worked + Leave)</td>
+                        <td class="text-end">@payslipDetails.HourlyRate.ToString("N2")</td>
+                        <td class="text-center">@FormatTimeSpan(TimeSpan.FromHours((double)payslipDetails.EarnedStandardHours))</td>
+                        <td class="text-end">@payslipDetails.EarnedPay.ToString("N2")</td>
+                    </tr>
+
+                    @if (payslipDetails.TotalOvertimeSalary > 0)
+                    {
+                        <tr>
+                            <td>Overtime (@(employee.OT_Rule))</td>
+                            <td class="text-end">@payslipDetails.OvertimeRate.ToString("N2")</td>
+                            <td class="text-center">@FormatTimeSpan(payslipDetails.TotalOvertimeDuration)</td>
+                            <td class="text-end">@payslipDetails.TotalOvertimeSalary.ToString("N2")</td>
+                        </tr>
+                    }
+
+                    @if (payslipDetails.Bonus > 0)
+                    {
+                        <tr>
+                            <td>Bonus</td>
+                            <td class="text-end">--</td>
+                            <td class="text-center">--</td>
+                            <td class="text-end">@payslipDetails.Bonus.ToString("N2")</td>
+                        </tr>
+                    }
+
+                    @if (payslipDetails.TotalShiftAllowance > 0)
+                    {
+                        <tr>
+                            <td>Night Shift Allowance</td>
+                            <td class="text-end">--</td>
+                            <td class="text-center">--</td>
+                            <td class="text-end">@payslipDetails.TotalShiftAllowance.ToString("N2")</td>
+                        </tr>
+                    }
+
+                    <tr class="fw-bold table-group-divider">
+                        <td>Gross Earnings (A)</td>
+                        <td colspan="2"></td>
+                        <td class="text-end">@payslipDetails.GrossEarnings.ToString("N2")</td>
+                    </tr>
+
+                    <tr class="table-group-divider"><td colspan="4" class="fw-bold bg-light">B. Deductions</td></tr>
+
+                    @if (payslipDetails.TotalPenaltySalary > 0)
+                    {
+                        <tr>
+                            <td>Penalty (Late/Break)</td>
+                            <td class="text-end">@payslipDetails.HourlyRate.ToString("N2")</td>
+                            <td class="text-center text-danger">(@FormatTimeSpan(payslipDetails.TotalPenaltyDuration))</td>
+                            <td class="text-end text-danger">(@payslipDetails.TotalPenaltySalary.ToString("N2"))</td>
+                        </tr>
+                    }
+
+                    @* --- STATUTORY DEDUCTIONS (CONDITIONAL VISIBILITY) --- *@
+                    @if (payslipDetails.PfDeduction > 0 && ShowStatutory)
+                    {
+                        <tr>
+                            <td>Provident Fund (PF) <small class="text-muted">(@(payslipDetails.BasicSalary > 0 ? "on Basic: " + payslipDetails.BasicSalary.ToString("N0") : ""))</small></td>
+                            <td class="text-end">--</td>
+                            <td class="text-center">--</td>
+                            <td class="text-end text-danger">(@payslipDetails.PfDeduction.ToString("N2"))</td>
+                        </tr>
+                    }
+
+                    @if (payslipDetails.EsiDeduction > 0 && ShowStatutory)
+                    {
+                        <tr>
+                            <td>ESI</td>
+                            <td class="text-end">--</td>
+                            <td class="text-center">--</td>
+                            <td class="text-end text-danger">(@payslipDetails.EsiDeduction.ToString("N2"))</td>
+                        </tr>
+                    }
+                    @if (payslipDetails.PtDeduction > 0 && ShowPT)
+                    {
+                        <tr>
+                            <td>Professional Tax</td>
+                            <td class="text-end">--</td>
+                            <td class="text-center">--</td>
+                            <td class="text-end text-danger">(@payslipDetails.PtDeduction.ToString("N2"))</td>
+                        </tr>
+                    }
+                    @* --- NEW: TDS Display --- *@
+                    @if (payslipDetails.TdsDeduction > 0 && (features?.EnableTdsDeduction == true))
+                    {
+                        <tr>
+                            <td>Income Tax (TDS)</td>
+                            <td class="text-end">--</td>
+                            <td class="text-center">--</td>
+                            <td class="text-end text-danger">(@payslipDetails.TdsDeduction.ToString("N2"))</td>
+                        </tr>
+                    }
+
+                    @if (payslip.Deductions_Advance > 0)
+                    {
+                        <tr>
+                            <td>Salary Advance</td>
+                            <td class="text-end">--</td>
+                            <td class="text-center">--</td>
+                            <td class="text-end text-danger">(@payslip.Deductions_Advance?.ToString("N2"))</td>
+                        </tr>
+                    }
+
+                    <tr class="fw-bold table-group-divider">
+                        <td>Total Deductions (B)</td>
+                        <td colspan="2"></td>
+                        <td class="text-end text-danger">(@payslipDetails.TotalDeductions.ToString("N2"))</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="row mt-4 payslip-summary bg-light p-3 rounded">
+            <div class="col text-end">
+                <h4 class="mb-0">Net Salary Payable: ₹ @payslip.NetSalary.ToString("N2")</h4>
+            </div>
+        </div>
+        <p class="text-center small mt-3 text-muted">Generated on @DateTime.Now.ToString("g")</p>
+    </div>
+
+    @* --- THERMAL RECEIPT --- *@
+    <div class="payslip-container thermal-slip mb-3 border rounded p-2 bg-white d-none printable-payslip" id="payslip-to-print-thermal">
+        <div class="text-center small">
+            <h5 class="mb-0">@(companyInfo?.CompanyName ?? "Company Name")</h5>
+            <p class="mb-0">PAYSLIP - @(new DateTime(payslip.PayYear, payslip.PayMonth, 1).ToString("MMM yyyy"))</p>
+            <hr class="my-1" />
+            <p class="mb-0 text-start">@employee.Name</p>
+            <hr class="my-1" />
+        </div>
+        <table class="table table-sm table-borderless thermal-table">
+            <tbody>
+                <tr><td colspan="2" class="fw-bold">EARNINGS</td></tr>
+                <tr><td>Earned Pay</td> <td class="text-end">@payslipDetails.EarnedPay.ToString("N2")</td></tr>
+                @if (payslipDetails.TotalOvertimeSalary > 0)
+                {
+                    <tr><td>Overtime</td> <td class="text-end">@payslipDetails.TotalOvertimeSalary.ToString("N2")</td></tr>
+                }
+                @if (payslipDetails.Bonus > 0)
+                {
+                    <tr><td>Bonus</td> <td class="text-end">@payslipDetails.Bonus.ToString("N2")</td></tr>
+                }
+                @if (payslipDetails.TotalShiftAllowance > 0)
+                {
+                    <tr><td>Shift Allow.</td> <td class="text-end">@payslipDetails.TotalShiftAllowance.ToString("N2")</td></tr>
+                }
+                <tr class="fw-bold border-top"><td>Gross (A)</td> <td class="text-end">@payslipDetails.GrossEarnings.ToString("N2")</td></tr>
+
+                <tr><td colspan="2" class="fw-bold pt-2">DEDUCTIONS</td></tr>
+                @if (payslipDetails.TotalPenaltySalary > 0)
+                {
+                    <tr><td>Penalty</td> <td class="text-end">(@payslipDetails.TotalPenaltySalary.ToString("N2"))</td></tr>
+                }
+
+                @* --- STATUTORY (CONDITIONAL) --- *@
+                @if (payslipDetails.PfDeduction > 0 && ShowStatutory)
+                {
+                    <tr><td>PF</td> <td class="text-end">(@payslipDetails.PfDeduction.ToString("N2"))</td></tr>
+                }
+                @if (payslipDetails.EsiDeduction > 0 && ShowStatutory)
+                {
+                    <tr><td>ESI</td> <td class="text-end">(@payslipDetails.EsiDeduction.ToString("N2"))</td></tr>
+                }
+                @if (payslipDetails.PtDeduction > 0 && ShowPT)
+                {
+                    <tr><td>Prof. Tax</td> <td class="text-end">(@payslipDetails.PtDeduction.ToString("N2"))</td></tr>
+                }
+                @if (payslipDetails.TdsDeduction > 0 && (features?.EnableTdsDeduction == true))
+                {
+                    <tr><td>TDS</td> <td class="text-end">(@payslipDetails.TdsDeduction.ToString("N2"))</td></tr>
+                }
+                @* ------------------------------- *@
+
+                @if (payslip.Deductions_Advance > 0)
+                {
+                    <tr><td>Advance</td> <td class="text-end">(@payslip.Deductions_Advance?.ToString("N2"))</td></tr>
+                }
+
+                <tr class="fw-bold border-top"><td>Ded. (B)</td> <td class="text-end">(@payslipDetails.TotalDeductions.ToString("N2"))</td></tr>
+                <tr class="fw-bold border-top mt-2"><td class="pt-2">NET PAY</td> <td class="text-end pt-2 fs-5">@payslip.NetSalary.ToString("N0")</td></tr>
+            </tbody>
+        </table>
+        <p class="text-center small mt-2 text-muted" style="font-size:0.7em">Gen: @DateTime.Now.ToString("g")</p>
+    </div>
+
+    <div class="no-print mt-3 text-center">
+        <button class="btn btn-secondary me-2" @onclick="GoBack">Back</button>
+        <button class="btn btn-danger me-2" @onclick="DownloadPdf">
+            <span class="bi bi-file-earmark-pdf"></span> Download PDF
+        </button>
+        <button class="btn btn-primary me-2" @onclick="PrintStandardPayslip">Print A4</button>
+        <button class="btn btn-info" @onclick="PrintThermalPayslip">Print Thermal</button>
+    </div>
+
+    @* --- STYLES (Dark Mode Compatible) --- *@
+    <style>
+        @@media print {
+            body * {
+                visibility: hidden;
+            }
+
+            .printable-payslip, .printable-payslip * {
+                visibility: visible;
+            }
+
+            .printable-payslip {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                border: none !important;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+            .d-none {
+                display: none !important;
+            }
+        }
+
+        .thermal-slip {
+            width: 72mm;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 10pt;
+            padding: 2mm !important;
+            margin: 0 auto;
+        }
+
+        .thermal-table td {
+            padding: 1px 2px !important;
+        }
+
+        .thermal-slip hr {
+            border-top: 1px dashed black;
+            margin: 2px 0;
+        }
+
+        /* --- DARK MODE FIXES --- */
+        .payslip-container {
+            background-color: #ffffff !important;
+            color: #000000 !important; /* Force Black Text */
+        }
+            /* Force all children to be black too */
+            .payslip-container * {
+                color: #000000 !important;
+            }
+            /* Exceptions */
+            .payslip-container .text-danger {
+                color: #dc3545 !important;
+            }
+
+            .payslip-container .text-muted {
+                color: #6c757d !important;
+            }
+        /* Grey, readable on white */
+
+        /* Table Overrides for Dark Mode */
+        body.dark .payslip-container .table {
+            color: #000000 !important;
+            border-color: #dee2e6 !important;
+            --bs-table-bg: #ffffff !important;
+        }
+
+            body.dark .payslip-container .table thead th {
+                background-color: #f8f9fa !important;
+                color: #000000 !important;
+                border-color: #dee2e6 !important;
+            }
+
+            body.dark .payslip-container .table tbody td {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                border-color: #dee2e6 !important;
+            }
+
+        body.dark .thermal-slip {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+        }
+    </style>
+}
+
+@code {
+    [Parameter] public int PayrollId { get; set; }
+
+    private CompanySetting? companyInfo;
+    private FeatureSettings? features;
+    private PayrollHistory? payslip;
+    private Employee? employee;
+    private CultureInfo inrCulture = new CultureInfo("en-IN");
+    private PayslipViewModel? payslipDetails;
+    private bool isSuperAdmin = false;
+    private bool isEmployee = false;
+    private bool isAccessDenied = false;
+
+    private bool ShowStatutory => (features?.EnableStatutoryCompliance == true && companyInfo?.EnablePfEsiSystem == true);
+    private bool ShowPT => (features?.EnableProfessionalTax == true && companyInfo?.EnableProfessionalTax == true);
+
+    private class PayslipViewModel
+    {
+        public decimal BaseSalary { get; set; }
+        public decimal HourlyRate { get; set; }
+        public decimal EarnedStandardHours { get; set; }
+        public decimal EarnedPay { get; set; }
+        public TimeSpan TotalPenaltyDuration { get; set; }
+        public decimal TotalPenaltySalary { get; set; }
+        public TimeSpan TotalOvertimeDuration { get; set; }
+        public decimal OvertimeRate { get; set; }
+        public decimal TotalOvertimeSalary { get; set; }
+        public decimal Bonus { get; set; }
+        public decimal GrossEarnings { get; set; }
+        public decimal TotalDeductions { get; set; }
+        public decimal TotalShiftAllowance { get; set; }
+
+        // Statutory
+        public decimal BasicSalary { get; set; }
+        public decimal PfDeduction { get; set; }
+        public decimal EsiDeduction { get; set; }
+        public decimal PtDeduction { get; set; }
+
+        // NEW: TDS
+        public decimal TdsDeduction { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthState.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            isSuperAdmin = user.IsInRole("SuperAdmin");
+            isEmployee = user.IsInRole("Employee");
+
+            if (user.Identity?.IsAuthenticated != true)
+            {
+                isAccessDenied = true;
+                return;
+            }
+
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            companyInfo = await dbContext.CompanySettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.SettingID == 1)
+                ?? new CompanySetting();
+
+            features = await dbContext.FeatureSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(f => f.Id == 1);
+
+            payslip = await dbContext.PayrollHistories
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.PayrollID == PayrollId);
+
+            if (payslip == null)
+            {
+                isAccessDenied = true;
+                return;
+            }
+
+            // Employees may view ONLY their own payslips.
+            // Admin/SuperAdmin behavior remains unchanged.
+            if (isEmployee && !isSuperAdmin)
+            {
+                var email = user.Identity?.Name;
+
+                if (string.IsNullOrWhiteSpace(email))
+                {
+                    isAccessDenied = true;
+                    return;
+                }
+
+                var loggedInEmployee = await dbContext.Employees
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Email == email && !e.IsDeleted);
+
+                if (loggedInEmployee == null ||
+                    loggedInEmployee.EmployeeID != payslip.EmployeeID)
+                {
+                    _logger.LogWarning(
+                        "Employee attempted to access another employee payslip. " +
+                        "PayrollId={PayrollId}, RequestedEmployeeId={RequestedEmployeeId}, " +
+                        "LoggedInEmployeeId={LoggedInEmployeeId}",
+                        PayrollId,
+                        payslip.EmployeeID,
+                        loggedInEmployee?.EmployeeID);
+
+                    isAccessDenied = true;
+                    return;
+                }
+            }
+
+            employee = await dbContext.Employees
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.EmployeeID == payslip.EmployeeID);
+
+            if (employee == null)
+            {
+                isAccessDenied = true;
+                return;
+            }
+
+            await CalculatePayslipDetails(employee, payslip);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading payslip. PayrollId={PayrollId}", PayrollId);
+            isAccessDenied = true;
+        }
+    }
+
+    private async Task CalculatePayslipDetails(Employee emp, PayrollHistory history)
+    {
+        var vm = new PayslipViewModel();
+        vm.BaseSalary = history.BaseSalary ?? 0m;
+        vm.HourlyRate = history.HourlyRate;
+        vm.EarnedStandardHours = history.TotalHoursWorked ?? 0m;
+        vm.TotalPenaltyDuration = history.TotalPenaltyDuration;
+        vm.TotalOvertimeDuration = history.TotalOvertimeDuration;
+        vm.TotalOvertimeSalary = history.OvertimePay ?? 0m;
+        vm.TotalPenaltySalary = history.Deductions_Hours ?? 0m;
+        vm.Bonus = history.Bonus ?? 0m;
+
+        vm.BasicSalary = history.BasicComponent;
+        vm.PfDeduction = history.PfDeduction;
+        vm.EsiDeduction = history.EsiDeduction;
+        vm.PtDeduction = history.PtDeduction;
+        vm.TdsDeduction = history.TdsDeduction; // Map TDS
+
+        vm.TotalShiftAllowance = history.TotalShiftAllowance;
+        vm.EarnedPay = vm.EarnedStandardHours * vm.HourlyRate;
+
+        vm.GrossEarnings = vm.EarnedPay + vm.TotalOvertimeSalary + vm.Bonus + vm.TotalShiftAllowance;
+
+        vm.TotalDeductions = vm.TotalPenaltySalary
+                           + (history.Deductions_Advance ?? 0)
+                           + vm.PfDeduction
+                           + vm.EsiDeduction
+                           + vm.PtDeduction
+                           + vm.TdsDeduction; // Include TDS in total
+
+        if (vm.TotalOvertimeDuration > TimeSpan.Zero && vm.TotalOvertimeSalary > 0)
+            vm.OvertimeRate = vm.TotalOvertimeSalary / (decimal)vm.TotalOvertimeDuration.TotalHours;
+
+        payslipDetails = vm;
+        await Task.CompletedTask;
+    }
+
+    private void GoBack()
+    {
+        // Employee returns to their own payslip history.
+        // Admin/SuperAdmin keep the existing payroll workflow.
+        Navigation.NavigateTo(isEmployee && !isSuperAdmin
+            ? "/my-payslips"
+            : "/run-payroll");
+    }
+
+    private async Task PrintStandardPayslip()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('payslip-to-print-standard').classList.remove('d-none');");
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('payslip-to-print-thermal').classList.add('d-none');");
+        await JSRuntime.InvokeVoidAsync("PrintElement", "payslip-to-print-standard");
+    }
+
+    private async Task PrintThermalPayslip()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('payslip-to-print-standard').classList.add('d-none');");
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('payslip-to-print-thermal').classList.remove('d-none');");
+        await JSRuntime.InvokeVoidAsync("PrintElement", "payslip-to-print-thermal");
+        await Task.Delay(1000);
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('payslip-to-print-thermal').classList.add('d-none');");
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('payslip-to-print-standard').classList.remove('d-none');");
+    }
+
+    private string FormatTimeSpan(TimeSpan ts) => $"{Math.Floor(ts.TotalHours):00}:{ts.Minutes:00}";
+
+    private async Task DownloadPdf()
+    {
+        if (payslip == null || employee == null || companyInfo == null) return;
+        var pdfBytes = PdfService.GeneratePayslipPdf(payslip, employee, companyInfo);
+        var fileName = $"Payslip_{employee.Name}_{payslip.PayMonth}_{payslip.PayYear}.pdf";
+
+        using var stream = new MemoryStream(pdfBytes);
+        using var streamRef = new DotNetStreamReference(stream: stream);
+
+        await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+    }
+}

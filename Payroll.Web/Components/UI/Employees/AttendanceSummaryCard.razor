@@ -1,0 +1,49 @@
+﻿@using global::Payroll.Shared.Data
+
+<div class="card mb-4">
+    <div class="card-header">Attendance Summary (@Month.ToString("MMMM yyyy"))</div>
+    <div class="card-body">
+        @if (IsLoading)
+        {
+            <p>Calculating attendance...</p>
+        }
+        else if (Summary == null)
+        {
+            <p><em>Could not calculate attendance summary.</em></p>
+        }
+        else
+        {
+            <div class="row text-center">
+                <div class="col-md-3 border-end">
+                    <h3>@Summary.WorkingDays</h3>
+                    <small class="text-muted">Working Days</small>
+                </div>
+                <div class="col-md-3 border-end">
+                    <h3 class="text-success">@Summary.PresentDays</h3>
+                    <small class="text-muted">Present</small>
+                </div>
+                <div class="col-md-3 border-end">
+                    <h3 class="text-danger">@Summary.AbsentDays</h3>
+                    <small class="text-muted">Absent</small>
+                </div>
+                <div class="col-md-3">
+                    <h3 class="text-info">@Summary.LeaveDays</h3>
+                    <small class="text-muted">Leave/Holiday</small>
+                </div>
+            </div>
+            <div class="mt-3 text-center border-top pt-2">
+                <strong>Total Credited Hours:</strong> @Summary.TotalHoursCalculated.ToString("N2") hrs
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public DateTime Month { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    // We need to define the model or use a shared one.
+    // Since AttendanceSummary was a private class in the parent, let's accept the raw values or move the class.
+    // Ideally, we move AttendanceSummary to a shared model, but for now, let's use 'dynamic' or 'object' to be quick,
+    // OR better: Let's move AttendanceSummary to Payroll.Web.Models.
+    [Parameter] public global::Payroll.Web.Models.AttendanceSummaryDto? Summary { get; set; }
+}

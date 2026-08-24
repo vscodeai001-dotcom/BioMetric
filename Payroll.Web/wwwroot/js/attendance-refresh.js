@@ -1,0 +1,387 @@
+window.attendanceRefresh = (function () {
+
+    let connection = null;
+    let started = false;
+    let starting = false;
+
+    let viewerRef = null;
+    let listeners = [];
+
+    async function start() {
+
+        if (started || starting)
+            return;
+
+        if (!window.signalR) {
+            console.warn(
+                "Attendance refresh: SignalR client is not loaded."
+            );
+            return;
+        }
+
+        starting = true;
+
+        try {
+
+            connection =
+                new signalR.HubConnectionBuilder()
+                    .withUrl("/hubs/attendance-refresh")
+                    .withAutomaticReconnect([
+                        0,
+                        2000,
+                        5000,
+                        10000,
+                        30000
+                    ])
+                    .configureLogging(
+                        signalR.LogLevel.Warning
+                    )
+                    .build();
+
+
+            /*
+             * ==========================================================
+             * GENERIC DATA CHANGED
+             * ==========================================================
+             *
+             * This is the important event.
+             *
+             * Any attendance-related CRUD operation can trigger this.
+             *
+             */
+
+            connection.on(
+                "DataChanged",
+                async function (data) {
+
+                    console.log(
+                        "Attendance DataChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged"
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * ATTENDANCE CHANGED
+             * ==========================================================
+             */
+
+            connection.on(
+                "AttendanceChanged",
+                async function (data) {
+
+                    console.log(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged"
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * LOCATION CHANGED
+             * ==========================================================
+             */
+
+            connection.on(
+                "LocationChanged",
+                async function (data) {
+
+                    console.log(
+                        "LocationChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "location-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+
+                    await notifyListeners(
+                        "LocationChanged"
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * REGULARIZATION CHANGED
+             * ==========================================================
+             */
+
+            connection.on(
+                "RegularizationChanged",
+                async function (data) {
+
+                    console.log(
+                        "RegularizationChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "regularization-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "RegularizationChanged"
+                    );
+                }
+            );
+
+
+            connection.onreconnecting(
+                function () {
+
+                    console.log(
+                        "Attendance refresh connection reconnecting..."
+                    );
+                }
+            );
+
+
+            connection.onreconnected(
+                async function () {
+
+                    console.log(
+                        "Attendance refresh connection restored."
+                    );
+
+                    /*
+                     * Important:
+                     *
+                     * If something changed while the browser was
+                     * disconnected, refresh the viewer once the
+                     * connection comes back.
+                     */
+
+                    await notifyViewer();
+                }
+            );
+
+
+            connection.onclose(
+                function () {
+
+                    started = false;
+                    starting = false;
+
+                    console.warn(
+                        "Attendance refresh connection closed."
+                    );
+                }
+            );
+
+
+            await connection.start();
+
+            started = true;
+
+            console.log(
+                "Attendance refresh connection started."
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "Unable to start attendance refresh:",
+                error
+            );
+
+            started = false;
+
+            try {
+
+                if (connection) {
+                    await connection.stop();
+                }
+
+            }
+            catch {
+            }
+
+            connection = null;
+        }
+        finally {
+
+            starting = false;
+        }
+    }
+
+
+    /*
+     * ==============================================================
+     * VIEWER NOTIFICATION
+     * ============================================================== 
+     */
+
+    async function notifyViewer() {
+
+        if (!viewerRef)
+            return;
+
+        try {
+
+            await viewerRef.invokeMethodAsync(
+                "RefreshFromNotification"
+            );
+
+        }
+        catch (error) {
+
+            console.warn(
+                "Attendance viewer refresh failed:",
+                error
+            );
+        }
+    }
+
+
+    /*
+     * ==============================================================
+     * LISTENER NOTIFICATION
+     * ============================================================== 
+     */
+
+    async function notifyListeners(methodName) {
+
+        const currentListeners =
+            [...listeners];
+
+        for (const listener of currentListeners) {
+
+            try {
+
+                await listener.invokeMethodAsync(
+                    methodName
+                );
+
+            }
+            catch (error) {
+
+                console.warn(
+                    "Attendance refresh listener failed:",
+                    error
+                );
+            }
+        }
+    }
+
+
+    /*
+     * ==============================================================
+     * VIEWER REGISTRATION
+     * ============================================================== 
+     */
+
+    function registerViewer(dotNetReference) {
+
+        viewerRef = dotNetReference;
+
+        start();
+    }
+
+
+    async function unregisterViewer(dotNetReference) {
+
+        if (viewerRef === dotNetReference) {
+            viewerRef = null;
+        }
+    }
+
+
+    /*
+     * ==============================================================
+     * GENERAL LISTENER REGISTRATION
+     * ============================================================== 
+     */
+
+    function register(dotNetReference) {
+
+        if (!listeners.includes(dotNetReference)) {
+
+            listeners.push(
+                dotNetReference
+            );
+        }
+
+        start();
+    }
+
+
+    async function unregister(dotNetReference) {
+
+        listeners =
+            listeners.filter(
+                function (item) {
+
+                    return item !== dotNetReference;
+                }
+            );
+    }
+
+
+    return {
+
+        start: start,
+
+        registerViewer:
+            registerViewer,
+
+        unregisterViewer:
+            unregisterViewer,
+
+        register:
+            register,
+
+        unregister:
+            unregister
+
+    };
+
+})();

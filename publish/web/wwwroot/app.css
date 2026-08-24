@@ -1,0 +1,85 @@
+@media print {
+    /* Hide everything except the main payslip content */
+    body > *:not(.page),
+    .page > *:not(main),
+    main > *:not(article),
+    .no-print,
+    .sidebar,
+    .top-row {
+        display: none !important;
+    }
+
+    /* Reset page margins and padding for print */
+    html, body, .page, main, 
+    t {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+    }
+
+    /* --- FIX FOR OVERLAPPING --- */
+
+    /* Force rows to be full width */
+    .payslip-container .row {
+        width: 100%;
+        display: block; /* Change from flex to block for printing */
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+        /* Force columns (col-6) to be full width and stack */
+        .payslip-container .row > [class*="col-"] {
+            width: 100% !important;
+            flex: 0 0 100% !important;
+            max-width: 100% !important;
+            padding-left: 0; /* Reset padding */
+            padding-right: 0;
+        }
+
+        /* Add space between the stacked Earnings/Deductions blocks */
+        .payslip-container .row > .col-6:last-child {
+            margin-top: 20px; /* Add space above the Deductions block */
+        }
+    /* --- END FIX --- */
+
+    /* Style the payslip container for printing */
+    .payslip-container {
+        width: 90%;
+        margin: 1cm auto;
+        border: 1px solid #ccc !important;
+        padding: 1cm !important;
+        box-shadow: none !important;
+        background-color: #fff !important;
+        font-size: 10pt;
+    }
+
+    /* Ensure table borders are visible */
+    .payslip-details-table td, .payslip-details-table th {
+        border-top: 1px solid #eee;
+        padding: 0.2rem 0.4rem;
+    }
+
+    .payslip-details-table {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+
+    .payslip-summary h5 {
+        font-size: 1.1rem;
+    }
+
+    a {
+        text-decoration: none;
+        color: inherit;
+    }
+
+    .payslip-header, .payslip-details-table, .payslip-summary {
+        page-break-inside: avoid;
+    }
+}
+/* --- RESPONSIVE HELPERS --- */
+@media (max-width: 768px) {
+    .d-none-mobile {
+        display: none !important;
+    }
+}

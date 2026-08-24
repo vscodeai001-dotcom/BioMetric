@@ -1,0 +1,82 @@
+﻿@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@inject IToastService toastService
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<details class="mb-4 border rounded p-3">
+    <summary class="fw-bold text-success" style="cursor:pointer;">
+        <i class="bi bi-gift-fill me-2"></i> Issue New Bonus
+    </summary>
+    <div class="card-body mt-2 border-top pt-3">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Select Employee</label>
+                <select class="form-select" @bind="NewBonus.EmployeeID">
+                    <option value="0">-- Select --</option>
+                    @if (Employees != null)
+                    {
+                        @foreach (var emp in Employees.OrderBy(e => e.Name))
+                        {
+                            <option value="@emp.EmployeeID">@emp.Name</option>
+                        }
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Date</label>
+                <input type="date" class="form-control" @bind="DateHelper" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Amount (₹)</label>
+                <input type="number" class="form-control" @bind="NewBonus.Amount" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Description</label>
+                <input type="text" class="form-control" @bind="NewBonus.Description" placeholder="e.g. Festival Bonus" />
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+                <button class="btn btn-success w-100" @onclick="SaveBonus" disabled="@IsSaving">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</details>
+
+@code {
+    [Parameter] public List<Employee>? Employees { get; set; }
+    [Parameter] public BonusRecord NewBonus { get; set; } = new();
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [Parameter] public bool IsSaving { get; set; }
+
+    public DateTime DateHelper
+    {
+        get => NewBonus.BonusDate;
+        set => NewBonus.BonusDate = value;
+    }
+
+    private async Task SaveBonus()
+    {
+        if (NewBonus.EmployeeID == 0 || NewBonus.Amount <= 0)
+        {
+            toastService.ShowWarning("Please select employee and enter valid amount.");
+            return;
+        }
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            dbContext.BonusRecords.Add(NewBonus);
+            await dbContext.SaveChangesAsync();
+
+            toastService.ShowSuccess("Bonus issued successfully.");
+            NewBonus = new BonusRecord { BonusDate = DateTime.Now, Description = "Performance Bonus" };
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+}

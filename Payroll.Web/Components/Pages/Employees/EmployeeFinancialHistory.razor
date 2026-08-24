@@ -1,0 +1,231 @@
+﻿@using System.Globalization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+
+<div class="card">
+    <div class="card-header">
+        <ul class="nav nav-tabs card-header-tabs">
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "payroll" ? "active" : "")" @onclick="@(() => activeTab = "payroll")">Payroll History</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "advances" ? "active" : "")" @onclick="@(() => activeTab = "advances")">Salary Advances</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "bonus" ? "active" : "")" @onclick="@(() => activeTab = "bonus")">Bonus History</button> @* <-- NEW BUTTON *@
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "leave" ? "active" : "")" @onclick="@(() => activeTab = "leave")">Leave Requests</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "timeline" ? "active" : "")" @onclick="@(() => activeTab = "timeline")">Activity Timeline</button> @* <-- NEW BUTTON *@
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+
+        @* --- PAYROLL TAB --- *@
+        @if (activeTab == "payroll")
+        {
+            @if (PayrollHistory == null || !PayrollHistory.Any())
+            {
+                <p class="text-muted">No payroll history.</p>
+            }
+            else
+            {
+                <table class="table table-sm table-striped">
+                    <thead><tr><th>Period</th><th class="text-end">Net Pay</th><th class="text-end">OT</th><th>Action</th></tr></thead>
+                    <tbody>
+                        @foreach (var ph in PayrollHistory)
+                        {
+                            <tr>
+                                <td>@(new DateTime(ph.PayYear, ph.PayMonth, 1).ToString("MMM yyyy"))</td>
+                                <td class="text-end">@ph.NetSalary.ToString("C", InrCulture)</td>
+                                <td class="text-end">@(ph.OvertimePay?.ToString("C", InrCulture) ?? "0")</td>
+                                <td><button class="btn btn-sm btn-outline-info" @onclick="() => OnViewPayslip.InvokeAsync(ph.PayrollID)">Payslip</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        }
+
+        @* --- ADVANCES TAB --- *@
+        @if (activeTab == "advances")
+        {
+            @if (Advances == null || !Advances.Any())
+            {
+                <p class="text-muted">No advances.</p>
+            }
+            else
+            {
+                <table class="table table-sm table-striped">
+                    <thead><tr><th>Date</th><th>Type</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var adv in Advances)
+                        {
+                            <tr>
+                                <td>@adv.AdvanceDate?.ToString("dd-MMM-yy")</td>
+                                <td>@adv.AdvanceType</td>
+                                <td class="text-end">@adv.Amount.ToString("C", InrCulture)</td>
+                                <td><span class="badge @(adv.PayrollID_Paid.HasValue ? "bg-success" : "bg-warning text-dark")">@(adv.PayrollID_Paid.HasValue ? "Paid" : "Unpaid")</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        }
+
+        @* --- BONUS TAB (NEW) --- *@
+        @if (activeTab == "bonus")
+        {
+            @if (Bonuses == null || !Bonuses.Any())
+            {
+                <p class="text-muted">No bonus history.</p>
+            }
+            else
+            {
+                <table class="table table-sm table-striped">
+                    <thead><tr><th>Date</th><th>Description</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var bonus in Bonuses)
+                        {
+                            <tr>
+                                <td>@bonus.BonusDate.ToString("dd-MMM-yy")</td>
+                                <td>@bonus.Description</td>
+                                <td class="text-end">@bonus.Amount.ToString("C", InrCulture)</td>
+                                <td><span class="badge @(bonus.PayrollID_Paid.HasValue ? "bg-success" : "bg-warning text-dark")">@(bonus.PayrollID_Paid.HasValue ? "Paid" : "Unpaid")</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        }
+
+        @* --- LEAVE TAB --- *@
+        @if (activeTab == "leave")
+        {
+            @if (Leaves == null || !Leaves.Any())
+            {
+                <p class="text-muted">No leave records.</p>
+            }
+            else
+            {
+                <table class="table table-sm table-striped">
+                    <thead><tr><th>Date</th><th>Type</th><th>Status</th><th>Notes</th></tr></thead>
+                    <tbody>
+                        @foreach (var lr in Leaves)
+                        {
+                            <tr>
+                                <td>@lr.LeaveDate?.ToString("dd-MMM-yy")</td>
+                                <td>@lr.LeaveType</td>
+                                <td>
+                                    @if (lr.LeaveType == "Loss of Pay (Auto)")
+                                    {
+                                        <span class="badge bg-danger">LOP</span>
+                                    }
+                                    else if (lr.IsApproved)
+                                    {
+
+                                        <span class="badge bg-success">Approved</span>
+                                    }
+                                    else
+                                    {
+
+                                        <span class="badge bg-warning text-dark">Pending</span>
+                                    }
+                                </td>
+                                <td>@lr.Notes</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        }
+        @* --- TIMELINE TAB (NEW) --- *@
+        @if (activeTab == "timeline")
+        {
+            @if (AuditLogs == null || !AuditLogs.Any())
+            {
+                <p class="text-muted">No recent activity logs for this employee.</p>
+            }
+            else
+            {
+                <div class="activity-timeline">
+                    @foreach (var log in AuditLogs)
+                    {
+                        <div class="timeline-item d-flex mb-3">
+                            <div class="timeline-dot @GetActionColor(log.ActionType)"></div>
+                            <div class="timeline-content ms-3">
+                                <small class="text-muted d-block" style="font-size: 0.75rem;">@log.Timestamp.ToString("dd-MMM-yyyy HH:mm")</small>
+                                <strong class="@GetActionColor(log.ActionType)">@log.ActionType: @log.EntityType</strong>
+                                <p class="mb-0 small">@log.Details</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <style>
+                    .activity-timeline {
+                        border-left: 2px solid #e9ecef;
+                        padding-left: 10px;
+                    }
+
+                    .timeline-item {
+                        position: relative;
+                        margin-left: 10px;
+                        padding-bottom: 10px;
+                    }
+
+                    .timeline-dot {
+                        position: absolute;
+                        left: -16px;
+                        top: 0;
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 50%;
+                        border: 2px solid white;
+                        background-color: #ced4da;
+                    }
+
+                        .timeline-dot.bg-danger {
+                            background-color: #dc3545;
+                        }
+
+                        .timeline-dot.bg-success {
+                            background-color: #198754;
+                        }
+
+                        .timeline-dot.bg-info {
+                            background-color: #0dcaf0;
+                        }
+                </style>
+            }
+        }
+
+        @code {
+            // ... existing code ...
+
+            private string GetActionColor(string action) => action switch
+            {
+                "CREATE" => "text-success bg-success",
+                "UPDATE" => "text-info bg-info",
+                "DELETE" => "text-danger bg-danger",
+                "PERMANENT WIPE" => "text-danger bg-danger",
+                _ => "text-secondary bg-secondary"
+            };
+        }
+
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<PayrollHistory>? PayrollHistory { get; set; }
+    [Parameter] public List<SalaryAdvance>? Advances { get; set; }
+    [Parameter] public List<LeaveRequest>? Leaves { get; set; }
+    [Parameter] public List<BonusRecord>? Bonuses { get; set; }
+    [Parameter] public List<AuditLog>? AuditLogs { get; set; }
+    [Parameter] public EventCallback<int> OnViewPayslip { get; set; }
+
+    private string activeTab = "payroll";
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+}

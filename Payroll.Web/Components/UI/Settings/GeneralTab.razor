@@ -1,0 +1,74 @@
+﻿@using global::Payroll.Shared.Data
+
+<div class="row">
+    <div class="col-md-6 border-end">
+        <h6 class="text-primary border-bottom pb-2 mb-3">Company Details</h6>
+        <div class="mb-2"><label class="small fw-bold">Company Name</label> <input class="form-control form-control-sm" @bind="Settings.CompanyName" /></div>
+        <div class="mb-2"><label class="small fw-bold">Address Line 1</label> <input class="form-control form-control-sm" @bind="Settings.AddressLine1" /></div>
+        <div class="mb-2"><label class="small fw-bold">City, State, Pincode</label> <input class="form-control form-control-sm" @bind="Settings.CityStatePincode" /></div>
+    </div>
+   
+    <div class="col-md-6">
+        <h6 class="text-info border-bottom pb-2 mb-3">Payroll Rules & Device</h6>
+
+        <div class="row g-2 mb-3">
+            <div class="col-12">
+                <label class="small fw-bold">Calc. Method</label>
+                <select class="form-select form-select-sm" @bind="Settings.SalaryCalculationMethod">
+                    <option value="Days in Month">Days in Month</option>
+                    <option value="Fixed 30-Day">Fixed 30-Day</option>
+                    <option value="Pro-Rata Hourly">Pro-Rata Hourly</option>
+                </select>
+            </div>
+            <div class="col-4">
+                <label class="small fw-bold">Cutoff Hr</label>
+                <input type="number" class="form-control form-control-sm" @bind="Settings.WorkDayCutoffHour" placeholder="22" />
+            </div>
+            <div class="col-4">
+                <label class="small fw-bold">Late Grace</label>
+                <input type="number" class="form-control form-control-sm" @bind="Settings.LateGraceMinutes" placeholder="Mins" />
+            </div>
+            <div class="col-4">
+                <label class="small fw-bold">Early Grace</label>
+                <input type="number" class="form-control form-control-sm" @bind="Settings.EndTimeGraceMinutes" placeholder="Mins" />
+            </div>
+            <div class="row g-2 border-top pt-2 mt-2">
+                <div class="col-12 mb-1">
+                    <label class="small fw-bold text-primary">Geo-Fencing (Office Location)</label>
+                    <a href="https://www.google.com/maps" target="_blank" class="float-end small text-decoration-none"><i class="bi bi-map"></i> Open Maps</a>
+                </div>
+                <div class="col-4">
+                    <label class="small fw-bold">Latitude</label>
+                    <input type="number" step="any" class="form-control form-control-sm" @bind="Settings.OfficeLatitude" placeholder="12.xxx" />
+                </div>
+                <div class="col-4">
+                    <label class="small fw-bold">Longitude</label>
+                    <input type="number" step="any" class="form-control form-control-sm" @bind="Settings.OfficeLongitude" placeholder="80.xxx" />
+                </div>
+                <div class="col-4">
+                    <label class="small fw-bold">Radius (m)</label>
+                    <input type="number" class="form-control form-control-sm" @bind="Settings.GeoRadiusMeters" placeholder="100" />
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-2 border-top pt-2">
+            <div class="col-6">
+                <label class="small fw-bold">Device IP</label>
+                <input class="form-control form-control-sm" @bind="Settings.ZktecoIP" />
+            </div>
+            <div class="col-3">
+                <label class="small fw-bold">Port</label>
+                <input type="number" class="form-control form-control-sm" @bind="Settings.ZktecoPort" />
+            </div>
+            <div class="col-3">
+                <label class="small fw-bold">Machine No</label>
+                <input type="number" class="form-control form-control-sm" @bind="Settings.ZktecoMachineNumber" />
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public CompanySetting Settings { get; set; } = new();
+}

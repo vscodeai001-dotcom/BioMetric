@@ -1,0 +1,338 @@
+﻿@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Diagnostics.CodeAnalysis
+
+<div class="row g-2">
+
+    @* --- ROW 1: IDENTITY --- *@
+    <div class="col-md-3">
+        <label class="form-label small fw-bold text-primary mb-0">Full Name <span class="text-danger">*</span></label>
+        <input class="form-control form-control-sm" @bind="Employee.Name" placeholder="John Doe" />
+    </div>
+    <div class="col-md-3">
+        <label class="form-label small fw-bold text-primary mb-0">Email Address</label>
+        <input type="email" class="form-control form-control-sm" @bind="Employee.Email" placeholder="user@company.com" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-primary mb-0">Bio ID <span class="text-danger">*</span></label>
+        <input class="form-control form-control-sm" @bind="Employee.BiometricID" placeholder="101" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-primary mb-0">Role</label>
+        <input class="form-control form-control-sm" @bind="Employee.Role" placeholder="Engineer" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-primary mb-0">Hire Date <span class="text-danger">*</span></label>
+        <input type="date" class="form-control form-control-sm" @bind="HireDate" required />
+    </div>
+
+    @* --- ROW 2: PAYROLL & SHIFT --- *@
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-success mb-0">Salary (₹)</label>
+        <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Employee.MonthlySalary" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-success mb-0">Hourly (₹)</label>
+        <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Employee.DirectHourlyWage" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-success mb-0">Calc Method</label>
+        <select class="form-select form-select-sm" @bind="Employee.SalaryCalculationMethod">
+            <option value="">-- Default --</option>
+            <option value="Pro-Rata Hourly">Hourly</option>
+            <option value="Fixed 30-Day">Fixed 30</option>
+            <option value="Fixed 26-Day">Fixed 26</option>
+            <option value="Days in Month">Calendar</option>
+        </select>
+    </div>
+
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-success mb-0">Monthly Gross (₹)</label>
+        <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Employee.MonthlySalary" @bind:after="ValidateSalaryComponents" /> 
+    </div>
+    @if (FeatureSettings?.EnableSalaryStructuring == true) // <-- FEATURE GATE APPLIED
+    {
+        <div class="col-md-2">
+            <label class="form-label small fw-bold text-success mb-0">Basic (₹)</label>
+            <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Employee.BasicSalaryComponent" @* bind after removed duplicate *@ />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-bold text-success mb-0">HRA (₹)</label>
+            <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Employee.HraComponent" @bind:after="ValidateSalaryComponents" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-bold text-success mb-0">DA (₹)</label>
+            <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Employee.DaComponent" @bind:after="ValidateSalaryComponents" />
+        </div>
+    }
+
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-info mb-0">Shift Start</label>
+        <input type="time" class="form-control form-control-sm" @bind="ShiftStartTime" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-info mb-0">Shift End</label>
+        <input type="time" class="form-control form-control-sm" @bind="ShiftEndTime" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-info mb-0">Break (Min) <span class="text-danger">*</span></label>
+        <input type="number" min="0" class="form-control form-control-sm" @bind="Employee.StandardBreakMinutes" required />
+    </div>
+
+    @* --- ROW 3: RULES & DATES --- *@
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-secondary mb-0">OT Rule</label>
+        <select class="form-select form-select-sm" @bind="Employee.OT_Rule">
+            <option value="1.0x">1.0x</option>
+            <option value="1.5x">1.5x</option>
+            <option value="2.0x">2.0x</option>
+            <option value="Flat">Flat</option>
+            <option value="No Overtime">None</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-secondary mb-0">OT Rate (₹)</label>
+        <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Employee.OT_FlatRate" disabled="@(Employee.OT_Rule != "Flat")" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-secondary mb-0">Comp Off</label>
+        <select class="form-select form-select-sm" @bind="Employee.CompOffDayOfWeek">
+            <option value="">None</option>
+            <option value="@DayOfWeek.Sunday">Sun</option>
+            <option value="@DayOfWeek.Monday">Mon</option>
+            <option value="@DayOfWeek.Tuesday">Tue</option>
+            <option value="@DayOfWeek.Wednesday">Wed</option>
+            <option value="@DayOfWeek.Thursday">Thu</option>
+            <option value="@DayOfWeek.Friday">Fri</option>
+            <option value="@DayOfWeek.Saturday">Sat</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-secondary mb-0">DOB</label>
+        <input type="date" class="form-control form-control-sm" @bind="Dob" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-danger mb-0">Termination</label>
+        <input type="date" class="form-control form-control-sm" @bind="TerminationDate" />
+    </div>
+    @if (IsSuperAdmin || CompanySettings?.EnableShiftAllowance == true)
+    {
+        <div class="col-md-2">
+            <label class="form-label small fw-bold text-primary mb-0">Night Allow.(₹)</label>
+            <input type="number" class="form-control form-control-sm" @bind="Employee.NightShiftAllowance" placeholder="0.00" />
+        </div>
+    }
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-danger mb-0">TDS Rate (%)</label>
+        <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Employee.TdsRatePercent" placeholder="0.00" />
+    </div>
+    <div class="col-md-2"></div> @* Spacer *@
+
+    @* --- ROW 3.5: BANKING DETAILS --- *@
+    <div class="col-md-4">
+        <label class="form-label small fw-bold text-dark mb-0">Bank Account No</label>
+        <input type="text" class="form-control form-control-sm" @bind="Employee.BankAccountNumber" placeholder="Account Number" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold text-dark mb-0">IFSC Code</label>
+        <input type="text" class="form-control form-control-sm" @bind="Employee.BankIfscCode" placeholder="IFSC" />
+    </div>
+    <div class="col-md-4">
+        <label class="form-label small fw-bold text-dark mb-0">Bank Name</label>
+        <input type="text" class="form-control form-control-sm" @bind="Employee.BankName" placeholder="e.g. HDFC" />
+    </div>
+    <div class="col-md-2"></div> @* Spacer *@
+
+    @* --- ROW 3.7: SHIFT ROTATION CONFIGURATION (Near OT Rule) --- *@
+    <div class="col-md-12 mt-3 p-3 bg-light border rounded">
+        <h6 class="text-primary small fw-bold uppercase border-bottom pb-1 mb-2">Shift Rotation Settings</h6>
+        <div class="row g-2 align-items-center">
+            <div class="col-md-2">
+                <div class="form-check form-switch mb-1">
+                    <input class="form-check-input" type="checkbox" @bind="Employee.EnableShiftRotation" id="chkRotation">
+                    <label class="form-check-label small fw-bold" for="chkRotation">Enable Rotation</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <input type="text" class="form-control form-control-sm" @bind="Employee.RotationGroup"
+                       disabled="@(!Employee.EnableShiftRotation)" placeholder="Rotation Group (e.g., A/B/C)" />
+            </div>
+            <div class="col-md-7">
+                <input type="text" class="form-control form-control-sm" @bind="Employee.ShiftRotationPattern"
+                       disabled="@(!Employee.EnableShiftRotation)" placeholder="Rotation Pattern (e.g., Morning, Evening, Night)" />
+                <div class="form-text small">Enter comma-separated shift names/times for rotation.</div>
+            </div>
+        </div>
+    </div>
+
+    @* --- ROW 4: STATUTORY COMPLIANCE (Strict Check) --- *@
+    @{ 
+        bool showStatutory = IsSuperAdmin ||
+        (FeatureSettings?.EnableStatutoryCompliance == true && CompanySettings?.EnablePfEsiSystem == true);
+    }
+    @if (showStatutory)
+    {
+        <div class="col-12 mt-2">
+            <div class="card bg-light border-0">
+                <div class="card-body py-2 px-3">
+                    <h6 class="text-warning small fw-bold mb-2 border-bottom pb-1">Statutory Compliance (PF / ESI)</h6>
+                    <div class="row g-3">
+                        @* PF Group *@
+                        <div class="col-md-6">
+                            <div class="row g-2 align-items-end">
+                                <div class="col-auto">
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox" @bind="Employee.EnablePF" id="chkPF">
+                                        <label class="form-check-label small fw-bold" for="chkPF">Enable PF</label>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <input type="text" class="form-control form-control-sm" @bind="Employee.UAN" disabled="@(!Employee.EnablePF)" placeholder="UAN Number" />
+                                </div>
+                            </div>
+                        </div>
+                        @* ESI Group *@
+                        <div class="col-md-6">
+                            <div class="row g-2 align-items-end">
+                                <div class="col-auto">
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox" @bind="Employee.EnableESI" id="chkESI">
+                                        <label class="form-check-label small fw-bold" for="chkESI">Enable ESI</label>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <input type="text" class="form-control form-control-sm" @bind="Employee.ESINumber" disabled="@(!Employee.EnableESI)" placeholder="ESI Number" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Employee Employee { get; set; } = new();
+    [Parameter] public CompanySetting? CompanySettings { get; set; }
+    [Parameter] public bool IsSuperAdmin { get; set; }
+    [Parameter] public FeatureSettings? FeatureSettings { get; set; }
+
+    // --- Date Binding Helpers (FIXED: Added Equality Checks) ---
+
+    private void ValidateSalaryComponents()
+    {
+        // Simple validation: Components should not exceed the Monthly Salary
+        if (Employee.MonthlySalary > 0)
+        {
+            decimal sum = Employee.BasicSalaryComponent + Employee.HraComponent + Employee.DaComponent;
+            if (sum > Employee.MonthlySalary)
+            {
+                // This logic needs IToastService which is not injected here.
+                // We will perform the correction silently by adjusting the DA component.
+
+                // Perform silent adjustment to DA
+                Employee.DaComponent = Employee.MonthlySalary - Employee.BasicSalaryComponent - Employee.HraComponent;
+                if (Employee.DaComponent < 0)
+                    Employee.DaComponent = 0;
+
+                // Note: The toast warning about components exceeding gross must be handled by the parent caller
+                // (EmployeeList.razor) if complex user feedback is needed, but silent correction is safer here.
+            }
+        }
+    }
+
+    [Parameter]
+    [SuppressMessage("Usage", "BL0007", Justification = "Custom logic required for DateOnly conversion.")]
+    public DateTime? Dob
+    {
+        get => Employee.DOB?.ToDateTime(TimeOnly.MinValue);
+        set
+        {
+            var newVal = value.HasValue ? DateOnly.FromDateTime(value.Value) : (DateOnly?)null;
+            // FIX: Only update if value actually changed to prevent infinite loop
+            if (Employee.DOB != newVal)
+            {
+                Employee.DOB = newVal;
+                DobChanged.InvokeAsync(value);
+            }
+        }
+    }
+    [Parameter] public EventCallback<DateTime?> DobChanged { get; set; }
+
+    [Parameter]
+    [SuppressMessage("Usage", "BL0007", Justification = "Custom logic required for DateOnly conversion.")]
+    public DateTime? HireDate
+    {
+        get => Employee.HireDate?.ToDateTime(TimeOnly.MinValue);
+        set
+        {
+            var newVal = value.HasValue ? DateOnly.FromDateTime(value.Value) : (DateOnly?)null;
+            // FIX: Equality Check
+            if (Employee.HireDate != newVal)
+            {
+                Employee.HireDate = newVal;
+                HireDateChanged.InvokeAsync(value);
+            }
+        }
+    }
+    [Parameter] public EventCallback<DateTime?> HireDateChanged { get; set; }
+
+    [Parameter]
+    [SuppressMessage("Usage", "BL0007", Justification = "Custom logic required for DateOnly conversion.")]
+    public DateTime? TerminationDate
+    {
+        get => Employee.TerminationDate?.ToDateTime(TimeOnly.MinValue);
+        set
+        {
+            var newVal = value.HasValue ? DateOnly.FromDateTime(value.Value) : (DateOnly?)null;
+            // FIX: Equality Check
+            if (Employee.TerminationDate != newVal)
+            {
+                Employee.TerminationDate = newVal;
+                TerminationDateChanged.InvokeAsync(value);
+            }
+        }
+    }
+    [Parameter] public EventCallback<DateTime?> TerminationDateChanged { get; set; }
+
+    // --- Time Binding Helpers ---
+
+    private static DateTime BaseTime { get; } = DateTime.Today;
+
+    [Parameter]
+    [SuppressMessage("Usage", "BL0007", Justification = "Custom logic required for TimeOnly conversion.")]
+    public DateTime? ShiftStartTime
+    {
+        get => Employee.ShiftStartTime.HasValue ? BaseTime.Add(Employee.ShiftStartTime.Value.ToTimeSpan()) : null;
+        set
+        {
+            var newVal = value.HasValue ? TimeOnly.FromDateTime(value.Value) : (TimeOnly?)null;
+            // FIX: Equality Check
+            if (Employee.ShiftStartTime != newVal)
+            {
+                Employee.ShiftStartTime = newVal;
+                ShiftStartTimeChanged.InvokeAsync(value);
+            }
+        }
+    }
+    [Parameter] public EventCallback<DateTime?> ShiftStartTimeChanged { get; set; }
+
+    [Parameter]
+    [SuppressMessage("Usage", "BL0007", Justification = "Custom logic required for TimeOnly conversion.")]
+    public DateTime? ShiftEndTime
+    {
+        get => Employee.ShiftEndTime.HasValue ? BaseTime.Add(Employee.ShiftEndTime.Value.ToTimeSpan()) : null;
+        set
+        {
+            var newVal = value.HasValue ? TimeOnly.FromDateTime(value.Value) : (TimeOnly?)null;
+            // FIX: Equality Check
+            if (Employee.ShiftEndTime != newVal)
+            {
+                Employee.ShiftEndTime = newVal;
+                ShiftEndTimeChanged.InvokeAsync(value);
+            }
+        }
+    }
+    [Parameter] public EventCallback<DateTime?> ShiftEndTimeChanged { get; set; }
+}

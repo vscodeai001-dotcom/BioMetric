@@ -1,0 +1,46 @@
+﻿@using System.Net.Http
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using Microsoft.JSInterop
+@using Blazored.Toast
+@using ApexCharts
+@using Blazored.Toast.Services
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Authorization
+
+@* --- SHARED LIBRARY --- *@
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Models
+@using global::Payroll.Shared.Services
+
+@* --- WEB PROJECT ROOT --- *@
+@using global::Payroll.Web
+@using global::Payroll.Web.Services
+@using global::Payroll.Web.Models
+
+@* --- UI COMPONENTS (Reusable) --- *@
+@using global::Payroll.Web.Components.Layout
+@using global::Payroll.Web.Components.UI.Admin
+@using global::Payroll.Web.Components.UI.Attendance
+@using global::Payroll.Web.Components.UI.Employees
+@using global::Payroll.Web.Components.UI.PayrollProcess
+@using global::Payroll.Web.Components.UI.Finance
+@using global::Payroll.Web.Components.UI.Scheduling
+@using global::Payroll.Web.Components.UI.Settings
+
+@* --- PAGES (Screens) - Optional to import, but helps navigation --- *@
+@using global::Payroll.Web.Components.Pages.Admin
+@using global::Payroll.Web.Components.Pages.Attendance
+@using global::Payroll.Web.Components.Pages.Employees
+@using global::Payroll.Web.Components.Pages.EmpScreens
+@using global::Payroll.Web.Components.Pages.Finance
+@using global::Payroll.Web.Components.Pages.Leave
+@using global::Payroll.Web.Components.Pages.PayrollProcess
+@using global::Payroll.Web.Components.Pages.Scheduling
+@using global::Payroll.Web.Components.Pages.Settings

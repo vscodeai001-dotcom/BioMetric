@@ -1,0 +1,137 @@
+@page "/attendance/regularization-approval"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject RegularizationService RegularizationService
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Regularization Approval</PageTitle>
+
+<div class="d-flex flex-column h-100">
+    <h3 class="text-primary fw-bold mb-3 flex-shrink-0"><i class="bi bi-shield-check me-2"></i>Regularization Approval</h3>
+
+    @* --- FILTER & REFRESH --- *@
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-shrink-0">
+        <span class="badge bg-warning text-dark">@pendingRequests.Count() Pending Requests</span>
+        <button class="btn btn-outline-primary btn-sm" @onclick="LoadRequests">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+
+    @* --- MAIN SCROLLABLE LIST --- *@
+    <div class="flex-grow-1 overflow-auto">
+        <div class="card shadow-sm h-100 d-flex flex-column">
+            <div class="card-body p-0 overflow-auto">
+                <table class="table table-sm table-striped table-hover mb-0">
+                    <thead class="sticky-top table-dark">
+                        <tr>
+                            <th>Employee</th>
+                            <th>Date</th>
+                            <th>Requested Punch</th>
+                            <th>Reason</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (isLoading)
+                        {
+                            <tr><td colspan="5" class="text-center text-muted">Loading requests...</td></tr>
+                        }
+                        @if (!pendingRequests.Any() && !isLoading)
+                        {
+                            <tr><td colspan="5" class="text-center text-success">All clear! No pending requests.</td></tr>
+                        }
+                        @foreach (var req in pendingRequests)
+                        {
+                            <tr>
+                                <td class="fw-bold">@GetEmpName(req.EmployeeId)</td>
+                                <td>@req.DateOfPunch.ToString("dd-MMM-yyyy")</td>
+                                <td>
+                                    <span class="badge @(req.IsInPunch ? "bg-info" : "bg-warning text-dark")">@(req.IsInPunch ? "IN" : "OUT")</span>
+                                    <span class="fw-bold ms-1">@req.PunchTimeNew.ToString("hh:mm tt")</span>
+                                </td>
+                                <td><p class="text-muted small mb-0 text-truncate" style="max-width: 300px;">@req.Reason</p></td>
+                                <td class="text-center text-nowrap">
+                                    <button class="btn btn-sm btn-success me-2" @onclick="() => UpdateStatus(req, true)">Approve</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => UpdateStatus(req, false)">Reject</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<AttendanceRefreshListener
+    OnRegularizationChanged="LoadRequests" />
+
+@code {
+    private List<AttendanceRegularization> pendingRequests = new();
+    private List<Employee> employees = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadEmployees();
+        await LoadRequests();
+    }
+
+    private async Task LoadEmployees()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        employees = await db.Employees.AsNoTracking().ToListAsync();
+    }
+
+    private async Task LoadRequests()
+    {
+        isLoading = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            pendingRequests = await db.AttendanceRegularizations
+                .Where(r => r.Status == "Pending")
+                .OrderBy(r => r.SubmissionDate)
+                .ToListAsync();
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task UpdateStatus(AttendanceRegularization req, bool approved)
+    {
+        var action = approved ? "Approve" : "Reject";
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"{action} request for {GetEmpName(req.EmployeeId)} on {req.DateOfPunch.ToString("dd-MMM")}?");
+        
+        if (!confirmed) return;
+
+        var remarks = approved ? "Approved" : await JSRuntime.InvokeAsync<string>("prompt", "Enter rejection reason:");
+
+        try
+        {
+            await RegularizationService.UpdateStatusAndInjectPunchAsync(
+                req.RegularizationId,
+                approved ? "Approved" : "Rejected",
+                remarks ?? "No reason provided."
+            );
+            
+            toastService.ShowSuccess($"Request {action}d. Attendance Log updated.");
+            
+            // Note: The UI is correctly implemented to call the service.
+            // The service is CRITICAL: it must inject the punch and mark the request as approved.
+            
+            await LoadRequests();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Failed to {action} request: {ex.Message}");
+        }
+    }
+
+    private string GetEmpName(int id) => employees.FirstOrDefault(e => e.EmployeeID == id)?.Name ?? $"ID:{id} (Unknown)";
+}

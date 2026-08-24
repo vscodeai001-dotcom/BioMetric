@@ -1,0 +1,191 @@
+@media print {
+    /* Hide everything except the main payslip content */
+    body > *:not(.page),
+    .page > *:not(main),
+    main > *:not(article),
+    .no-print,
+    .sidebar,
+    .top-row {
+        display: none !important;
+    }
+
+    /* Reset page margins and padding for print */
+    html, body, .page, main, 
+    t {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+    }
+
+    /* --- FIX FOR OVERLAPPING --- */
+
+    /* Force rows to be full width */
+    .payslip-container .row {
+        width: 100%;
+        display: block; /* Change from flex to block for printing */
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+        /* Force columns (col-6) to be full width and stack */
+        .payslip-container .row > [class*="col-"] {
+            width: 100% !important;
+            flex: 0 0 100% !important;
+            max-width: 100% !important;
+            padding-left: 0; /* Reset padding */
+            padding-right: 0;
+        }
+
+        /* Add space between the stacked Earnings/Deductions blocks */
+        .payslip-container .row > .col-6:last-child {
+            margin-top: 20px; /* Add space above the Deductions block */
+        }
+    /* --- END FIX --- */
+
+    /* Style the payslip container for printing */
+    .payslip-container {
+        width: 90%;
+        margin: 1cm auto;
+        border: 1px solid #ccc !important;
+        padding: 1cm !important;
+        box-shadow: none !important;
+        background-color: #fff !important;
+        font-size: 10pt;
+    }
+
+    /* Ensure table borders are visible */
+    .payslip-details-table td, .payslip-details-table th {
+        border-top: 1px solid #eee;
+        padding: 0.2rem 0.4rem;
+    }
+
+    .payslip-details-table {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+
+    .payslip-summary h5 {
+        font-size: 1.1rem;
+    }
+
+    a {
+        text-decoration: none;
+        color: inherit;
+    }
+
+    .payslip-header, .payslip-details-table, .payslip-summary {
+        page-break-inside: avoid;
+    }
+}
+/* --- RESPONSIVE HELPERS --- */
+@media (max-width: 768px) {
+    .d-none-mobile {
+        display: none !important;
+    }
+}
+
+/* --- PAYROLL TABLE STYLING (Light Mode) --- */
+.table-responsive {
+    background-color: transparent;
+}
+
+/* Ensure table text is readable in light mode */
+.table td, .table th {
+    background-color: #ffffff;
+    color: #212529;
+}
+
+.table.table-striped > tbody > tr:nth-of-type(odd) > * {
+    background-color: #f8f9fa;
+    color: #212529;
+}
+
+.table.table-hover > tbody > tr:hover > * {
+    background-color: #e9ecef;
+    color: #212529;
+}
+
+/* ---- INPUT FIX FOR DARK MODE ---- */
+
+body.dark input.form-control,
+body.dark select.form-select,
+body.dark textarea.form-control {
+    background-color: #2b2f33 !important;
+    color: #f1f1f1 !important;
+    border: 1px solid #555 !important;
+}
+
+/* Labels */
+body.dark label {
+    color: #e0e0e0 !important;
+}
+
+/* Placeholder text */
+body.dark input.form-control::placeholder,
+body.dark textarea.form-control::placeholder {
+    color: #b3b3b3 !important;
+}
+
+/* Focus effect */
+body.dark input.form-control:focus,
+body.dark select.form-select:focus,
+body.dark textarea.form-control:focus {
+    border-color: #0d6efd !important;
+    box-shadow: 0 0 0 0.20rem rgba(13, 110, 253, 0.25) !important;
+}
+
+/* --- WIDE SIDE PANEL (DRAWER) STYLE --- */
+
+.modal-dialog-right {
+    position: absolute !important;
+    top: 3.5rem !important; /* Pushes it DOWN below the Menu Bar */
+    right: 0;
+    margin: 0 !important;
+    height: calc(100vh - 3.5rem) !important; /* Full height minus Menu Bar */
+    max-width: 1100px !important; /* WIDE enough for 6 columns */
+    width: 90vw !important; /* Responsive width */
+    display: flex;
+}
+
+    .modal-dialog-right .modal-content {
+        height: 100%;
+        border-radius: 0 !important;
+        border: none;
+        border-left: 1px solid #dee2e6;
+        box-shadow: -5px 0 15px rgba(0,0,0,0.1);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .modal-dialog-right .modal-header {
+        flex-shrink: 0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        z-index: 10;
+    }
+
+    /* Internal Scrolling for the Body */
+    .modal-dialog-right .modal-body {
+        flex-grow: 1; /* Take up all remaining space */
+        overflow-y: auto; /* Scroll ONLY inside this area */
+        overflow-x: hidden;
+        padding: 2rem; /* UNIFORM SPACING on all 4 sides */
+    }
+
+    .modal-dialog-right .modal-footer {
+        flex-shrink: 0;
+        box-shadow: 0 -1px 3px rgba(0,0,0,0.05);
+        z-index: 10;
+        padding: 1.5rem 2rem; /* Match horizontal padding */
+    }
+
+/* Slide Animation */
+.modal.fade .modal-dialog-right {
+    transform: translateX(100%);
+    transition: transform 0.3s ease-in-out;
+}
+
+.modal.show .modal-dialog-right {
+    transform: translateX(0);
+}
+
+

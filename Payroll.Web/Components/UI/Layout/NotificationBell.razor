@@ -1,0 +1,130 @@
+﻿@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject NotificationService NoteService
+@inject AuthenticationStateProvider AuthState
+
+<div class="dropdown d-inline-block me-2">
+    @* --- FIX: Removed 'btn-link', added explicit color style --- *@
+    <button class="btn position-relative p-2"
+            type="button"
+            id="notifyDropdown"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+            style="color: var(--text-main); border: none; background: transparent;">
+
+        <i class="bi bi-bell-fill fs-5 @(unreadCount > 0 ? "text-warning" : "")"></i>
+
+        @if (unreadCount > 0)
+        {
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem;">
+                @unreadCount
+                <span class="visually-hidden">unread messages</span>
+            </span>
+        }
+    </button>
+
+    <ul class="dropdown-menu dropdown-menu-end shadow border-0" aria-labelledby="notifyDropdown" style="width: 320px; max-height: 400px; overflow-y: auto;">
+        <li class="dropdown-header d-flex justify-content-between align-items-center bg-light py-2">
+            <span class="fw-bold text-primary">Notifications</span>
+            @if (unreadCount > 0)
+            {
+                <button class="btn btn-sm btn-link text-decoration-none small p-0" @onclick="MarkAllRead">Mark all read</button>
+            }
+        </li>
+        <li><hr class="dropdown-divider my-0"></li>
+
+        @if (notifications == null || !notifications.Any())
+        {
+            <li class="p-3 text-center text-muted small">
+                <i class="bi bi-bell-slash d-block fs-4 mb-2 opacity-50"></i>
+                No notifications
+            </li>
+        }
+        else
+        {
+            @foreach (var note in notifications)
+            {
+                <li>
+                    <a class="dropdown-item p-2 text-wrap @(note.IsRead ? "opacity-75" : "bg-primary-subtle")"
+                       href="javascript:void(0)"
+                       @onclick="() => OnClickNotification(note)">
+                        <div class="d-flex justify-content-between">
+                            <strong class="small">@note.Title</strong>
+                            <span class="text-muted" style="font-size: 0.65rem;">@GetTimeAgo(note.CreatedAt)</span>
+                        </div>
+                        <p class="mb-0 small text-muted text-truncate">@note.Message</p>
+                    </a>
+                </li>
+                <li><hr class="dropdown-divider my-0"></li>
+            }
+        }
+    </ul>
+</div>
+
+@code {
+    private List<Notification> notifications = new();
+    private int unreadCount => notifications.Count(n => !n.IsRead);
+    private string userId = "";
+    private Timer? timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var user = state.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            userId = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+            if (!string.IsNullOrEmpty(userId))
+            {
+                await FetchNotifications();
+                // Refresh every 15s
+                timer = new Timer(async (_) =>
+                {
+                    await FetchNotifications();
+                    await InvokeAsync(StateHasChanged);
+                }, null, 0, 15000);
+            }
+        }
+    }
+
+    private async Task FetchNotifications()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(userId))
+                notifications = await NoteService.GetRecentNotificationsAsync(userId);
+        }
+        catch { }
+    }
+
+    private async Task OnClickNotification(Notification note)
+    {
+        if (!note.IsRead)
+        {
+            note.IsRead = true;
+            await NoteService.MarkAsReadAsync(note.NotificationId);
+        }
+        if (!string.IsNullOrEmpty(note.Url)) Navigation.NavigateTo(note.Url);
+    }
+
+    private async Task MarkAllRead()
+    {
+        var unreadIds = notifications.Where(n => !n.IsRead).Select(n => n.NotificationId).ToList();
+        foreach (var n in notifications) n.IsRead = true;
+        await Task.WhenAll(unreadIds.Select(id => NoteService.MarkAsReadAsync(id)));
+    }
+
+    private string GetTimeAgo(DateTime date)
+    {
+        var span = DateTime.UtcNow - date;
+        if (span.TotalMinutes < 1) return "Just now";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return date.ToLocalTime().ToString("dd-MMM");
+    }
+
+    public void Dispose() => timer?.Dispose();
+}

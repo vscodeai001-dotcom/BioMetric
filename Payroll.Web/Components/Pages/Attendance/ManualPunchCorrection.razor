@@ -1,0 +1,620 @@
+@page "/manual-punch-correction"
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.JSInterop
+@using Blazored.Toast.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject Payroll.Web.Services.AuditService AuditService
+@inject Payroll.Web.Services.PayrollLockService LockService
+@inject AttendanceCalculatorService Calculator
+@inject IJSRuntime JSRuntime
+@inject ILogger<ManualPunchCorrection> _logger
+@inject IToastService toastService
+@inject AttendanceRefreshService AttendanceRefreshService
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Manual Punch Correction</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>Manual Punch Correction</h3>
+    <div>
+        <button class="btn btn-primary" @onclick="LoadProblematicDays" disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+            }
+            else
+            {
+                <span class="bi bi-search"></span>
+            }
+            Find Issues
+        </button>
+    </div>
+</div>
+
+@* --- FILTER CONTROLS --- *@
+<div class="row p-3 mb-4 border rounded bg-light">
+    <div class="col-md-4">
+        <label class="form-label small fw-bold">Filter by Employee</label>
+        <select class="form-select" @bind="selectedEmployeeId">
+            <option value="0">-- All Employees --</option>
+            @if (employeeList != null)
+            {
+                @foreach (var emp in employeeList)
+                {
+                    <option value="@emp.EmployeeID">@emp.Name</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label small fw-bold">Start Date</label>
+        <input type="date" class="form-control" @bind="startDate" />
+    </div>
+    <div class="col-md-4">
+        <label class="form-label small fw-bold">End Date</label>
+        <input type="date" class="form-control" @bind="endDate" />
+    </div>
+</div>
+
+@* --- DISPLAY DAYS --- *@
+@if (isLoading)
+{
+    <p><em>Searching for punch issues...</em></p>
+}
+else if (problematicDays == null)
+{
+    <p><em>Click "Find Issues" to search for days with missing or odd punches.</em></p>
+}
+else if (!problematicDays.Any())
+{
+    <div class="alert alert-success">
+        <i class="bi bi-check-circle me-2"></i> No punch issues found for the selected period!
+    </div>
+}
+else
+{
+    <div class="list-group shadow-sm">
+        @foreach (var dayInfo in problematicDays.OrderBy(d => d.Date).ThenBy(d => d.EmployeeName))
+        {
+            <div class="list-group-item list-group-item-action mb-0 border-bottom">
+                <div class="d-flex w-100 justify-content-between align-items-center mb-2">
+                    <div>
+                        <h6 class="mb-0 fw-bold">@dayInfo.EmployeeName</h6>
+                        <small class="text-muted">@dayInfo.Date.ToString("dddd, dd MMMM yyyy")</small>
+                    </div>
+                    <div class="text-end">
+                        @if (dayInfo.Punches.Count == 0)
+                        {
+                            <span class="badge bg-danger">Missing All Punches</span>
+                        }
+                        else if (dayInfo.Punches.Count % 2 != 0)
+                        {
+                            <span class="badge bg-warning text-dark">Odd Count (@dayInfo.Punches.Count)</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-info text-dark">Review Needed</span>
+                        }
+                    </div>
+                </div>
+
+                @if (dayInfo.Punches.Any())
+                {
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        @foreach (var log in dayInfo.Punches.OrderBy(p => p.PunchTime))
+                        {
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button type="button" class="btn btn-outline-secondary" disabled>@log.PunchTime.ToString("hh:mm tt")</button>
+                                <button type="button" class="btn btn-outline-primary" title="Edit" @onclick="() => StartEditingPunch(log)"><i class="bi bi-pencil-fill"></i></button>
+                                <button type="button" class="btn btn-outline-danger" title="Delete" @onclick="() => DeletePunch(log)"><i class="bi bi-trash-fill"></i></button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-light border p-2 mb-2 small text-center">
+                        <em>No punches recorded for this day.</em>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-success" @onclick="() => QuickAddFullDay(dayInfo)">
+                                <i class="bi bi-magic me-1"></i> Quick Add Full Day (Shift Start/End)
+                            </button>
+                        </div>
+                    </div>
+                }
+
+                @* --- Add Single Punch --- *@
+                <div class="input-group input-group-sm mt-2" style="max-width: 300px;">
+                    <span class="input-group-text">Add Single Punch</span>
+                    <input type="time" class="form-control" @bind="dayInfo.NewPunchTime" />
+                    <button class="btn btn-outline-success" @onclick="() => AddPunch(dayInfo)" disabled="@(!dayInfo.NewPunchTime.HasValue)">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@* --- Edit Punch Modal --- *@
+@if (punchToEdit != null)
+{
+    <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Punch Time</h5>
+                    <button type="button" class="btn-close" @onclick="CancelEdit"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Editing punch for <strong>@editingEmployeeName</strong> on <strong>@punchToEdit.PunchTime.ToString("dd-MMM-yyyy")</strong></p>
+                    <label class="form-label">New Time:</label>
+                    <input type="time" step="1" class="form-control" @bind="editedPunchTime" />
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CancelEdit">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveChangesToPunch" disabled="@(!editedPunchTime.HasValue)">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+
+@code {
+    private List<Employee>? employeeList;
+    private int selectedEmployeeId = 0;
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private bool isLoading = false;
+
+    private List<ProblemDayInfo>? problematicDays;
+
+    private class ProblemDayInfo
+    {
+        public int EmployeeID { get; set; }
+        public string EmployeeName { get; set; } = "";
+        public DateTime Date { get; set; }
+        public List<AttendanceLog> Punches { get; set; } = new();
+        public TimeOnly? NewPunchTime { get; set; }
+
+        // Helper for Quick Add
+        public TimeOnly? ShiftStart { get; set; }
+        public TimeOnly? ShiftEnd { get; set; }
+    }
+
+    // Modal state
+    private AttendanceLog? punchToEdit;
+    private TimeOnly? editedPunchTime;
+    private string editingEmployeeName = "";
+
+    private async Task RecalculateAndSaveSummary(int employeeId, DateTime day)
+    {
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. Load context data for calculation
+            var emp = await dbContext.Employees.FindAsync(employeeId);
+            var settings = await dbContext.CompanySettings.FirstOrDefaultAsync(s => s.SettingID == 1) ?? new CompanySetting();
+            var features = await dbContext.FeatureSettings.FirstOrDefaultAsync(f => f.Id == 1) ?? new FeatureSettings(); // Required for Shift Allowance check
+            var holidays = await dbContext.CompanyHolidays.ToListAsync();
+
+            // 2. Load punches, schedule, and leave for the exact day
+            var punches = await dbContext.AttendanceLogs
+                .Where(l => l.EmployeeID == employeeId && l.PunchTime.Date == day.Date)
+                .ToListAsync();
+            var schedule = await dbContext.ShiftSchedules
+                .FirstOrDefaultAsync(s => s.EmployeeID == employeeId && s.ShiftDate == DateOnly.FromDateTime(day));
+            var leave = await dbContext.LeaveRequests
+                .FirstOrDefaultAsync(l => l.EmployeeID == employeeId && l.LeaveDate.HasValue && l.LeaveDate.Value.Date == day.Date);
+
+            // 3. Calculate new result
+            var result = Calculator.CalculateDailyResult(
+                emp!, day, punches, leave, schedule, settings, holidays, features);
+
+            // 4. Create or Update Summary
+            var existingSummary = await dbContext.DailySummaries
+                .FirstOrDefaultAsync(s => s.EmployeeID == employeeId && s.ShiftDate == DateOnly.FromDateTime(day));
+
+            if (existingSummary == null)
+            {
+                existingSummary = new DailySummary { EmployeeID = employeeId, ShiftDate = DateOnly.FromDateTime(day) };
+                dbContext.DailySummaries.Add(existingSummary);
+            }
+
+            // 5. Update fields (Similar to mass reprocess logic)
+            existingSummary.Status = result.Status;
+            existingSummary.EarnedStandardHours = result.EarnedStandardDuration.TotalHours < 0 ? 0 : (decimal)result.EarnedStandardDuration.TotalHours;
+            existingSummary.TotalOvertimeDuration = result.TotalOvertimeDuration;
+            existingSummary.TotalPenaltyDuration = result.TotalPenalty;
+            existingSummary.TotalLateness = result.TotalLateness;
+            existingSummary.TotalBreakPenalty = result.TotalBreakPenalty;
+            existingSummary.ScheduledShiftDuration = result.ScheduledShiftDuration;
+            existingSummary.ShiftAllowanceEarned = result.ShiftAllowanceEarned;
+
+            await dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Recalculation complete for Emp {id} on {day}", employeeId, day.ToShortDateString());
+
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during single-day recalculation after punch correction.");
+            // Do not show error toast to avoid annoying the user; log it silently.
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.Now.Date;
+        startDate = today.AddDays(-7);
+        endDate = today;
+        await LoadEmployeesAsync();
+    }
+
+    private async Task LoadEmployeesAsync()
+    {
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            employeeList = await dbContext.Employees.OrderBy(e => e.Name).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading employees.");
+            employeeList = new List<Employee>();
+        }
+    }
+
+    private async Task LoadProblematicDays()
+    {
+        isLoading = true;
+        problematicDays = null;
+        StateHasChanged();
+
+        if (!startDate.HasValue || !endDate.HasValue || startDate.Value > endDate.Value)
+        {
+            toastService.ShowWarning("Please select a valid date range.");
+            isLoading = false;
+            return;
+        }
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var queryStartDate = startDate.Value.Date;
+            var queryEndDate = endDate.Value.Date;
+            var queryEndExclusive = queryEndDate.AddDays(1);
+
+            // 1. Get all punches in the selected range.
+            // Use a range instead of Date property filtering so the database can
+            // use the PunchTime index efficiently.
+            var logsQuery = dbContext.AttendanceLogs
+                .AsNoTracking()
+                .Where(log =>
+                    log.PunchTime >= queryStartDate &&
+                    log.PunchTime < queryEndExclusive);
+
+            if (selectedEmployeeId > 0)
+                logsQuery = logsQuery.Where(log => log.EmployeeID == selectedEmployeeId);
+
+            var allLogs = await logsQuery.ToListAsync();
+
+            // 2. Load APPROVED full-day employee leave for the same period.
+            // Full-day approved leave is not a punch problem and must not appear
+            // as "Missing All Punches" in this correction screen.
+            // Half-day leave is intentionally NOT excluded because the employee
+            // may still need punches for the worked half of the day.
+            var leaveQuery = dbContext.LeaveRequests
+                .AsNoTracking()
+                .Where(leave =>
+                    leave.IsApproved &&
+                    leave.LeaveDate.HasValue &&
+                    leave.LeaveDate.Value >= queryStartDate &&
+                    leave.LeaveDate.Value < queryEndExclusive &&
+                    !leave.IsHalfDay &&
+                    leave.LeaveType != "Loss of Pay (Auto)");
+
+            if (selectedEmployeeId > 0)
+                leaveQuery = leaveQuery.Where(leave => leave.EmployeeID == selectedEmployeeId);
+
+            var approvedFullDayLeaves = await leaveQuery.ToListAsync();
+
+            var approvedFullDayLeaveKeys = approvedFullDayLeaves
+                .Where(leave => leave.LeaveDate.HasValue)
+                .Select(leave => $"{leave.EmployeeID}_{leave.LeaveDate!.Value.Date:yyyyMMdd}")
+                .ToHashSet(StringComparer.Ordinal);
+
+            // 3. Get employees to check for missing/odd punches.
+            var targetEmployees = selectedEmployeeId > 0
+                ? employeeList?.Where(e => e.EmployeeID == selectedEmployeeId).ToList()
+                : employeeList;
+
+            if (targetEmployees == null) return;
+
+            var problems = new List<ProblemDayInfo>();
+
+            // 4. Iterate dates and employees to find genuine punch issues.
+            for (var day = queryStartDate; day <= queryEndDate; day = day.AddDays(1))
+            {
+                if (day.DayOfWeek == DayOfWeek.Sunday) continue; // Existing behavior preserved.
+
+                foreach (var emp in targetEmployees)
+                {
+                    // Skip if not employed on this date.
+                    if (emp.HireDate.HasValue && day < emp.HireDate.Value.ToDateTime(TimeOnly.MinValue)) continue;
+                    if (emp.TerminationDate.HasValue && day > emp.TerminationDate.Value.ToDateTime(TimeOnly.MaxValue)) continue;
+
+                    // IMPORTANT: An approved full-day leave is a valid attendance
+                    // state, not a missing-punch problem.
+                    var leaveKey = $"{emp.EmployeeID}_{day:yyyyMMdd}";
+                    if (approvedFullDayLeaveKeys.Contains(leaveKey))
+                        continue;
+
+                    var punches = allLogs
+                        .Where(l => l.EmployeeID == emp.EmployeeID && l.PunchTime.Date == day)
+                        .OrderBy(l => l.PunchTime)
+                        .ToList();
+
+                    // Existing correction rules preserved:
+                    // 0 punches = missing all punches
+                    // odd punches = incomplete/mismatch
+                    if (punches.Count == 0 || punches.Count % 2 != 0)
+                    {
+                        problems.Add(new ProblemDayInfo
+                        {
+                            EmployeeID = emp.EmployeeID,
+                            EmployeeName = emp.Name,
+                            Date = day,
+                            Punches = punches,
+                            ShiftStart = emp.ShiftStartTime.HasValue ? emp.ShiftStartTime : null,
+                            ShiftEnd = emp.ShiftEndTime.HasValue ? emp.ShiftEndTime : null
+                        });
+                    }
+                }
+            }
+
+            problematicDays = problems
+                .OrderBy(p => p.Date)
+                .ThenBy(p => p.EmployeeName)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading problematic punch days.");
+            toastService.ShowError($"Error finding issues: {ex.Message}");
+            problematicDays = new List<ProblemDayInfo>();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task QuickAddFullDay(ProblemDayInfo dayInfo)
+    {
+        if (await LockService.IsLockedAsync(dayInfo.EmployeeID, dayInfo.Date))
+        {
+            toastService.ShowError("Payroll is finalized for this month. Cannot add punches.");
+            return;
+        }
+        // Default to 9-6 if shift not set
+        var start = dayInfo.ShiftStart ?? new TimeOnly(9, 0);
+        var end = dayInfo.ShiftEnd ?? new TimeOnly(18, 0);
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            var inLog = new AttendanceLog
+            {
+                EmployeeID = dayInfo.EmployeeID,
+                PunchTime = dayInfo.Date.Add(start.ToTimeSpan()),
+                DeviceID = "ManualCorrection",
+                LogType = "Manual Correction", // <-- UPDATED LogType
+                IsApproved = true // <-- NEW: Set to False
+            };
+
+            var outLog = new AttendanceLog
+            {
+                EmployeeID = dayInfo.EmployeeID,
+                PunchTime = dayInfo.Date.Add(end.ToTimeSpan()),
+                DeviceID = "ManualCorrection",
+                LogType = "Manual Correction", // <-- UPDATED LogType
+                IsApproved = true // <-- NEW: Set to False
+            };
+
+            dbContext.AttendanceLogs.AddRange(inLog, outLog);
+            await dbContext.SaveChangesAsync();
+
+            // --- AUDIT LOG: QUICK ADD ---
+            await AuditService.LogAsync("CREATE", "AttendanceLog", $"{inLog.LogID},{outLog.LogID}",
+                $"Quick Added {start:hh:mm tt}-{end:hh:mm tt} punches for EmpID: {dayInfo.EmployeeID}");
+            // ----------------------------
+            toastService.ShowSuccess($"Added full day ({start:hh:mm tt} - {end:hh:mm tt})");
+
+            await RecalculateAndSaveSummary(dayInfo.EmployeeID, dayInfo.Date);
+
+            await AttendanceRefreshService
+                .NotifyAttendanceChangedAsync(
+                    dayInfo.EmployeeID,
+                    DateOnly.FromDateTime(dayInfo.Date.Date));
+
+            await LoadProblematicDays();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error adding full day: {ex.Message}");
+        }
+    }
+
+    private async Task AddPunch(ProblemDayInfo dayInfo)
+    {
+        if (!dayInfo.NewPunchTime.HasValue || dayInfo.EmployeeID == 0) return;
+
+        // --- LOCK CHECK ---
+        if (await LockService.IsLockedAsync(dayInfo.EmployeeID, dayInfo.Date))
+        {
+            toastService.ShowError("Payroll is finalized for this month. Cannot add punches.");
+            return;
+        }
+        // --- END LOCK CHECK ---
+
+        var newLog = new AttendanceLog
+        {
+            EmployeeID = dayInfo.EmployeeID,
+            PunchTime = dayInfo.Date.Add(dayInfo.NewPunchTime.Value.ToTimeSpan()),
+            DeviceID = "ManualCorrection",
+            LogType = "Manual Correction", // <-- UPDATED LogType
+            IsApproved = true // <-- NEW: Set to False
+        };
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            dbContext.AttendanceLogs.Add(newLog);
+            await dbContext.SaveChangesAsync();
+
+            // --- AUDIT LOG: CREATE ---
+            await AuditService.LogAsync("CREATE", "AttendanceLog", newLog.LogID.ToString(),
+                $"Manual punch added at {newLog.PunchTime:HH:mm:ss} for EmpID: {dayInfo.EmployeeID}");
+            // -------------------------
+
+            toastService.ShowSuccess("Punch added.");
+            dayInfo.NewPunchTime = null;
+            await RecalculateAndSaveSummary(dayInfo.EmployeeID, dayInfo.Date);
+
+            await AttendanceRefreshService
+                .NotifyAttendanceChangedAsync(
+                    dayInfo.EmployeeID,
+                    DateOnly.FromDateTime(dayInfo.Date.Date));
+
+            await LoadProblematicDays();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error adding punch: {ex.Message}");
+        }
+    }
+
+    private async Task DeletePunch(AttendanceLog logToDelete)
+    {
+
+        // --- LOCK CHECK ---
+        if (await LockService.IsLockedAsync(logToDelete.EmployeeID ?? 0, logToDelete.PunchTime))
+        {
+            toastService.ShowError("Payroll is finalized for this month. Cannot delete punches.");
+            return;
+        }
+        // --- END LOCK CHECK ---
+
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Delete punch at {logToDelete.PunchTime:hh:mm:ss tt}?");
+        if (!confirmed) return;
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            // Re-fetch to attach
+            var dbLog = await dbContext.AttendanceLogs.FindAsync(logToDelete.LogID);
+            if (dbLog != null)
+            {
+                var punchTime = dbLog.PunchTime; // Capture time before deletion
+                var logId = dbLog.LogID;
+
+                dbContext.AttendanceLogs.Remove(dbLog);
+                await dbContext.SaveChangesAsync();
+
+                // --- AUDIT LOG: DELETE ---
+                await AuditService.LogAsync("DELETE", "AttendanceLog", logId.ToString(),
+                    $"Punch deleted at {punchTime:HH:mm:ss} for EmpID: {logToDelete.EmployeeID}");
+                // -------------------------
+
+                toastService.ShowSuccess("Punch deleted.");
+                await RecalculateAndSaveSummary(logToDelete.EmployeeID ?? 0, logToDelete.PunchTime);
+
+                await AttendanceRefreshService
+                    .NotifyAttendanceChangedAsync(
+                        logToDelete.EmployeeID ?? 0,
+                        DateOnly.FromDateTime(logToDelete.PunchTime.Date));
+
+                await LoadProblematicDays();
+            }
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error deleting punch: {ex.Message}");
+        }
+    }
+
+    private void StartEditingPunch(AttendanceLog log)
+    {
+        punchToEdit = log;
+        editedPunchTime = TimeOnly.FromDateTime(log.PunchTime);
+        // Find name for display
+        var pd = problematicDays?.FirstOrDefault(p => p.EmployeeID == log.EmployeeID);
+        editingEmployeeName = pd?.EmployeeName ?? "Unknown";
+        StateHasChanged();
+    }
+
+    private void CancelEdit()
+    {
+        punchToEdit = null;
+        editedPunchTime = null;
+        StateHasChanged();
+    }
+
+    private async Task SaveChangesToPunch()
+    {
+        if (punchToEdit == null || !editedPunchTime.HasValue) return;
+
+        // --- LOCK CHECK ---
+        if (await LockService.IsLockedAsync(punchToEdit.EmployeeID ?? 0, punchToEdit.PunchTime))
+        {
+            toastService.ShowError("Payroll is finalized for this month. Cannot modify punches.");
+            return;
+        }
+        // --- END LOCK CHECK ---
+
+        try
+        {
+
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var logInDb = await dbContext.AttendanceLogs.FindAsync(punchToEdit.LogID);
+
+            if (logInDb == null)
+            {
+                toastService.ShowError("Punch record not found.");
+                CancelEdit();
+                return;
+            }
+
+            // --- AUDIT LOG: UPDATE ---
+            // FIX: Ensure Audit Log is called only after null check passes
+            await AuditService.LogAsync("UPDATE", "Attendancelog", logInDb.LogID.ToString(), // <-- FIX: Access is now safe
+                $"Punch time updated to {editedPunchTime.Value:HH:mm:ss} for EmpID: {punchToEdit.EmployeeID}");
+            // -------------------------
+
+            logInDb.PunchTime = logInDb.PunchTime.Date.Add(editedPunchTime.Value.ToTimeSpan());
+            await dbContext.SaveChangesAsync();
+
+            toastService.ShowSuccess("Punch time updated.");
+            CancelEdit();
+            await RecalculateAndSaveSummary(punchToEdit.EmployeeID ?? 0, punchToEdit.PunchTime);
+
+            await AttendanceRefreshService
+                .NotifyAttendanceChangedAsync(
+                    punchToEdit.EmployeeID ?? 0,
+                    DateOnly.FromDateTime(punchToEdit.PunchTime.Date));
+
+            await LoadProblematicDays();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error saving: {ex.Message}");
+        }
+    }
+}

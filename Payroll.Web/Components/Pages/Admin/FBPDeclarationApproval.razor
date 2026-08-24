@@ -1,0 +1,208 @@
+﻿@page "/admin/fbp-approval"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Identity.UI.Services
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@using System.Globalization
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject FBPService FBPService
+@inject IJSRuntime JSRuntime
+@inject IToastService toastService
+@inject UserManager<IdentityUser> UserManager
+@inject IEmailSender EmailSender // Assuming email is needed for rejected submissions
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>FBP Declaration Approval</PageTitle>
+
+@if (isLoading)
+{
+    <p><em>Loading data...</em></p>
+}
+else if (!isFeatureEnabled)
+{
+    <div class="alert alert-warning mt-4">Flexible Benefits module is disabled.</div>
+}
+else
+{
+    <div class="d-flex flex-column h-100">
+        <h3 class="text-danger fw-bold mb-3 flex-shrink-0"><i class="bi bi-file-text me-2"></i>FBP Declaration Approval</h3>
+        <p class="text-muted small mb-4 flex-shrink-0">Review employee allocations before locking them for the financial year (@currentYear - @(currentYear + 1)).</p>
+
+        @* --- PENDING REQUESTS TABLE --- *@
+        <div class="flex-grow-1 overflow-auto">
+            <div class="card shadow-sm h-100 d-flex flex-column">
+                <div class="card-header bg-warning text-dark fw-bold">Pending Declarations (@pendingDeclarations.Count)</div>
+                <div class="card-body p-0 overflow-auto">
+                    <table class="table table-sm table-striped table-hover mb-0">
+                        <thead class="sticky-top table-light">
+                            <tr>
+                                <th>Employee</th>
+                                <th>Submitted</th>
+                                <th class="text-end">Total Allocation</th>
+                                <th class="text-end">Available Limit</th>
+                                <th>Status</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!pendingDeclarations.Any())
+                            {
+                                <tr><td colspan="6" class="text-center text-success">No pending declarations to review.</td></tr>
+                            }
+                            @foreach (var dec in pendingDeclarations)
+                            {
+                                var isOverLimit = dec.TotalAllocated > dec.AvailableAllowance;
+                                <tr>
+                                    <td class="fw-bold">@dec.EmployeeName</td>
+                                    <td>@dec.SubmissionDate.ToString("dd-MMM-yyyy")</td>
+                                    <td class="text-end fw-bold">@dec.TotalAllocated.ToString("N0", InrCulture)</td>
+                                    <td class="text-end @(isOverLimit ? "text-danger" : "text-muted")">@dec.AvailableAllowance.ToString("N0", InrCulture)</td>
+                                    <td><span class="badge bg-info text-dark">@dec.Status</span></td>
+                                    <td class="text-center text-nowrap">
+                                        <button class="btn btn-sm btn-success me-2" @onclick="() => ApproveDeclaration(dec, isOverLimit)" disabled="@isSaving">
+                                            <i class="bi bi-lock"></i> Lock
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => RejectDeclaration(dec)" disabled="@isSaving">
+                                            <i class="bi bi-x-lg"></i> Reject
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isFeatureEnabled = false;
+    private int currentYear = DateTime.Now.Month >= 4 ? DateTime.Now.Year : DateTime.Now.Year - 1;
+    private List<FBPDeclarationSummary> pendingDeclarations = new();
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+
+    // DTO for UI aggregation (since DB stores by component, we group them here)
+    private class FBPDeclarationSummary
+    {
+        public int EmployeeId { get; set; }
+        public string EmployeeName { get; set; } = string.Empty;
+        public decimal TotalAllocated { get; set; }
+        public decimal AvailableAllowance { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public DateTime SubmissionDate { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        pendingDeclarations.Clear();
+        
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+        isFeatureEnabled = features?.EnableFlexibleBenefits ?? false;
+
+        if (!isFeatureEnabled) { isLoading = false; return; }
+
+        var submissions = await db.FlexibleBenefitDeclarations
+            .Where(d => d.FinancialYear == currentYear && d.Status == "Submitted")
+            .AsNoTracking()
+            .ToListAsync();
+        
+        var employees = await db.Employees.AsNoTracking().ToDictionaryAsync(e => e.EmployeeID);
+        
+        // Aggregate submissions by EmployeeId
+        var aggregated = submissions.GroupBy(d => d.EmployeeId)
+            .Select(g => new FBPDeclarationSummary
+            {
+                EmployeeId = g.Key,
+                EmployeeName = employees.GetValueOrDefault(g.Key)?.Name ?? $"ID:{g.Key}",
+                TotalAllocated = g.Sum(x => x.AnnualAllocatedAmount),
+                SubmissionDate = g.Max(x => x.SubmissionDate),
+                Status = g.First().Status,
+                // Placeholder calculation (Must match employee's available pool calculation)
+                AvailableAllowance = employees.GetValueOrDefault(g.Key)?.MonthlySalary * 12 * 0.10m ?? 0
+            }).ToList();
+            
+        pendingDeclarations = aggregated;
+        isLoading = false;
+    }
+
+    private async Task ApproveDeclaration(FBPDeclarationSummary summary, bool isOverLimit)
+    {
+        if (isOverLimit)
+        {
+            toastService.ShowError("Cannot approve: Employee allocated more than their available allowance.");
+            return;
+        }
+
+        isSaving = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        
+        try
+        {
+            // Update all submitted declarations for this employee/year to "Approved"
+            var declarationsToLock = await db.FlexibleBenefitDeclarations
+                .Where(d => d.EmployeeId == summary.EmployeeId && 
+                            d.FinancialYear == currentYear && 
+                            d.Status == "Submitted")
+                .ToListAsync();
+
+            foreach (var dec in declarationsToLock)
+            {
+                dec.Status = "Approved"; // Locked for payroll calculation
+            }
+            
+            await db.SaveChangesAsync();
+            toastService.ShowSuccess($"Declaration for {summary.EmployeeName} locked and approved.");
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Approval failed: {ex.Message}");
+        }
+        finally { isSaving = false; }
+    }
+
+    private async Task RejectDeclaration(FBPDeclarationSummary summary)
+    {
+        var remarks = await JSRuntime.InvokeAsync<string>("prompt", "Enter reason for rejection:");
+        if (string.IsNullOrWhiteSpace(remarks)) return;
+        
+        isSaving = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        
+        try
+        {
+            // Delete the existing declarations, forcing employee to re-submit
+            var declarationsToReject = await db.FlexibleBenefitDeclarations
+                .Where(d => d.EmployeeId == summary.EmployeeId && 
+                            d.FinancialYear == currentYear && 
+                            d.Status != "Locked")
+                .ToListAsync();
+            
+            db.FlexibleBenefitDeclarations.RemoveRange(declarationsToReject);
+            
+            // Send email notification (TODO: Implement proper notification via service)
+            // await EmailService.SendEmailAsync(...)
+
+            toastService.ShowWarning($"Declaration for {summary.EmployeeName} rejected. Employee must resubmit.");
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Rejection failed: {ex.Message}");
+        }
+        finally { isSaving = false; }
+    }
+}

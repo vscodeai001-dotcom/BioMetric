@@ -1,0 +1,304 @@
+﻿@inherits LayoutComponentBase
+@implements IDisposable
+@using Blazored.Toast.Configuration
+@using Microsoft.AspNetCore.Components.Authorization
+@using global::Payroll.Web.Components.Layout
+@using global::Payroll.Web.Services
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@inject NavigationManager Navigation
+@inject ThemeService Theme
+@inject IJSRuntime JSRuntime
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ILogger<MainLayout> _logger
+@inject AuthenticationStateProvider AuthState
+
+<div class="page">
+    <div class="sidebar">
+        <CascadingValue Value="settings" Name="Settings">
+            <CascadingValue Value="userIsSuperAdmin" Name="IsSuperAdmin">
+                <NavMenu @ref="navMenuRef" />
+            </CascadingValue>
+        </CascadingValue>
+    </div>
+
+    <main>
+        <div class="top-row">
+            <div class="header-content-wrapper">
+                <a class="navbar-brand" href="">Payroll.Web</a>
+
+                <div class="auth-section d-flex align-items-center">
+                    @if (settings?.EnableInAppNotifications == true)
+                    {
+                        <AuthorizeView>
+                            <Authorized>
+                                <global::Payroll.Web.Components.UI.Layout.NotificationBell />
+                            </Authorized>
+                        </AuthorizeView>
+                    }
+
+                    @if (userIsSuperAdmin || settings?.ShowThemeToggle == true)
+                    {
+                        <button class="@GetThemeToggleClass()"
+                                @onclick="ToggleTheme"
+                                title="Toggle theme">
+                            @if ((Theme?.CurrentTheme ?? "light") == "dark")
+                            {
+                                <i class="bi bi-sun-fill"></i>
+                            }
+                            else
+                            {
+                                <i class="bi bi-moon-fill"></i>
+                            }
+                        </button>
+                    }
+
+                    <LoginDisplay />
+                </div>
+            </div>
+        </div>
+
+        @* ============================================================
+           PERSISTENT EMPLOYEE GPS
+           
+           IMPORTANT:
+           This is deliberately OUTSIDE @Body.
+
+           Therefore EmployeeGpsTracker is not destroyed when the
+           employee navigates between:
+           
+           Home -> Attendance -> Leave -> Payslips -> etc.
+
+           It remains alive for the entire MainLayout lifetime.
+
+           It is rendered ONLY for Employee users.
+           SuperAdmin/Admin users do NOT start employee GPS tracking.
+           ============================================================ *@
+
+        <AuthorizeView Roles="Employee">
+            <Authorized>
+                @if (employeeId > 0 && geoTrackingEnabled)
+                {
+                    <EmployeeGpsTracker EmployeeId="@employeeId" />
+                }
+            </Authorized>
+        </AuthorizeView>
+
+        @* ============================================================
+           MAIN PAGE CONTENT
+           ============================================================ *@
+
+        <article class="content">
+            @Body
+        </article>
+
+        <BlazoredToasts Position="ToastPosition.BottomRight"
+                        Timeout="5" />
+    </main>
+</div>
+
+@code {
+    private FeatureSettings? settings;
+    private NavMenu? navMenuRef;
+    private bool userIsSuperAdmin;
+    private bool geoTrackingEnabled;
+    private int employeeId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Theme.OnThemeChanged += StateHasChanged;
+
+        var authState =
+            await AuthState.GetAuthenticationStateAsync();
+
+        userIsSuperAdmin =
+            authState.User.IsInRole("SuperAdmin");
+
+        await LoadFeatureSettings();
+        await LoadCurrentEmployee();
+    }
+
+    protected override async Task OnAfterRenderAsync(
+        bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        try
+        {
+            var savedTheme =
+                await JSRuntime.InvokeAsync<string>(
+                    "themeInterop.applySavedTheme");
+
+            Theme.SetTheme(savedTheme);
+
+            await InvokeAsync(
+                StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to run themeInterop.applySavedTheme().");
+        }
+    }
+
+    private async Task LoadCurrentEmployee()
+    {
+        try
+        {
+            var authState =
+                await AuthState.GetAuthenticationStateAsync();
+
+            var user =
+                authState.User;
+
+            if (user.Identity?.IsAuthenticated != true)
+            {
+                employeeId = 0;
+                return;
+            }
+
+            if (!user.IsInRole("Employee"))
+            {
+                employeeId = 0;
+                return;
+            }
+
+            var email =
+                user.Identity?.Name;
+
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                employeeId = 0;
+                return;
+            }
+
+            await using var dbContext =
+                await DbFactory.CreateDbContextAsync();
+
+            var employee =
+                await dbContext.Employees
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        e => e.Email == email);
+
+            employeeId =
+                employee?.EmployeeID ?? 0;
+
+            _logger.LogInformation(
+                "Employee layout loaded. EmployeeId={EmployeeId}",
+                employeeId);
+        }
+        catch (Exception ex)
+        {
+            employeeId = 0;
+
+            _logger.LogError(
+                ex,
+                "Failed to load current employee for persistent GPS.");
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        var current =
+            Theme?.CurrentTheme ?? "light";
+
+        var newTheme =
+            current == "light"
+                ? "dark"
+                : "light";
+
+        await JSRuntime.InvokeVoidAsync(
+            "themeInterop.saveTheme",
+            newTheme);
+
+        await JSRuntime.InvokeVoidAsync(
+            "themeInterop.setThemeOnBody",
+            newTheme);
+
+        Theme?.SetTheme(newTheme);
+    }
+
+    public void Dispose()
+    {
+        Theme.OnThemeChanged -= StateHasChanged;
+    }
+
+    private async Task LoadFeatureSettings()
+    {
+        try
+        {
+            await using var dbContext =
+                await DbFactory.CreateDbContextAsync();
+
+            settings =
+                await dbContext.FeatureSettings
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        s => s.Id == 1);
+
+            if (settings == null)
+            {
+                _logger.LogWarning(
+                    "FeatureSettings not found, inserting defaults.");
+
+                settings =
+                    new FeatureSettings();
+
+                dbContext.FeatureSettings.Add(settings);
+
+                await dbContext.SaveChangesAsync();
+            }
+
+            geoTrackingEnabled =
+                settings.EnableGeoFencing;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to load feature flags. Disabling modules.");
+
+            settings =
+                new FeatureSettings
+                {
+                    ShowThemeToggle = false
+                };
+
+            geoTrackingEnabled = false;
+        }
+
+        await InvokeAsync(
+            StateHasChanged);
+    }
+
+    private string GetThemeToggleClass()
+    {
+        var current =
+            Theme?.CurrentTheme ?? "light";
+
+        var colorClass =
+            current == "dark"
+                ? "text-light"
+                : "text-body";
+
+        return
+            $"btn nav-link me-2 {colorClass}";
+    }
+
+    private string GetBellButtonClass()
+    {
+        var current =
+            Theme?.CurrentTheme ?? "light";
+
+        var colorClass =
+            current == "dark"
+                ? "text-light"
+                : "text-body";
+
+        return
+            $"btn nav-link p-0 {colorClass}";
+    }
+}

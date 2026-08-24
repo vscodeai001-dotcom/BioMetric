@@ -1,0 +1,180 @@
+﻿@page "/admin/recycle-bin"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@inject ILogger<EmployeeList> _logger
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@inject Payroll.Web.Services.AuditService AuditService
+@attribute [Authorize(Roles = "SuperAdmin")]
+
+<PageTitle>Recycle Bin</PageTitle>
+
+<h3><i class="bi bi-trash-fill me-2 text-danger"></i> Employee Recycle Bin</h3>
+<p class="text-danger">Only SuperAdmins can permanently delete records. Permanent deletion removes **all** linked history (attendance, payroll, advances).</p>
+
+@if (isLoading)
+{
+    <p><em>Loading deleted employees...</em></p>
+}
+else if (!deletedEmployees.Any())
+{
+    <div class="alert alert-success">
+        No employees currently in the Recycle Bin.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-bordered table-hover">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Termination Date</th>
+                    <th>Status</th>
+                    <th class="text-center">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var emp in deletedEmployees.OrderByDescending(e => e.TerminationDate))
+                {
+                    <tr>
+                        <td>@emp.EmployeeID</td>
+                        <td><strong>@emp.Name</strong></td>
+                        <td>@(emp.TerminationDate?.ToString("dd-MMM-yyyy") ?? "N/A")</td>
+                        <td><span class="badge bg-danger">Soft Deleted</span></td>
+                        <td class="text-center text-nowrap">
+                            <button class="btn btn-sm btn-outline-success me-2" @onclick="() => RestoreEmployee(emp)" disabled="@isSaving" title="Restore Employee">
+                                <i class="bi bi-arrow-counterclockwise"></i> Restore
+                            </button>
+                            <button class="btn btn-sm btn-danger" @onclick="() => ConfirmPermanentDelete(emp)" disabled="@isSaving" title="Permanently Delete (WARNING)">
+                                <i class="bi bi-x-octagon-fill"></i> Wipe
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<Employee> deletedEmployees = new();
+    private bool isLoading = false;
+    private bool isSaving = false;
+    
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDeletedEmployees();
+    }
+
+    private async Task LoadDeletedEmployees()
+    {
+        isLoading = true;
+        try
+        {
+           
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var features = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            if (features != null && !features.EnableRecycleBin)
+            {
+               
+                return;
+            }
+            // Load employees marked as deleted
+            deletedEmployees = await dbContext.Employees
+                .Where(e => e.IsDeleted) // <-- Filter for deleted records
+                .OrderBy(e => e.Name)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading recycle bin.");
+            toastService.ShowError("Failed to load recycle bin.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RestoreEmployee(Employee emp)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Restore {emp.Name} to Active Status?")) return;
+
+        isSaving = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var entity = await dbContext.Employees.FindAsync(emp.EmployeeID);
+            if (entity != null)
+            {
+                entity.IsDeleted = false; // <-- RESTORE ACTION
+                dbContext.Update(entity);
+                await dbContext.SaveChangesAsync();
+                
+                // --- AUDIT LOG ---
+                await AuditService.LogAsync("RESTORE", "Employee", entity.EmployeeID.ToString(), 
+                    $"Employee restored from Recycle Bin.");
+                // -----------------
+            }
+            toastService.ShowSuccess("Employee restored successfully.");
+            await LoadDeletedEmployees();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Restore failed: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ConfirmPermanentDelete(Employee emp)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"WARNING: Permanently delete {emp.Name} (ID: {emp.EmployeeID}) and ALL its history? This action CANNOT be undone.")) return;
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "FINAL WARNING: Are you absolutely sure you want to WIPE all data?")) return;
+        
+        await PermanentDelete(emp);
+    }
+
+    private async Task PermanentDelete(Employee emp)
+    {
+        isSaving = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var entity = await dbContext.Employees.FindAsync(emp.EmployeeID);
+
+            if (entity != null)
+            {
+                dbContext.Employees.Remove(entity); // <-- PERMANENT DELETE ACTION (CASCADE required in DB)
+                await dbContext.SaveChangesAsync();
+                
+                // --- AUDIT LOG ---
+                await AuditService.LogAsync("PERMANENT WIPE", "Employee", entity.EmployeeID.ToString(), 
+                    $"Employee record and all linked history permanently deleted.");
+                // -----------------
+            }
+
+            toastService.ShowSuccess($"Wipe complete for {emp.Name}.");
+            await LoadDeletedEmployees();
+        }
+        catch (Exception ex)
+        {
+            // Note: If you get a foreign key error here, the database CASCADE rules need to be checked.
+            _logger.LogError(ex, "Permanent delete failed for employee {ID}.", emp.EmployeeID);
+            toastService.ShowError($"Wipe failed! Check database cascade rules. Error: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

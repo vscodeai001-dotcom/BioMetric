@@ -1,0 +1,222 @@
+﻿@page "/leave-management"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared
+@using global::Payroll.Web.Components.UI.Leave
+@using global::Payroll.Web.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@inject ILogger<LeaveManagement> _logger
+@inject LeaveManagementService LeaveService
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Leave Management</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Leave Management</strong> module is currently disabled.</p>
+            <hr>
+            <p class="mb-0">Please contact your SuperAdmin to enable this feature.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h3 class="mb-0">Leave Management</h3>
+            <p class="text-muted small mb-0">Approve requests and manage employee time-off.</p>
+        </div>
+    </div>
+
+    @* --- 1. FILTER BAR --- *@
+    <LeaveFilterBar Employees="employeeList"
+                    @bind-SelectedEmployeeId="selectedEmployeeId"
+                    @bind-FilterStatus="filterStatus"
+                    @bind-StartDate="startDate"
+                    @bind-EndDate="endDate"
+                    IsLoading="isLoading"
+                    OnSearch="LoadLeaveAsync" />
+
+    @* --- 2. ENTRY FORM --- *@
+    <LeaveEntryForm NewRequest="newLeaveRequest"
+                    Employees="employeeList"
+                    IsLoading="isLoading"
+                    OnSave="SaveLeaveRequest" />
+
+    @* --- 3. DATA TABLE --- *@
+    <LeaveRequestsTable Requests="leaveRequests"
+                        Employees="employeeList"
+                        IsLoading="isLoading"
+                        StatusMessage="@statusMessage"
+                        OnApprove="ApproveLeave"
+                        OnDeny="DenyLeave"
+                        OnCancel="CancelLeave"
+                        OnDelete="DeleteLeaveRequest" />
+}
+
+@code {
+    private List<Employee>? employeeList;
+    private List<LeaveRequest>? leaveRequests;
+    private LeaveRequest newLeaveRequest = new();
+
+    // Filter State
+    private int selectedEmployeeId = 0;
+    private string filterStatus = "Pending";
+    private DateTime? startDate;
+    private DateTime? endDate;
+
+    private bool isLoading = true;
+    private bool isAccessDenied = false; // Fixed: Variable declared correctly here
+    private string statusMessage = "Loading...";
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Default: Current Month
+        var today = DateTime.Now.Date;
+        startDate = new DateTime(today.Year, today.Month, 1);
+        endDate = startDate.Value.AddMonths(1).AddDays(-1);
+
+        // Init Form Date
+        newLeaveRequest.LeaveDate = today;
+        newLeaveRequest.LeaveType = "Paid Leave";
+
+        await CheckPermissionsAndLoad();
+    }
+
+    private async Task CheckPermissionsAndLoad()
+    {
+        isLoading = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. GATE CHECK
+            var features = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            if (features != null && !features.EnableLeaveManagement)
+            {
+                isAccessDenied = true;
+                return;
+            }
+
+            // 2. Load Data
+            employeeList = await dbContext.Employees.OrderBy(e => e.Name).ToListAsync();
+
+            // Pass the context or handle service call carefully
+            // Ideally services manage their own context scope, so we just call them here.
+            // But since LoadLeaveAsync is defined below, we call it directly.
+            await LoadLeaveAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Initialization failed");
+            toastService.ShowError("Failed to initialize.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadLeaveAsync()
+    {
+        // Note: LeaveService likely creates its own context, so this is safe to call outside the using block above
+        // IF LeaveService requires an open context passed in, logic needs adjustment.
+        // Assuming LeaveManagementService manages its own DbContext based on standard DI patterns.
+
+        isLoading = true;
+        leaveRequests = null;
+        statusMessage = "Loading...";
+        // StateHasChanged() is automatic in EventHandlers but good to be explicit for async
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            leaveRequests = await LeaveService.LoadLeaveRequestsAsync(
+                selectedEmployeeId, filterStatus, startDate, endDate);
+            statusMessage = leaveRequests.Any() ? "" : "No records found.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "LoadLeaveAsync failed");
+            statusMessage = "Error loading data.";
+            toastService.ShowError("Failed to load data.");
+        }
+        finally
+        {
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SaveLeaveRequest()
+    {
+        if (newLeaveRequest.EmployeeID == 0)
+        {
+            toastService.ShowWarning("Select an employee.");
+            return;
+        }
+
+        isLoading = true;
+        try
+        {
+            await LeaveService.SaveNewLeaveRequestAsync(newLeaveRequest);
+            toastService.ShowSuccess("Leave added.");
+
+            // Reset form but keep date/type for quick entry
+            var oldDate = newLeaveRequest.LeaveDate;
+            newLeaveRequest = new LeaveRequest
+            {
+                LeaveDate = oldDate?.AddDays(1) ?? DateTime.Now,
+                LeaveType = "Paid Leave",
+                EmployeeID = newLeaveRequest.EmployeeID
+            };
+            await LoadLeaveAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SaveLeaveRequest failed");
+            toastService.ShowError($"Failed to save: {ex.Message}");
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task ApproveLeave(LeaveRequest req) => await UpdateStatus(req, true);
+    private async Task CancelLeave(LeaveRequest req) => await UpdateStatus(req, false);
+
+    private async Task UpdateStatus(LeaveRequest req, bool approved)
+    {
+        try
+        {
+            await LeaveService.UpdateLeaveStatusAsync(req.LeaveRequestID, approved);
+            toastService.ShowSuccess(approved ? "Approved." : "Approval Revoked.");
+            await LoadLeaveAsync();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task DenyLeave(LeaveRequest req) => await DeleteLeaveRequest(req);
+    private async Task DeleteLeaveRequest(LeaveRequest req)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete/deny this record?")) return;
+        try
+        {
+            await LeaveService.DeleteLeaveRequestAsync(req.LeaveRequestID);
+            toastService.ShowSuccess("Deleted/Denied.");
+            await LoadLeaveAsync();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+}

@@ -1,0 +1,61 @@
+﻿@using Microsoft.AspNetCore.Components.Forms
+@using global::Payroll.Web.Models
+@using global::Payroll.Shared.Data
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <h5 class="text-primary border-bottom pb-2 mb-3">Create New User</h5>
+
+        <EditForm Model="NewUserForm" OnValidSubmit="OnCreateUser">
+            <DataAnnotationsValidator />
+
+            <div class="mb-3">
+                <label>Email / Username *</label>
+                <InputText class="form-control" @bind-Value="NewUserForm.Email" />
+                <ValidationMessage For="@(() => NewUserForm.Email)" />
+            </div>
+
+            <div class="mb-3">
+                <label>Password *</label>
+                <InputText type="password" class="form-control" @bind-Value="NewUserForm.Password" />
+                <ValidationMessage For="@(() => NewUserForm.Password)" />
+            </div>
+
+            <div class="mb-3">
+                <label>Link Employee (Optional)</label>
+                <select class="form-select" @bind="NewUserForm.EmployeeId">
+                    <option value="@((int?)null)">-- Don't link now --</option>
+
+                    @foreach (var emp in UnlinkedEmployees.OrderBy(e => e.Name))
+                    {
+                        <option value="@emp.EmployeeID">@emp.Name (Bio: @emp.BiometricID)</option>
+                    }
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label>Initial Role</label>
+                <select class="form-select" @bind="NewUserForm.InitialRole">
+                    <option value="Employee">Employee</option>
+                    <option value="Admin">Admin</option>
+                    <option value="SuperAdmin">SuperAdmin</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-success w-100" disabled="@IsSaving">
+                @if (IsSaving)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                }
+                Create User
+            </button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    [Parameter] public NewUserFormModel NewUserForm { get; set; } = new();
+    [Parameter] public List<Employee> UnlinkedEmployees { get; set; } = new();
+    [Parameter] public bool IsSaving { get; set; }
+    [Parameter] public EventCallback OnCreateUser { get; set; }
+}

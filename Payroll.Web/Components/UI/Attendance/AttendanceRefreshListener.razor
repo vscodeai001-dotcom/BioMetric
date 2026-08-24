@@ -1,0 +1,145 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JSRuntime
+
+@code {
+
+    [Parameter]
+    public EventCallback OnAttendanceChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnLocationChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnRegularizationChanged { get; set; }
+
+    private DotNetObjectReference<AttendanceRefreshListener>? _dotNetRef;
+
+    private bool _registered;
+
+    // ============================================================
+    // START
+    // ============================================================
+
+    protected override async Task OnAfterRenderAsync(
+        bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        try
+        {
+            _dotNetRef =
+                DotNetObjectReference.Create(this);
+
+            await JSRuntime.InvokeVoidAsync(
+                "attendanceRefresh.register",
+                _dotNetRef);
+
+            _registered = true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Attendance refresh registration failed: {ex}");
+        }
+    }
+
+    // ============================================================
+    // ATTENDANCE
+    // ============================================================
+
+    [JSInvokable]
+    public async Task AttendanceChanged()
+    {
+        try
+        {
+            if (OnAttendanceChanged.HasDelegate)
+            {
+                await InvokeAsync(
+                    () =>
+                        OnAttendanceChanged.InvokeAsync());
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"AttendanceChanged callback failed: {ex}");
+        }
+    }
+
+    // ============================================================
+    // LOCATION
+    // ============================================================
+
+    [JSInvokable]
+    public async Task LocationChanged()
+    {
+        try
+        {
+            if (OnLocationChanged.HasDelegate)
+            {
+                await InvokeAsync(
+                    () =>
+                        OnLocationChanged.InvokeAsync());
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"LocationChanged callback failed: {ex}");
+        }
+    }
+
+    // ============================================================
+    // REGULARIZATION
+    // ============================================================
+
+    [JSInvokable]
+    public async Task RegularizationChanged()
+    {
+        try
+        {
+            if (OnRegularizationChanged.HasDelegate)
+            {
+                await InvokeAsync(
+                    () =>
+                        OnRegularizationChanged.InvokeAsync());
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"RegularizationChanged callback failed: {ex}");
+        }
+    }
+
+    // ============================================================
+    // DISPOSE
+    // ============================================================
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_dotNetRef != null &&
+                _registered)
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "attendanceRefresh.unregister",
+                    _dotNetRef);
+            }
+        }
+        catch
+        {
+            // Circuit may already be disconnected.
+        }
+        finally
+        {
+            _registered = false;
+
+            _dotNetRef?.Dispose();
+
+            _dotNetRef = null;
+        }
+    }
+}

@@ -1,0 +1,235 @@
+﻿@page "/salary-advances"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Web.Components.UI.Finance
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JSRuntime
+@inject ILogger<SalaryAdvancePage> _logger
+@inject NavigationManager Navigation
+@inject IToastService toastService
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Salary Advances</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Salary Advance</strong> module is currently disabled.</p>
+            <hr>
+            <p class="mb-0">Please contact your SuperAdmin to enable this feature.</p>
+        </div>
+    </div>
+}
+else
+{
+    <h3>Salary Advances</h3>
+    <p>Log a cash advance for an employee. It will be automatically deducted during the next payroll run.</p>
+
+    @* --- 1. ADD ENTRY FORM COMPONENT --- *@
+    <AdvanceEntryForm NewAdvance="newAdvance"
+                      Employees="employeeList"
+                      OnSaved="LoadData"
+                      IsSaving="false" />
+
+    @* --- 2. FILTER BAR --- *@
+    <div class="row p-3 mb-3 border rounded bg-light">
+        <div class="col-md-4">
+            <label class="form-label">Filter by Employee</label>
+            <select class="form-select" @bind="selectedEmployeeId">
+                <option value="0">-- All Employees --</option>
+                @if (employeeList != null)
+                {
+                    @foreach (var emp in employeeList)
+                    {
+                        <option value="@emp.EmployeeID">@emp.Name</option>
+                    }
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Start Date</label>
+            <input type="date" class="form-control" @bind="startDate" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">End Date</label>
+            <input type="date" class="form-control" @bind="endDate" />
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+            <button class="btn btn-primary w-100" @onclick="LoadData" disabled="@(isLoadingHistory || isLoadingUnpaid)">
+                <i class="bi bi-search"></i> Search
+            </button>
+        </div>
+    </div>
+
+    @* --- 3. UNPAID ADVANCES TABLE --- *@
+    <UnpaidAdvancesTable UnpaidAdvances="unpaidAdvances"
+                         Employees="employeeList"
+                         IsLoading="isLoadingUnpaid"
+                         OnDeleteAdvance="DeleteAdvance" />
+
+    <hr />
+
+    @* --- 4. FULL HISTORY TABLE --- *@
+    <AdvanceHistoryTable AllAdvances="allAdvancesHistory"
+                         Employees="employeeList"
+                         IsLoading="isLoadingHistory" />
+}
+
+@code {
+    private List<Employee>? employeeList;
+    private List<SalaryAdvance>? unpaidAdvances;
+    private List<SalaryAdvance>? allAdvancesHistory;
+    private SalaryAdvance newAdvance = new SalaryAdvance();
+
+    // Filter State
+    private int selectedEmployeeId = 0;
+    private DateTime? startDate;
+    private DateTime? endDate;
+
+    // Loading State
+    private bool isLoadingUnpaid = true;
+    private bool isLoadingHistory = true;
+    private bool isAccessDenied = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.Now.Date;
+        newAdvance.AdvanceDate = today;
+        newAdvance.AdvanceType = "General";
+        startDate = new DateTime(today.Year, today.Month, 1);
+        endDate = startDate.Value.AddMonths(1).AddDays(-1);
+
+        await CheckPermissionsAndLoad();
+    }
+
+    private async Task CheckPermissionsAndLoad()
+    {
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. GATE CHECK
+            var features = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            if (features != null && !features.EnableSalaryAdvance)
+            {
+                isAccessDenied = true;
+                return;
+            }
+
+            // 2. Load Data
+            employeeList = await dbContext.Employees.OrderBy(e => e.Name).ToListAsync();
+            await LoadData(); // Trigger data load
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error loading permissions: {ex.Message}");
+            employeeList = new List<Employee>();
+        }
+        finally
+        {
+            // Reset loading states if access denied or error
+            if (isAccessDenied)
+            {
+                isLoadingUnpaid = false;
+                isLoadingHistory = false;
+            }
+        }
+    }
+
+    private async Task LoadData()
+    {
+        await Task.WhenAll(LoadUnpaidAdvances(), LoadAllHistory());
+    }
+
+    private async Task LoadUnpaidAdvances()
+    {
+        isLoadingUnpaid = true;
+        unpaidAdvances = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var query = dbContext.SalaryAdvances.Where(adv => adv.PayrollID_Paid == null);
+
+            if (selectedEmployeeId > 0)
+                query = query.Where(adv => adv.EmployeeID == selectedEmployeeId);
+            if (startDate.HasValue)
+                query = query.Where(adv => adv.AdvanceDate.HasValue && adv.AdvanceDate.Value.Date >= startDate.Value.Date);
+            if (endDate.HasValue)
+                query = query.Where(adv => adv.AdvanceDate.HasValue && adv.AdvanceDate.Value.Date <= endDate.Value.Date);
+
+            unpaidAdvances = await query.OrderByDescending(adv => adv.AdvanceDate).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading unpaid advances.");
+            toastService.ShowError($"Error loading unpaid advances: {ex.Message}");
+            unpaidAdvances = new List<SalaryAdvance>();
+        }
+        finally
+        {
+            isLoadingUnpaid = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task LoadAllHistory()
+    {
+        isLoadingHistory = true;
+        allAdvancesHistory = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var query = dbContext.SalaryAdvances.AsQueryable();
+
+            if (selectedEmployeeId > 0)
+                query = query.Where(adv => adv.EmployeeID == selectedEmployeeId);
+            if (startDate.HasValue)
+                query = query.Where(adv => adv.AdvanceDate.HasValue && adv.AdvanceDate.Value.Date >= startDate.Value.Date);
+            if (endDate.HasValue)
+                query = query.Where(adv => adv.AdvanceDate.HasValue && adv.AdvanceDate.Value.Date <= endDate.Value.Date);
+
+            allAdvancesHistory = await query.OrderByDescending(adv => adv.AdvanceDate).ThenBy(adv => adv.EmployeeID).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading advance history with filters.");
+            toastService.ShowError($"Error loading advance history: {ex.Message}");
+            allAdvancesHistory = new List<SalaryAdvance>();
+        }
+        finally
+        {
+            isLoadingHistory = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task DeleteAdvance(SalaryAdvance advanceToDelete)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Delete {advanceToDelete.Amount:C0} advance for {employeeList?.FirstOrDefault(e => e.EmployeeID == advanceToDelete.EmployeeID)?.Name ?? "employee"} on {advanceToDelete.AdvanceDate:dd-MMM-yyyy}?");
+        if (confirmed)
+        {
+            try
+            {
+                await using var dbContext = await DbFactory.CreateDbContextAsync();
+                dbContext.SalaryAdvances.Remove(advanceToDelete);
+                await dbContext.SaveChangesAsync();
+
+                toastService.ShowSuccess("Advance deleted.");
+                await LoadData();
+            }
+            catch (Exception ex)
+            {
+                toastService.ShowError($"Error deleting advance: {ex.Message}");
+            }
+        }
+    }
+}

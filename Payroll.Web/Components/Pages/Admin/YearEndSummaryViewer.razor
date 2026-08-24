@@ -1,0 +1,130 @@
+﻿@page "/admin/year-end-summary"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using System.Globalization
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IToastService toastService
+@inject ILogger<YearEndSummaryViewer> _logger
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Year-End Summary (Form-16 Data)</PageTitle>
+
+<h3>Year-End Compliance Summary</h3>
+<p>Consolidated annual payroll data required for tax filing (Form-16 data basis).</p>
+
+<div class="row p-3 mb-4 border rounded bg-light">
+    <div class="col-md-3">
+        <label class="form-label small fw-bold">Tax Year</label>
+        <select class="form-select" @bind="selectedYear">
+            @for (int y = DateTime.Now.Year; y >= DateTime.Now.Year - 2; y--)
+            {
+                <option value="@y">@(y - 1) - @y</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-3 d-flex align-items-end">
+        <button class="btn btn-primary w-100" @onclick="LoadYearEndData" disabled="@isLoading">
+            <i class="bi bi-search"></i> Search
+        </button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <p><em>Loading year-end data...</em></p>
+}
+else if (!annualSummaries.Any())
+{
+    <div class="alert alert-info">No consolidated year-end data found for the selected tax year.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-bordered table-hover">
+            <thead class="table-dark">
+                <tr>
+                    <th>Employee</th>
+                    <th class="text-end">Gross Taxable</th>
+                    <th class="text-end">Total TDS</th>
+                    <th class="text-end">Total PF (Emp)</th>
+                    <th class="text-end">Absent Days</th>
+                    <th class="text-center">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var summary in annualSummaries)
+                {
+                    <tr>
+                        <td>@(GetEmployeeName(summary.EmployeeID))</td>
+                        <td class="text-end fw-bold">@summary.GrossTaxableSalary.ToString("C0", InrCulture)</td>
+                        <td class="text-end text-danger">@summary.TotalTdsDeducted.ToString("C0", InrCulture)</td>
+                        <td class="text-end">@summary.TotalPfContributionEmployee.ToString("C0", InrCulture)</td>
+                        <td class="text-end">@summary.TotalAnnualAbsentDays</td>
+                        <td class="text-center">
+                            <button class="btn btn-sm btn-outline-info" title="View PDF Summary">
+                                <i class="bi bi-file-earmark-pdf"></i>
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<YearEndSummary> annualSummaries = new();
+    private List<Employee> employeeList = new();
+    private bool isLoading = false;
+    private int selectedYear = DateTime.Now.Year;
+    private CultureInfo InrCulture = new CultureInfo("en-IN");
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Default to the previous financial year (e.g., 2025 data processed in 2026)
+        if (DateTime.Now.Month < 4)
+            selectedYear = DateTime.Now.Year - 1; 
+
+        await LoadEmployees();
+        await LoadYearEndData();
+    }
+
+    private async Task LoadEmployees()
+    {
+        await using var dbContext = await DbFactory.CreateDbContextAsync();
+        // Load active and soft-deleted employees for history context
+        employeeList = await dbContext.Employees.AsNoTracking().ToListAsync(); 
+    }
+
+    private string GetEmployeeName(int id)
+        => employeeList.FirstOrDefault(e => e.EmployeeID == id)?.Name ?? $"ID:{id} (Unknown)";
+
+    private async Task LoadYearEndData()
+    {
+        isLoading = true;
+        annualSummaries.Clear();
+        await InvokeAsync(StateHasChanged);
+        
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            annualSummaries = await dbContext.YearEndSummaries
+                .AsNoTracking()
+                .Where(s => s.TaxYear == selectedYear)
+                .OrderBy(s => s.EmployeeID)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading year end summary for {Year}", selectedYear);
+            toastService.ShowError($"Error loading data: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}

@@ -1,0 +1,336 @@
+﻿/* =======================================
+   DARK MODE - BASE STYLES
+   ======================================= */
+
+body.dark {
+    /* Main page background */
+    background-color: #1a1c23 !important;
+    color: #e0e0e0;
+}
+
+    body.dark article.content {
+        /* Main content area */
+        background-color: #1e1f24 !important;
+        color: #e0e0e0;
+        border-color: #30333d;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Cards, Modals, and Light Backgrounds */
+    body.dark .card,
+    body.dark .modal-content,
+    body.dark .bg-light,
+    body.dark .list-group-item {
+        background-color: #23252e !important;
+        color: #e0e0e0;
+        border-color: #30333d;
+    }
+
+    /* Text */
+    body.dark h1, body.dark h2, body.dark h3, body.dark h4, body.dark h5, body.dark h6,
+    body.dark .text-dark,
+    body.dark .card-title,
+    body.dark .modal-title {
+        color: #ffffff !important;
+    }
+
+    body.dark .text-muted,
+    body.dark .small,
+    body.dark .form-label,
+    body.dark p {
+        color: #a0a5b1 !important;
+    }
+
+    /* Forms */
+    body.dark .form-control,
+    body.dark .form-select {
+        background-color: #2a2d35;
+        color: #e0e0e0;
+        border-color: #495057;
+    }
+
+        body.dark .form-control:focus,
+        body.dark .form-select:focus {
+            background-color: #2a2d35;
+            color: #e0e0e0;
+            border-color: #5c6bc0;
+        }
+
+        body.dark .form-control::placeholder {
+            color: #6c757d;
+        }
+
+    body.dark .input-group-text {
+        background-color: #343a40;
+        border-color: #495057;
+        color: #e0e0e0;
+    }
+
+
+    /* =======================================
+   DARK MODE - TABLE FIX (AGGRESSIVE)
+   ======================================= */
+
+    /* 1. Base table cells */
+    body.dark .table td,
+    body.dark .table th {
+        /* Set one base background color for all cells */
+        background-color: #23252e !important;
+        color: #e0e0e0 !important;
+        border-color: #3a3d45 !important;
+    }
+
+    /* 2. Table Header */
+    body.dark .table thead.table-dark th {
+        background-color: #2f323a !important;
+        color: #ffffff !important;
+    }
+
+    /* 3. Striping */
+    body.dark .table-striped > tbody > tr:nth-of-type(odd) > * {
+        background-color: #2a2d35 !important;
+        color: #e0e0e0 !important;
+    }
+
+    /* 4. Hover */
+    body.dark .table-hover tbody tr:hover > * {
+        background-color: #2d3038 !important;
+        color: #ffffff !important;
+    }
+
+   
+
+    /* 6. Fix text inside cells (e.g., <strong>) */
+    body.dark .table td strong,
+    body.dark .table th strong {
+        color: inherit !important; /* Inherit the cell's light text color */
+    }
+
+
+    /* =======================================
+   DARK MODE - BADGE FIX
+   ======================================= */
+
+    body.dark .badge.bg-success {
+        background-color: #1f3a1f !important;
+        color: #b2ffb2 !important;
+        border: 1px solid #2a5c34; /* Optional: adds a little definition */
+    }
+
+    body.dark .badge.bg-warning.text-dark {
+        background-color: #3a321f !important;
+        color: #ffe6b3 !important;
+        border: 1px solid #5c4f2a; /* Optional: adds a little definition */
+    }
+
+
+    /* =======================================
+   DARK MODE - PAYSLIP FIX
+   ======================================= */
+
+    /* This resets the payslip content to be light-mode (black text on white)
+   because it is a printable document.
+*/
+    body.dark .payslip-container.bg-white,
+    body.dark .payslip-container.bg-white * {
+        color: #212529 !important; /* Default bootstrap black text */
+        background-color: #ffffff !important; /* Force white background */
+    }
+
+        /* Re-apply colors for elements inside the payslip that we *do*
+   want to be colored, even in dark mode (e.g., red deduction text)
+*/
+        body.dark .payslip-container.bg-white .text-danger,
+        body.dark .payslip-container.bg-white .text-danger * {
+            color: #dc3545 !important; /* Bootstrap red */
+        }
+
+    /* =======================================
+   DARK MODE - TOAST FIX (READABILITY)
+   ======================================= */
+
+    /* Target the main container and message body */
+    body.dark .blazored-toast-container,
+    body.dark .blazored-toast-message {
+        background-color: #2a2d35 !important; /* Darken BG slightly */
+        color: #f8f9fa !important; /* Force light text color */
+        border-color: #495057 !important;
+    }
+
+    /* Ensure the heading (title) text is also light */
+    body.dark .blazored-toast-heading {
+        color: #ffffff !important;
+    }
+
+    /* Specific context colors (optional, for better visual distinction) */
+    body.dark .blazored-toast-info {
+        border-left-color: #0dcaf0 !important;
+    }
+
+    body.dark .blazored-toast-warning {
+        border-left-color: #ffc107 !important;
+    }
+
+    body.dark .blazored-toast-error {
+        border-left-color: #dc3545 !important;
+    }
+
+    /* Ensure any button/link text inside is also light */
+    body.dark .blazored-toast-container a,
+    body.dark .blazored-toast-container button {
+        color: #f8f9fa !important;
+    }
+
+    /* ================================
+   DARK THEME — PAYSLIP STYLING FIX
+   (Standalone CSS file)
+   ================================ */
+
+    /* 0. Force ONLY payslip container to be dark-themed */
+    body.dark #payslip-to-print-standard {
+        background-color: #1e1e1e !important;
+        color: #e6e6e6 !important;
+        border: 1px solid #444 !important;
+    }
+
+        /* 1. Headings */
+        body.dark #payslip-to-print-standard h1,
+        body.dark #payslip-to-print-standard h2,
+        body.dark #payslip-to-print-standard h3,
+        body.dark #payslip-to-print-standard h4,
+        body.dark #payslip-to-print-standard strong {
+            color: #e6e6e6 !important;
+        }
+
+        /* 2. Table General */
+        body.dark #payslip-to-print-standard table {
+            background-color: #1e1e1e !important;
+            color: #e6e6e6 !important;
+            border-color: #444 !important;
+        }
+
+        body.dark #payslip-to-print-standard th {
+            background-color: #2a2a2a !important;
+            color: #ffffff !important;
+            border-color: #555 !important;
+        }
+
+        body.dark #payslip-to-print-standard td {
+            background-color: #1e1e1e !important;
+            color: #e6e6e6 !important;
+            border-color: #555 !important;
+        }
+
+        /* 3. Labels (like SN Tech, Employee Details) */
+        body.dark #payslip-to-print-standard .payslip-label,
+        body.dark #payslip-to-print-standard .text-muted {
+            color: #bbbbbb !important;
+        }
+
+        /* 4. Section separators */
+        body.dark #payslip-to-print-standard hr {
+            border-color: #444 !important;
+        }
+
+        /* 5. Highlight Earnings/Deductions headers */
+        body.dark #payslip-to-print-standard .section-title {
+            background-color: #2d2d2d !important;
+            color: #ffffff !important;
+            border-color: #555 !important;
+        }
+
+        /* 6. Red text for deductions (ensure visible) */
+        body.dark #payslip-to-print-standard .text-danger,
+        body.dark #payslip-to-print-standard .text-danger * {
+            color: #ff6b6b !important;
+        }
+
+        /* 7. Final Net Salary box */
+        body.dark #payslip-to-print-standard .net-salary-box {
+            background-color: #242424 !important;
+            color: #ffffff !important;
+            border: 1px solid #555 !important;
+        }
+
+        /* 8. Remove dark mode override for inside backgrounds */
+        body.dark #payslip-to-print-standard * {
+            background: transparent !important;
+        }
+
+    /* ======================================================
+   DARK MODE — FIX TOAST NOTIFICATION COLORS
+   Works for MudBlazor, Blazored.Toast, custom alerts
+   ====================================================== */
+
+    /* Toast container in dark mode */
+    body.dark .blazored-toast-container,
+    body.dark .mud-snackbar-container {
+        background: transparent !important;
+    }
+
+    /* Toast box background fix */
+    body.dark .blazored-toast,
+    body.dark .mud-snackbar {
+        background-color: #1f1f1f !important; /* dark grey */
+        border: 1px solid #333 !important;
+        color: #ffffff !important;
+        box-shadow: 0 0 10px rgba(0,0,0,0.6) !important;
+    }
+
+        /* Success toast */
+        body.dark .blazored-toast-success,
+        body.dark .mud-snackbar.mud-snackbar-success {
+            background-color: #0f5132 !important; /* dark green */
+            border-color: #145a39 !important;
+            color: #d1f7e1 !important;
+        }
+
+        /* Info toast */
+        body.dark .blazored-toast-info,
+        body.dark .mud-snackbar.mud-snackbar-info {
+            background-color: #055160 !important;
+            border-color: #066776 !important;
+            color: #d1f3f9 !important;
+        }
+
+        /* Warning toast */
+        body.dark .blazored-toast-warning,
+        body.dark .mud-snackbar.mud-snackbar-warning {
+            background-color: #664d03 !important;
+            border-color: #7a5c05 !important;
+            color: #fff3cd !important;
+        }
+
+        /* Danger toast */
+        body.dark .blazored-toast-error,
+        body.dark .mud-snackbar.mud-snackbar-error {
+            background-color: #58151c !important;
+            border-color: #7a1d28 !important;
+            color: #f8d7da !important;
+        }
+
+    /* Toast icon fix (Mud + Blazored) */
+    body.dark .blazored-toast-icon,
+    body.dark .mud-snackbar-icon {
+        color: #ffffff !important;
+    }
+
+    /* Close button fix */
+    body.dark .blazored-toast-close,
+    body.dark .mud-snackbar-dismiss {
+        color: #ffffff !important;
+    }
+    /* Remove dark badge-like background inside toast (text container fix) */
+    body.dark .mud-snackbar-content,
+    body.dark .blazored-toast-message,
+    body.dark .blazored-toast-message > div {
+        background: transparent !important;
+        color: #ffffff !important;
+    }
+
+        /* Fix text alignment and remove extra padding box */
+        body.dark .blazored-toast-message span,
+        body.dark .mud-snackbar-content span {
+            background: transparent !important;
+            color: #ffffff !important;
+        }

@@ -1,0 +1,114 @@
+﻿@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Diagnostics.CodeAnalysis;
+
+<div class="row p-3 mb-4 border rounded bg-light">
+    <div class="col-md-4">
+        <label class="form-label small fw-bold">Filter by Employee</label>
+        <select class="form-select" @bind="SelectedEmployeeId" @bind:event="oninput">
+            <option value="0">-- All Employees --</option>
+            @if (Employees != null)
+            {
+                @foreach (var emp in Employees)
+                {
+                    <option value="@emp.EmployeeID">@emp.Name</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label small fw-bold">Start Date</label>
+        <input type="date" class="form-control" @bind="CurrentStartDate" @bind:event="oninput" />
+    </div>
+    <div class="col-md-3">
+        <label class="form-label small fw-bold">End Date</label>
+        <input type="date" class="form-control" @bind="CurrentEndDate" @bind:event="oninput" />
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+        <button class="btn btn-primary w-100" @onclick="OnSearchClicked" disabled="@IsLoading">
+            @if (IsLoading)
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+            }
+            else
+            {
+                <span class="bi bi-search"></span>
+            }
+            Search
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<Employee>? Employees { get; set; }
+
+    // -- Employee ID Binding --
+    private int _selectedEmployeeId;
+    [Parameter]
+    [SuppressMessage("Usage", "BL0007", Justification = "Custom setter is required to invoke EventCallback immediately.")]
+    public int SelectedEmployeeId
+    {
+        get => _selectedEmployeeId;
+        set
+        {
+            if (_selectedEmployeeId == value) return;
+            _selectedEmployeeId = value;
+            SelectedEmployeeIdChanged.InvokeAsync(value);
+        }
+    }
+    [Parameter] public EventCallback<int> SelectedEmployeeIdChanged { get; set; }
+
+
+    // -- Start Date Binding --
+    private DateTime? _startDate;
+    [Parameter]
+    [SuppressMessage("Usage", "BL0007", Justification = "Custom setter is required to invoke EventCallback immediately.")]
+    public DateTime? StartDate
+    {
+        get => _startDate;
+        set
+        {
+            if (_startDate == value) return;
+            _startDate = value;
+            StartDateChanged.InvokeAsync(value);
+        }
+    }
+    [Parameter] public EventCallback<DateTime?> StartDateChanged { get; set; }
+
+    // -- End Date Binding --
+    private DateTime? _endDate;
+    [Parameter]
+    [SuppressMessage("Usage", "BL0007", Justification = "Custom setter is required to invoke EventCallback immediately.")]
+    public DateTime? EndDate
+    {
+        get => _endDate;
+        set
+        {
+            if (_endDate == value) return;
+            _endDate = value;
+            EndDateChanged.InvokeAsync(value);
+        }
+    }
+    [Parameter] public EventCallback<DateTime?> EndDateChanged { get; set; }
+
+    
+    // -- Wrappers for Input Binding --
+    public DateTime? CurrentStartDate
+    {
+        get => StartDate;
+        set => StartDate = value; // This triggers the setter above
+    }
+    public DateTime? CurrentEndDate
+    {
+        get => EndDate;
+        set => EndDate = value; // This triggers the setter above
+    }
+
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSearch { get; set; }
+
+    private async Task OnSearchClicked()
+    {
+        await OnSearch.InvokeAsync();
+    }
+}   

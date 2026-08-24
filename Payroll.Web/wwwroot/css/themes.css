@@ -1,0 +1,77 @@
+﻿/* ============================================================
+   DEFAULT LIGHT THEME (allowed to use white)
+   ============================================================ */
+:root {
+    --bg: #ffffff;
+    --text: #1a1a1a;
+    --card-bg: #f3f6fa;
+    --accent: #4A90E2;
+    --accent-hover: #357ABD;
+    --border: #d9d9d9;
+    --shadow: rgba(0,0,0,0.08);
+}
+
+/* ============================================================
+   DARK THEME (NO WHITE ANYWHERE)
+   ============================================================ */
+[data-theme="dark"] {
+    --bg: #0d0f12;
+    --text: #d1d3d8;
+    --card-bg: #16181d;
+    --accent: #4d9dee;
+    --accent-hover: #71b4ff;
+    --border: #262a30;
+    --shadow: rgba(0,0,0,0.5);
+}
+
+/* ============================================================
+   NEON THEME (NO WHITE)
+   ============================================================ */
+[data-theme="neon"] {
+    --bg: #050505;
+    --text: #39ff14;
+    --card-bg: #0d0d0d;
+    --accent: #ff00ff;
+    --accent-hover: #ff4dff;
+    --border: #1a1a1a;
+    --shadow: rgba(255,0,255,0.3);
+}
+
+/* ============================================================
+   GLASSMORPHISM (NO WHITE, but translucent)
+   ============================================================ */
+[data-theme="glass"] {
+    --bg: rgba(10,10,10,0.6);
+    --text: #e3e7ee;
+    --card-bg: rgba(50,50,50,0.3);
+    --accent: #4dd0e1;
+    --accent-hover: #6df0ff;
+    --border: rgba(255,255,255,0.08);
+    --shadow: rgba(0,0,0,0.4);
+}
+
+/* ============================================================
+   GRADIENT THEME (NO WHITE)
+   ============================================================ */
+[data-theme="gradient"] {
+    --bg: linear-gradient(135deg, #1f1c2c 0%, #928dab 100%);
+    --text: #f5f4fc;
+    --card-bg: rgba(30, 28, 44, 0.6);
+    --accent: #ff8cfc;
+    --accent-hover: #ffb2ff;
+    --border: rgba(255,255,255,0.15);
+    --shadow: rgba(0,0,0,0.3);
+}
+
+/* ============================================================
+   PASTEL DARK (NO WHITE)
+   ============================================================ */
+[data-theme="pastel"] {
+    --bg: #2b2d42;
+    --text: #e9f5f2;
+    --card-bg: #3c3f58;
+    --accent: #ffb3c1;
+    --accent-hover: #ffc6d1;
+    --border: rgba(255,255,255,0.1);
+    --shadow: rgba(0,0,0,0.4);
+}

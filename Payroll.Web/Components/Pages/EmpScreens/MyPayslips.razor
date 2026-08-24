@@ -1,0 +1,216 @@
+﻿@page "/my-payslips"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ILogger<MyPayslips> _logger
+@inject UserManager<IdentityUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IToastService toastService
+@inject NavigationManager Navigation
+
+@attribute [Authorize(Roles = "Employee, SuperAdmin")]
+
+<PageTitle>My Payslips</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Payroll</strong> module is currently disabled or you do not have permission to view payslips.</p>
+            <hr>
+            <p class="mb-0">Please contact your administrator or <a href="/" class="alert-link">return to the dashboard</a>.</p>
+        </div>
+    </div>
+}
+else
+{
+    <h3>My Payslip History</h3>
+    <p>View and download your finalized payroll history.</p>
+
+    @if (isLoading)
+    {
+        <p><em>Loading your payroll history...</em></p>
+    }
+    else if (linkedEmployee == null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            Employee record not linked to the logged-in account.
+        </div>
+    }
+    else if (!payrollHistory.Any())
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i> No finalized payslips found yet.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Pay Period</th>
+                        <th class="text-end">Net Payable</th>
+                        @if (payrollHistory.Any(p => p.PfDeduction > 0))
+                        {
+                            <th class="text-end d-none-mobile">PF</th>
+                        }
+                        @if (payrollHistory.Any(p => p.EsiDeduction > 0))
+                        {
+                            <th class="text-end d-none-mobile">ESI</th>
+                        }
+                        @if (payrollHistory.Any(p => p.PtDeduction > 0))
+                        {
+                            <th class="text-end d-none-mobile">PT</th>
+                        }
+                        @if (payrollHistory.Any(p => p.TdsDeduction > 0))
+                        {
+                            <th class="text-end d-none-mobile">TDS</th>
+                        }
+                        <th class="text-end">Hourly Rate</th>
+                        <th class="text-end">Total Hours</th>
+                        <th class="text-end">OT Pay</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in payrollHistory.OrderByDescending(p => p.PayYear).ThenByDescending(p => p.PayMonth))
+                    {
+                        <tr>
+                            <td>@(new DateTime(entry.PayYear, entry.PayMonth, 1).ToString("MMMM yyyy"))</td>
+                            <td class="text-end"><strong>@entry.NetSalary.ToString("C", inrCulture)</strong></td>
+                            @if (payrollHistory.Any(p => p.PfDeduction > 0))
+                            {
+                                <td class="text-end text-muted d-none-mobile">@(entry.PfDeduction > 0 ? entry.PfDeduction.ToString("N0") : "-")</td>
+                            }
+                            @if (payrollHistory.Any(p => p.EsiDeduction > 0))
+                            {
+                                <td class="text-end text-muted d-none-mobile">@(entry.EsiDeduction > 0 ? entry.EsiDeduction.ToString("N0") : "-")</td>
+                            }
+                            @if (payrollHistory.Any(p => p.PtDeduction > 0))
+                            {
+                                <td class="text-end text-muted d-none-mobile">@(entry.PtDeduction > 0 ? entry.PtDeduction.ToString("N0") : "-")</td>
+                            }
+                            @if (payrollHistory.Any(p => p.TdsDeduction > 0))
+                            {
+                                <td class="text-end text-muted d-none-mobile">@(entry.TdsDeduction > 0 ? entry.TdsDeduction.ToString("N0") : "-")</td>
+                            }
+                            <td class="text-end">@entry.HourlyRate.ToString("C", inrCulture)</td>
+                            <td class="text-end">@((entry.TotalHoursWorked ?? 0).ToString("N2")) hrs</td>
+                            <td class="text-end">@(entry.OvertimePay?.ToString("C", inrCulture) ?? "₹0.00")</td>
+                            <td class="text-center">
+                                <button class="btn btn-sm btn-outline-primary"
+                                        @onclick="() => ViewPayslip(entry.PayrollID)"
+                                        title="View Payslip">
+                                    <span class="bi bi-file-text"></span> View
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private List<PayrollHistory> payrollHistory = new();
+    private bool isLoading = true;
+    private bool isAccessDenied = false;
+    private Employee? linkedEmployee;
+    private CultureInfo inrCulture = new CultureInfo("en-IN");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckPermissionsAndLoadData();
+    }
+
+    private async Task CheckPermissionsAndLoadData()
+    {
+        isLoading = true;
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. SECURITY CHECK: Load Feature Flags
+            var settings = await dbContext.FeatureSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == 1);
+
+            if (settings != null)
+            {
+                bool isModuleEnabled = settings.EnablePayroll;
+                bool canView = settings.EmployeeCanViewPayslip;
+
+                if (!isModuleEnabled || !canView)
+                {
+                    isAccessDenied = true;
+                    isLoading = false;
+                    return;
+                }
+            }
+
+            // 2. Load ONLY the logged-in employee.
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            if (user.Identity?.IsAuthenticated != true)
+            {
+                isAccessDenied = true;
+                return;
+            }
+
+            var email = user.Identity?.Name;
+
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                isAccessDenied = true;
+                return;
+            }
+
+            linkedEmployee = await dbContext.Employees
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e =>
+                    e.Email == email &&
+                    !e.IsDeleted);
+
+            if (linkedEmployee == null)
+            {
+                return;
+            }
+
+            // CRITICAL: Always filter payroll history by the logged-in employee ID.
+            payrollHistory = await dbContext.PayrollHistories
+                .AsNoTracking()
+                .Where(p => p.EmployeeID == linkedEmployee.EmployeeID)
+                .OrderByDescending(p => p.PayYear)
+                .ThenByDescending(p => p.PayMonth)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading employee payslip history.");
+            toastService.ShowError("An error occurred while loading your data.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ViewPayslip(int payrollId)
+    {
+        // The Payslip page performs a second server-side ownership check.
+        Navigation.NavigateTo($"/payslip/{payrollId}");
+    }
+}

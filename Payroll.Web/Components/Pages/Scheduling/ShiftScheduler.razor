@@ -1,0 +1,254 @@
+﻿@page "/schedule"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Web.Components.UI.Scheduling @* NEW FOLDER REFERENCE *@
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@inject Payroll.Web.Services.RosteringService RosteringService
+@inject ILogger<ShiftScheduler> _logger
+@inject NavigationManager Navigation
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Shift Scheduler</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>Shift Scheduler</h3>
+    <p class="text-muted small mb-0">Scheduled shifts override the employee's default profile shift.</p>
+</div>
+
+
+@* --- 1. ADD/EDIT FORM COMPONENT --- *@
+<ShiftEntryForm NewSchedule="newSchedule"
+                Employees="employeeList"
+                OnSaved="LoadSchedules" />
+
+<div class="mb-4 text-end">
+    <button class="btn btn-info text-white" @onclick="GenerateShiftsFromPatterns" disabled="@isLoading">
+        @if (isLoading)
+        {
+            <span class="spinner-border spinner-border-sm"></span>
+        }
+        else
+        {
+            <i class="bi bi-calendar-check me-2">Generate Shifts(Patterns)</i>
+        }
+    </button>
+</div>
+
+
+@* --- 2. FILTER BAR COMPONENT --- *@
+<ShiftFilterBar Employees="employeeList"
+                @bind-FilterEmployeeId="filterEmployeeId"
+                @bind-StartDate="filterStartDate"
+                @bind-EndDate="filterEndDate"
+                IsLoading="isLoading"
+                OnSearch="LoadSchedules" />
+
+
+@* --- 3. SCHEDULES TABLE COMPONENT --- *@
+<ShiftScheduleTable ScheduleList="scheduleList"
+                    Employees="employeeList"
+                    IsLoading="isLoading"
+                    OnDelete="DeleteScheduleConfirmation" />
+
+
+@* --- DELETE CONFIRMATION MODAL (Keep minimal logic here) --- *@
+@if (showDeleteConfirmationModal && scheduleToDeleteConfirm != null)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h5 class="modal-title">Confirm Deletion</h5>
+                    <button type="button" class="btn-close" @onclick="CancelDelete"></button>
+                </div>
+                <div class="modal-body small">
+                    <p>
+                        Delete shift for <strong>@(employeeList?.FirstOrDefault(e => e.EmployeeID == scheduleToDeleteConfirm.EmployeeID)?.Name ?? "employee")</strong>
+                        on <strong>@scheduleToDeleteConfirm.ShiftDate.ToString("dd-MMM-yyyy")</strong>?
+                    </p>
+                    <p class="text-danger fw-bold mb-0">This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelDelete">Cancel</button>
+                    <button type="button" class="btn btn-danger btn-sm" @onclick="ConfirmDelete" disabled="@isSaving">
+                        <i class="bi bi-trash"></i> Delete Schedule
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    private List<Employee>? employeeList;
+    private List<ShiftSchedule>? scheduleList;
+    private ShiftSchedule newSchedule = new();
+
+    // State flags
+    private bool isLoading = false;
+    private bool isSaving = false;
+
+    // Filter properties
+    private int filterEmployeeId = 0;
+    private DateTime? filterStartDate;
+    private DateTime? filterEndDate;
+
+    // Delete Modal State
+    private bool showDeleteConfirmationModal = false;
+    private ShiftSchedule? scheduleToDeleteConfirm;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.Now.Date;
+        newSchedule.ShiftDate = DateOnly.FromDateTime(today);
+        filterStartDate = new DateTime(today.Year, today.Month, 1);
+        filterEndDate = filterStartDate.Value.AddMonths(1).AddDays(-1);
+        if (filterEndDate > today) filterEndDate = today; // Don't filter past today for default end date
+
+        await LoadEmployees();
+        await LoadSchedules();
+    }
+
+    private async Task LoadEmployees()
+    {
+        if (employeeList == null)
+        {
+            try
+            {
+                await using var dbContext = await DbFactory.CreateDbContextAsync();
+                // FILTER FIX: Exclude soft-deleted employees
+                employeeList = await dbContext.Employees
+                    .Where(e => !e.IsDeleted)
+                    .OrderBy(e => e.Name).ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading employees.");
+                toastService.ShowError($"Error loading employees: {ex.Message}");
+                employeeList = new List<Employee>();
+            }
+        }
+    }
+
+    private async Task LoadSchedules()
+    {
+        isLoading = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var query = dbContext.ShiftSchedules.AsQueryable();
+
+            if (filterEmployeeId > 0)
+                query = query.Where(s => s.EmployeeID == filterEmployeeId);
+
+
+            // --- DYNAMIC ROSTERING FILTER LOGIC ---
+            if (filterStartDate.HasValue && filterEndDate.HasValue)
+            {
+                var startDateOnly = DateOnly.FromDateTime(filterStartDate.Value);
+                var endDateOnly = DateOnly.FromDateTime(filterEndDate.Value);
+
+                // CRITICAL FILTER: Selects records that are:
+                // 1. One-time overrides within the date range. OR
+                // 2. Recurring patterns whose DayOfWeek falls within the range and are active.
+                query = query.Where(s =>
+                    (s.IsRecurringPattern) || // Include all recurring patterns for context/editing
+                    (s.ShiftDate >= startDateOnly && s.ShiftDate <= endDateOnly)); // Include single-day overrides
+            }
+            // --- END DYNAMIC ROSTERING FILTER LOGIC ---
+
+            scheduleList = await query
+                                .OrderBy(s => s.ShiftDate)
+                                .ThenBy(s => s.EmployeeID)
+                                .ThenBy(s => s.StartTime)
+                                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading schedules.");
+            toastService.ShowError($"Error loading schedules: {ex.Message}");
+            scheduleList = new List<ShiftSchedule>();
+        }
+        finally
+        {
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void DeleteScheduleConfirmation(ShiftSchedule scheduleToDelete)
+    {
+        scheduleToDeleteConfirm = scheduleToDelete;
+        showDeleteConfirmationModal = true;
+    }
+
+    private void CancelDelete()
+    {
+        showDeleteConfirmationModal = false;
+        scheduleToDeleteConfirm = null;
+    }
+
+    private async Task GenerateShiftsFromPatterns()
+    {
+        var start = DateOnly.FromDateTime(DateTime.Now.Date);
+        var end = start.AddDays(30); // Generate for the next 30 days
+
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
+            $"Generate daily shifts based on recurring patterns for the next 30 days ({start:dd-MMM} to {end:dd-MMM})? This will skip existing shifts.");
+
+        if (!confirmed) return;
+
+        isLoading = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            int count = await RosteringService.GenerateScheduleFromPatternsAsync(start, end);
+
+            toastService.ShowSuccess($"{count} daily shifts were successfully generated from patterns.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating shifts from patterns.");
+            toastService.ShowError($"Schedule generation failed: {ex.Message}");
+        }
+        finally
+        {
+            await LoadSchedules(); // Reload the UI list
+        }
+    }
+
+   
+
+    private async Task ConfirmDelete()
+    {
+        if (scheduleToDeleteConfirm == null) return;
+        isSaving = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            // Since scheduleToDeleteConfirm came from DB, we can remove it directly
+            dbContext.ShiftSchedules.Remove(scheduleToDeleteConfirm);
+            await dbContext.SaveChangesAsync();
+            toastService.ShowSuccess("Schedule deleted successfully!");
+            CancelDelete();
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting schedule {ScheduleID}", scheduleToDeleteConfirm?.ScheduleID ?? 0);
+            toastService.ShowError($"Error deleting schedule: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

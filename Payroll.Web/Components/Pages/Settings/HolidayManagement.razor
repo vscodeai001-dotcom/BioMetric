@@ -1,0 +1,253 @@
+﻿@page "/holidays"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JSRuntime
+@inject ILogger<HolidayManagement> _logger
+@inject AuthenticationStateProvider AuthState
+@inject IToastService toastService
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Holiday Management</PageTitle>
+
+<h3>Holiday Management</h3>
+<p>Manage the list of official company holidays. These days will be treated as paid leave and will not count as absences.</p>
+
+@* --- THIS IS THE NEW, STANDARDIZED "ADD" FORM --- *@
+<details class="mb-4 border rounded p-2">
+    <summary class="fw-bold" style="cursor:pointer;">Add New Holiday</summary>
+    <div class="card-body">
+        <EditForm Model="newHoliday" OnValidSubmit="SaveHoliday">
+            <DataAnnotationsValidator />
+            <div class="row g-3">
+                <div class="col-md-5">
+                    <label class="form-label">Holiday Name</label>
+                    <InputText class="form-control" @bind-Value="newHoliday.HolidayName" />
+                    <ValidationMessage For="@(() => newHoliday.HolidayName)" />
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Holiday Date</label>
+                    <InputDate class="form-control" @bind-Value="newHolidayDateHelper" />
+                    <ValidationMessage For="@(() => newHoliday.HolidayDate)" />
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success w-100" disabled="@isSaving">
+                        @if (isSaving) {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        } else {
+                            <span class="bi bi-plus-lg"></span> <span>Add</span>
+                        }
+                    </button>
+                </div>
+            </div>
+         </EditForm>
+    </div>
+</details>
+@* --- END OF NEW FORM --- *@
+
+
+<h4>Existing Holidays</h4>
+<div class="row p-3 mb-3 border rounded bg-light align-items-end">
+    <div class="col-md-3">
+        <label class="form-label">Filter by Year</label>
+        <select class="form-select" @bind="selectedYear">
+            @foreach (var year in GetYearList())
+            {
+                <option value="@year">@year</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-3">
+        <button class="btn btn-primary" @onclick="LoadHolidays" disabled="@isLoading">
+            @if (isLoading) {
+                <span class="spinner-border spinner-border-sm"></span>
+            } else {
+                <span class="bi bi-search"></span> <span>Load</span>
+            }
+        </button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <p><em>Loading holidays...</em></p>
+}
+else if (holidayList == null || !holidayList.Any())
+{
+    <p><em>No holidays found for @selectedYear.</em></p>
+}
+else
+{
+    <table class="table table-sm table-striped">
+        <thead class="table-dark">
+            <tr>
+                <th>Date</th>
+                <th>Day</th>
+                <th>Holiday Name</th>
+                <th class="text-center">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var holiday in holidayList.OrderBy(h => h.HolidayDate))
+            {
+                <tr>
+                    <td>@holiday.HolidayDate.ToString("dd-MMM-yyyy")</td>
+                    <td>@holiday.HolidayDate.DayOfWeek</td>
+                    <td>@holiday.HolidayName</td>
+                    <td class="text-center">
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteHoliday(holiday)" disabled="@isSaving">
+                            <span class="bi bi-trash"></span>
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+     </table>
+}
+
+@code {
+    private List<CompanyHoliday>? holidayList;
+    private List<CompanyHoliday> holidays = new();
+    private CompanyHoliday newHoliday = new();
+    // Helper for InputDate binding, as it works better with DateTime
+    private DateTime newHolidayDateHelper = DateTime.Now.Date;
+    private bool isLoading = false;
+    private bool isSaving = false;
+    private int selectedYear;
+   
+    protected override async Task OnInitializedAsync()
+    {
+        selectedYear = DateTime.Now.Year;
+        // Set default date for new holiday
+        newHolidayDateHelper = new DateTime(selectedYear, 1, 1);
+        await LoadHolidays();
+    }
+
+    private async Task LoadData()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        
+        // 1. GATE CHECK
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        if (!auth.User.IsInRole("SuperAdmin"))
+        {
+            var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            if (features == null || !features.AdminCanManageShifts)
+            {
+               
+                return;
+            }
+        }
+
+        holidays = await db.CompanyHolidays.AsNoTracking().ToListAsync();
+    }
+
+    private List<int> GetYearList()
+    {
+        int currentYear = DateTime.Now.Year;
+        return new List<int> { currentYear - 1, currentYear, currentYear + 1 };
+    }
+
+    private async Task LoadHolidays()
+    {
+        isLoading = true;
+        StateHasChanged();
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            var startDate = new DateOnly(selectedYear, 1, 1);
+            var endDate = new DateOnly(selectedYear, 12, 31);
+            // Use the DbSet "CompanyHolidays" we added to the context
+            holidayList = await dbContext.CompanyHolidays
+                .Where(h => h.HolidayDate >= startDate && h.HolidayDate <= endDate)
+                .OrderBy(h => h.HolidayDate)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading holidays for year {Year}", selectedYear);
+            // --- MODIFICATION ---
+            toastService.ShowError($"Error loading holidays: {ex.Message}");
+            holidayList = new List<CompanyHoliday>();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveHoliday()
+    {
+        isSaving = true;
+        // Transfer from the DateTime helper to the DateOnly model
+        newHoliday.HolidayDate = DateOnly.FromDateTime(newHolidayDateHelper);
+        await using var dbContext = await DbFactory.CreateDbContextAsync();
+        // Check for duplicates
+        bool dateExists = await dbContext.CompanyHolidays
+                            .AnyAsync(h => h.HolidayDate == newHoliday.HolidayDate);
+        if (dateExists)
+        {
+            // --- MODIFICATION ---
+            toastService.ShowWarning("Error: A holiday for this date already exists.");
+            isSaving = false;
+            return;
+        }
+
+        try
+        {
+            
+            dbContext.CompanyHolidays.Add(newHoliday);
+            await dbContext.SaveChangesAsync();
+
+            // --- NEW: Show success toast ---
+            toastService.ShowSuccess("Holiday saved successfully!");
+            // Reset form
+            newHoliday = new CompanyHoliday();
+            newHolidayDateHelper = new DateTime(selectedYear, 1, 1);
+            
+            await LoadHolidays(); // Refresh list
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving new holiday.");
+            // --- MODIFICATION ---
+            toastService.ShowError($"Error saving holiday: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteHoliday(CompanyHoliday holidayToDelete)
+    {
+        // We keep the 'confirm' dialog as it's a destructive action
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete {holidayToDelete.HolidayName} on {holidayToDelete.HolidayDate.ToString("dd-MMM")}?");
+        if (!confirmed) return;
+
+        isSaving = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            dbContext.CompanyHolidays.Remove(holidayToDelete);
+            await dbContext.SaveChangesAsync();
+            
+            // --- NEW: Show success toast ---
+            toastService.ShowSuccess("Holiday deleted successfully!");
+            await LoadHolidays(); // Refresh list
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting holiday {HolidayID}", holidayToDelete.HolidayID);
+            // --- MODIFICATION ---
+            toastService.ShowError($"Error deleting holiday: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

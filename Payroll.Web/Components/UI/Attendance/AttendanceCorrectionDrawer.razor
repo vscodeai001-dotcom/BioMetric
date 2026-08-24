@@ -1,0 +1,173 @@
+﻿@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Models
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject AttendanceLeavePostingService LeaveService
+@inject Payroll.Web.Services.AuditService AuditService
+@inject Payroll.Web.Services.PayrollLockService LockService
+@inject AttendanceScheduleService ScheduleService
+@inject IToastService toastService
+
+@if (Show && Record != null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content">
+
+                <div class="modal-header bg-light py-3 border-bottom">
+                    <h5 class="modal-title">
+                        <i class="bi bi-check2-circle me-2 text-warning"></i> Correct Attendance
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="Close"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="alert alert-info small mb-4">
+                        <strong>Employee:</strong> @Record.EmployeeName<br />
+                        <strong>Date:</strong> @Record.Date.ToString("dddd, dd MMMM yyyy")<br />
+                        <strong>Current Status:</strong> <span class="text-danger">@Record.Status</span>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">New Status</label>
+                        <select class="form-select" @bind="newStatus">
+                            <option value="">-- Select Status --</option>
+                            <option value="Paid Leave">Paid Leave</option>
+                            <option value="Sick Leave">Sick Leave</option>
+                            <option value="Present (Manual)">Present (Manual Override)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">Reason / Notes</label>
+                        <textarea class="form-control" rows="3" @bind="notes" placeholder="e.g. Forgot to punch, Worked from home, etc."></textarea>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary me-auto" @onclick="Close">Cancel</button>
+                    <button type="button" class="btn btn-success px-4" @onclick="SaveCorrection" disabled="@string.IsNullOrEmpty(newStatus)">
+                        <span class="bi bi-save me-2"></span> Save Correction
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public AttendanceLogDto? Record { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private string newStatus = "";
+    private string notes = "";
+
+    private async Task Close()
+    {
+        newStatus = "";
+        notes = "";
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task SaveCorrection()
+    {
+        if (Record == null) return;
+        
+        // --- LOCK CHECK ---
+        if (await LockService.IsLockedAsync(Record.EmployeeID, Record.Date.ToDateTime(TimeOnly.MinValue)))
+        {
+            toastService.ShowError("Payroll is finalized for this month. Cannot change status.");
+            return;
+        }
+        // --- END LOCK CHECK ---
+        
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // Fetch necessary external data: Employee, Schedule, Settings
+            var emp = await dbContext.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.EmployeeID == Record.EmployeeID);
+            var scheduleOverride = await dbContext.ShiftSchedules.AsNoTracking().FirstOrDefaultAsync(s => s.EmployeeID == Record.EmployeeID && s.ShiftDate == Record.Date);
+            var companySettings = await dbContext.CompanySettings.AsNoTracking().FirstOrDefaultAsync(s => s.SettingID == 1) ?? new CompanySetting();
+            
+            if (emp == null) {
+                toastService.ShowError("Employee not found.");
+                return;
+            }
+
+            var summary = await dbContext.DailySummaries
+                .FirstOrDefaultAsync(ds => ds.EmployeeID == Record.EmployeeID && ds.ShiftDate == Record.Date);
+
+            if (summary != null)
+            {
+                summary.Status = newStatus;
+                
+                // --- MANUAL OVERRIDE LOGIC ---
+                if (newStatus == "Present (Manual Override)")
+                {
+                    // 1. Calculate Net Scheduled Duration
+                   var scheduleResult = ScheduleService.CalculateSchedule(                    
+                        emp, 
+                        Record.Date.ToDateTime(TimeOnly.MinValue), 
+                        scheduleOverride, 
+                        companySettings, 
+                        emp.StandardBreakMinutes, 
+                        0, 0); 
+
+                    // 2. Apply net hours and zero out penalties/OT
+                    summary.EarnedStandardHours = (decimal)scheduleResult.NetScheduled.TotalHours;
+                    summary.TotalOvertimeDuration = TimeSpan.Zero;
+                    summary.TotalPenaltyDuration = TimeSpan.Zero;
+                    summary.TotalLateness = TimeSpan.Zero;
+                    summary.TotalBreakPenalty = TimeSpan.Zero;
+                    summary.ScheduledShiftDuration = scheduleResult.GrossScheduled;
+                    
+                    // CRITICAL FIX: SET MANUAL OVERRIDE FLAG
+                    summary.IsManualOverride = true; 
+                }
+                else
+                {
+                    // If the user selects a non-manual status, we set the flag based on Leave type.
+                    summary.IsManualOverride = newStatus.Contains("Leave");
+                }
+                // --- END MANUAL OVERRIDE LOGIC ---
+
+
+                // 2. If Leave, post to LeaveRequests
+                if (newStatus.Contains("Leave"))
+                {
+                    await LeaveService.PostLeaveIfNeededAsync(
+                        Record.EmployeeID,
+                        Record.Date.ToDateTime(TimeOnly.MinValue),
+                        newStatus,
+                        $"Manual Correction: {notes}",
+                        approved: true);
+                }
+
+                await dbContext.SaveChangesAsync();
+                
+                // --- AUDIT LOG: CORRECTION ---
+                await AuditService.LogAsync("UPDATE", "DailySummary", summary.SummaryID.ToString(),
+                    $"Attendance status manually changed from {Record.Status} to {newStatus} for EmpID: {Record.EmployeeID}. Notes: {notes}");
+                // -----------------------------
+                
+                toastService.ShowSuccess($"Attendance status corrected. {(newStatus == "Present (Manual Override)" ? $"({summary.EarnedStandardHours:F2} hrs credited)" : "")}");
+                await OnSaved.InvokeAsync(); // Trigger parent refresh
+                await Close();
+            }
+            else
+            {
+                toastService.ShowError("Original record not found in database.");
+            }
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+}

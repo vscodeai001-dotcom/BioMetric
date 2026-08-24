@@ -1,0 +1,179 @@
+﻿@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@inject IToastService toastService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ILogger<AttendanceLogViewer> _logger
+
+<details class="mb-4 border rounded p-3">
+    <summary class="fw-bold text-primary" style="cursor:pointer;">
+        <i class="bi bi-calendar-plus me-2"></i> Add New Scheduled Shift
+    </summary>
+    <div class="card-body mt-2 border-top pt-3">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label for="employeeSelect" class="form-label small fw-bold">Employee</label>
+                <select id="employeeSelect" class="form-select @(IsFormSubmitted && NewSchedule.EmployeeID == 0 ? "is-invalid" : "")" 
+                        @bind="NewSchedule.EmployeeID" required>
+                    <option value="0">-- Select Employee --</option>
+                    @if (Employees != null)
+                    {
+                        @foreach (var emp in Employees)
+                        {
+                            <option value="@emp.EmployeeID">@emp.Name</option>
+                        }
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="shiftDate" class="form-label small fw-bold">Date</label>
+                <input type="date" id="shiftDate" class="form-control @(IsFormSubmitted && NewSchedule.ShiftDate == default ? "is-invalid" : "")" 
+                       @bind="DateHelper" required />
+            </div>
+
+            @* --- NEW: Pattern Definition Fields --- *@
+            <div class="col-md-4">
+                <label for="shiftPattern" class="form-label small fw-bold">Roster Pattern</label>
+                <div class="input-group input-group-sm">
+                    <div class="input-group-text">
+                        <input class="form-check-input mt-0" type="checkbox" @bind="NewSchedule.IsRecurringPattern">
+                    </div>
+                    <select class="form-select" @bind="NewSchedule.AppliesToDayOfWeek" disabled="@(!NewSchedule.IsRecurringPattern)">
+                        <option value="@DayOfWeek.Sunday">Recurring: Sunday</option>
+                        <option value="@DayOfWeek.Monday">Recurring: Monday</option>
+                        <option value="@DayOfWeek.Tuesday">Recurring: Tuesday</option>
+                        <option value="@DayOfWeek.Wednesday">Recurring: Wednesday</option>
+                        <option value="@DayOfWeek.Thursday">Recurring: Thursday</option>
+                        <option value="@DayOfWeek.Friday">Recurring: Friday</option>
+                        <option value="@DayOfWeek.Saturday">Recurring: Saturday</option>
+                    </select>
+                </div>
+            </div>
+            
+
+            <div class="col-md-2">
+                <label for="startTime" class="form-label small fw-bold">Start Time</label>
+                <input type="time" id="startTime" class="form-control @(IsFormSubmitted && TimeHelperStart == default ? "is-invalid" : "")" 
+                       @bind="TimeHelperStart" required />
+            </div>
+            <div class="col-md-2">
+                <label for="endTime" class="form-label small fw-bold">End Time</label>
+                <input type="time" id="endTime" class="form-control @(IsFormSubmitted && TimeHelperEnd == default ? "is-invalid" : "")" 
+                       @bind="TimeHelperEnd" required />
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+                <button class="btn btn-success w-100" @onclick="HandleSave" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-plus-lg"></i>
+                    }
+                    Add
+                </button>
+            </div>
+        </div>
+        @if (!string.IsNullOrEmpty(SaveError))
+        {
+            <div class="alert alert-danger mt-2">@SaveError</div>
+        }
+    </div>
+</details>
+
+@code {
+    [Parameter] public List<Employee>? Employees { get; set; }
+    [Parameter] public ShiftSchedule NewSchedule { get; set; } = new();
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    // Local State
+    private bool IsFormSubmitted = false;
+    private bool isSaving = false;
+    private string SaveError = string.Empty;
+
+    // --- Helper Bindings for DateOnly/TimeOnly ---
+    public DateTime DateHelper
+    {
+        get => NewSchedule.ShiftDate.ToDateTime(TimeOnly.MinValue);
+        set => NewSchedule.ShiftDate = DateOnly.FromDateTime(value.Date);
+    }
+    public DateTime TimeHelperStart
+    {
+        get => DateTime.Today.Add(NewSchedule.StartTime.ToTimeSpan());
+        set => NewSchedule.StartTime = TimeOnly.FromDateTime(value);
+    }
+    public DateTime TimeHelperEnd
+    {
+        get => DateTime.Today.Add(NewSchedule.EndTime.ToTimeSpan());
+        set => NewSchedule.EndTime = TimeOnly.FromDateTime(value);
+    }
+    
+    private async Task HandleSave()
+    {
+        isSaving = true; // Fixes CS0103
+        await InvokeAsync(StateHasChanged);
+
+        // FIX: Checks properties against null (valid since models are now nullable)
+        if (NewSchedule.EmployeeID <= 0 || NewSchedule.ShiftDate == default(DateOnly) || NewSchedule.StartTime == default(TimeOnly) || NewSchedule.EndTime == default(TimeOnly))
+        {
+            toastService.ShowWarning("Please fill in all required shift details (Employee, Date, Start/End Time).");
+            isSaving = false; // Fixes CS0103
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // Check if we are inserting a new record (ID will be 0) or updating an existing one.
+            if (NewSchedule.ScheduleID == 0)
+            {
+                // Set ID to 0 to force an INSERT (auto-increment will assign new ID)
+                NewSchedule.ScheduleID = 0;
+
+                // --- NEW: Normalize ShiftDate for Recurring Patterns ---
+                if (NewSchedule.IsRecurringPattern)
+                {
+                    // FIX: Use .Value to safely unwrap the non-null DateOnly?
+                    DateTime date = NewSchedule.ShiftDate.ToDateTime(TimeOnly.MinValue); // Fixes CS1061
+
+                    // Calculate the difference in days to the preceding Sunday.
+                    // DayOfWeek.Sunday is 0.
+                    int daysToSubtract = (int)date.DayOfWeek;
+
+                    // Set the ShiftDate to the Sunday of the week corresponding to the selected date.
+                    NewSchedule.ShiftDate = DateOnly.FromDateTime(date.AddDays(-daysToSubtract));
+                }
+                // ------------------------------------------------------
+
+                dbContext.ShiftSchedules.Add(NewSchedule);
+            }
+            else
+            {
+                // Update existing record
+                dbContext.ShiftSchedules.Update(NewSchedule);
+            }
+
+            await dbContext.SaveChangesAsync();
+
+            toastService.ShowSuccess("Shift schedule saved successfully!");
+
+            // Reset the form for a new entry
+            NewSchedule = new ShiftSchedule();
+
+            // Notify the parent component (ShiftScheduler.razor) to reload the list
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving shift schedule.");
+            toastService.ShowError($"Error saving schedule: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false; // Fixes CS0103
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}

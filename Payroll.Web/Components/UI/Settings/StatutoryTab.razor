@@ -1,0 +1,216 @@
+﻿@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IToastService toastService
+
+@if (IsSuperAdmin || Features?.EnableStatutoryCompliance == true || Features?.EnableProfessionalTax == true)
+{
+    <div class="row">
+
+        @* --- PF & ESI --- *@
+        <div class="col-md-6">
+            @if (IsSuperAdmin || Features?.EnableStatutoryCompliance == true)
+            {
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="text-warning mb-0">Provident Fund & ESI</h5>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" @bind="Settings.EnablePfEsiSystem">
+                    </div>
+                </div>
+                @if (Settings.EnablePfEsiSystem)
+                {
+                    <div class="p-3 bg-light border rounded">
+                        <div class="row g-3 align-items-end mb-3">
+                            <div class="col-6">
+                                <label class="small fw-bold">ESI Wage Limit (₹)</label>
+                                <input type="number" class="form-control form-control-sm" @bind="Settings.EsiWageLimit" />
+                            </div>
+                            <div class="col-6">
+                                <label class="small fw-bold">Basic Salary %</label>
+                                <input type="number" class="form-control form-control-sm" @bind="Settings.BasicSalaryPercentage" />
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-6"><label class="small fw-bold">Employee PF %</label><input type="number" class="form-control form-control-sm" @bind="Settings.EmployerPfPercentage" /></div>
+                            <div class="col-6"><label class="small fw-bold">Employee ESI %</label><input type="number" class="form-control form-control-sm" @bind="Settings.EmployerEsiPercentage" /></div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+
+                    <div class="alert alert-light small">Disabled.</div>
+                }
+            }
+        </div>
+
+        @* --- PROFESSIONAL TAX --- *@
+        <div class="col-md-6 border-start">
+            @if (IsSuperAdmin || Features?.EnableProfessionalTax == true)
+            {
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="text-secondary mb-0">Professional Tax (PT)</h5>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" @bind="Settings.EnableProfessionalTax">
+                    </div>
+                </div>
+                @if (Settings.EnableProfessionalTax)
+                {
+                    <div class="p-3 bg-light border rounded">
+                        <p class="small text-muted mb-2">Manage tax slabs based on Gross Salary range.</p>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="OpenSlabModal"><i class="bi bi-table"></i> Manage Slabs</button>
+                        <span class="ms-2 small fw-bold">@(ptSlabs?.Count ?? 0) Slabs Active</span>
+                    </div>
+                }
+                else
+                {
+
+                    <div class="alert alert-light small">Disabled.</div>
+                }
+            }
+        </div>
+        @* --- SHIFT ALLOWANCE --- *@
+        @if (IsSuperAdmin || Features?.EnableShiftAllowance == true)
+        {
+            <div class="col-12 mt-3 border-top pt-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="text-info mb-0">Shift Allowances</h5>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" @bind="Settings.EnableShiftAllowance">
+                        <label class="form-check-label small">Enable Night Shift Allowance</label>
+                    </div>
+                </div>
+
+                @if (Settings.EnableShiftAllowance)
+                {
+                    <div class="p-3 bg-light border rounded">
+                        <p class="small text-muted mb-0">
+                            If enabled, employees can be assigned a "Night Shift Allowance" rate in their profile.
+                            This amount (e.g. ₹200) will be automatically added to their daily pay if they work a shift that crosses midnight.
+                        </p>
+                    </div>
+                }
+                else
+                {
+
+                    <div class="alert alert-light small">Allowance system disabled.</div>
+                }
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="alert alert-warning">Statutory Module is not enabled for your subscription.</div>
+}
+
+@* --- SLAB MODAL (Internal to this component now) --- *@
+@if (showSlabModal)
+{
+    <div class="modal fade show" style="display:block; background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h5 class="modal-title">Manage Professional Tax Slabs</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSlabModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-2 align-items-end mb-3 border-bottom pb-3">
+                        <div class="col-md-4"><label class="small fw-bold">Min Salary</label><input type="number" class="form-control form-control-sm" @bind="newSlab.MinSalary" placeholder="0" /></div>
+                        <div class="col-md-4"><label class="small fw-bold">Max Salary</label><input type="number" class="form-control form-control-sm" @bind="newSlab.MaxSalary" placeholder="999999" /></div>
+                        <div class="col-md-3"><label class="small fw-bold">Tax (₹)</label><input type="number" class="form-control form-control-sm" @bind="newSlab.TaxAmount" /></div>
+                        <div class="col-md-1">
+                            @if (newSlab.SlabID == 0)
+                            {
+                                <button class="btn btn-sm btn-success w-100" @onclick="SaveSlab" title="Add"><i class="bi bi-plus-lg"></i></button>
+                            }
+                            else
+                            {
+
+                                <div class="d-flex"><button class="btn btn-sm btn-primary w-50 me-1 p-0" @onclick="SaveSlab"><i class="bi bi-check-lg"></i></button><button class="btn btn-sm btn-secondary w-50 p-0" @onclick="CancelEdit"><i class="bi bi-x-lg"></i></button></div>
+                            }
+                        </div>
+                    </div>
+                    <table class="table table-sm table-striped table-bordered text-center">
+                        <thead class="table-light"><tr><th>Min (₹)</th><th>Max (₹)</th><th>Tax (₹)</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            @if (ptSlabs != null && ptSlabs.Any())
+                            {
+                                @foreach (var slab in ptSlabs.OrderBy(s => s.MinSalary))
+                                {
+                                    <tr class="@(newSlab.SlabID == slab.SlabID ? "table-primary" : "")">
+                                        <td>@slab.MinSalary.ToString("N0")</td>
+                                        <td>@slab.MaxSalary.ToString("N0")</td>
+                                        <td>@slab.TaxAmount.ToString("N0")</td>
+                                        <td><button class="btn btn-sm btn-outline-primary py-0 me-1" @onclick="() => EditSlab(slab)"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger py-0" @onclick="() => DeleteSlab(slab)"><i class="bi bi-trash"></i></button></td>
+                                    </tr>
+                                }
+                            }
+                            else
+                            {
+                                <tr><td colspan="4" class="text-muted">No slabs defined.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public CompanySetting Settings { get; set; } = new();
+    [Parameter] public FeatureSettings? Features { get; set; }
+    [Parameter] public bool IsSuperAdmin { get; set; }
+
+    // Local State for Modal
+    private bool showSlabModal = false;
+    private List<ProfessionalTaxSlab> ptSlabs = new();
+    private ProfessionalTaxSlab newSlab = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPtSlabs();
+    }
+
+    private async Task LoadPtSlabs()
+    {
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            ptSlabs = await dbContext.ProfessionalTaxSlabs.OrderBy(s => s.MinSalary).ToListAsync();
+        }
+        catch { }
+    }
+
+    // PT Logic confined to this component
+    private void OpenSlabModal() { newSlab = new ProfessionalTaxSlab(); showSlabModal = true; }
+    private void CloseSlabModal() { showSlabModal = false; }
+    private void CancelEdit() { newSlab = new ProfessionalTaxSlab(); }
+    private void EditSlab(ProfessionalTaxSlab slab) { newSlab = new ProfessionalTaxSlab { SlabID = slab.SlabID, MinSalary = slab.MinSalary, MaxSalary = slab.MaxSalary, TaxAmount = slab.TaxAmount }; }
+
+    private async Task SaveSlab()
+    {
+        if (newSlab.MaxSalary < newSlab.MinSalary) { toastService.ShowWarning("Max > Min required."); return; }
+        await using var dbContext = await DbFactory.CreateDbContextAsync();
+        if (newSlab.SlabID == 0) dbContext.ProfessionalTaxSlabs.Add(newSlab);
+        else
+        {
+            var ex = await dbContext.ProfessionalTaxSlabs.FindAsync(newSlab.SlabID);
+            if (ex != null) { ex.MinSalary = newSlab.MinSalary; ex.MaxSalary = newSlab.MaxSalary; ex.TaxAmount = newSlab.TaxAmount; }
+        }
+        await dbContext.SaveChangesAsync();
+        await LoadPtSlabs();
+        newSlab = new ProfessionalTaxSlab();
+        toastService.ShowSuccess("Slab saved.");
+    }
+
+    private async Task DeleteSlab(ProfessionalTaxSlab slab)
+    {
+        await using var dbContext = await DbFactory.CreateDbContextAsync();
+        dbContext.ProfessionalTaxSlabs.Remove(slab);
+        await dbContext.SaveChangesAsync();
+        await LoadPtSlabs();
+        toastService.ShowSuccess("Deleted.");
+    }
+}

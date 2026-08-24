@@ -1,0 +1,122 @@
+﻿@using global::Payroll.Web.Components.Pages.Attendance
+@using global::Payroll.Web.Models
+
+@if (IsLoading)
+{
+    <p><em>Loading data...</em></p>
+}
+else if (Logs == null || !Logs.Any())
+{
+    <p class="text-muted"><em>No attendance records found for this period.</em></p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-bordered mt-3" style="font-size: 0.85em; white-space: nowrap;">
+            <thead class="table-dark">
+                <tr>
+                    <th>Employee</th>
+                    <th>Date</th>
+                    <th>Status</th>
+
+                    @* Updated Header *@
+                    <th class="text-center d-none-mobile">Scheduled (HH:MM)</th>
+
+                    <th class="text-center d-none-mobile" title="Lunch Out-In">Lunch</th>
+                    <th class="text-center d-none-mobile">Gross Brk</th>
+                    <th class="text-center d-none-mobile">Gaps</th>
+
+                    <th class="text-center d-none-mobile">Late</th>
+                    <th class="text-center d-none-mobile">Early</th>
+                    <th class="text-center text-danger">Penalty</th>
+
+                    <th class="text-center d-none-mobile">OT</th>
+                    <th class="text-center">Worked</th>
+                    <th>Raw Punches</th>
+                    <th class="text-center">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var record in Logs)
+                {
+                    <tr>
+                        <td>@record.EmployeeName</td>
+                        <td>@record.Date.ToString("dd-MMM (ddd)")</td>
+                        <td><span class="badge @GetStatusColor(record.Status)">@record.Status</span></td>
+
+                        @* --- NEW SCHEDULED COLUMN FORMAT --- *@
+                        <td class="text-center d-none-mobile">
+                            @if (record.ShiftStart.HasValue && record.ShiftEnd.HasValue)
+                            {
+                                <div class="small">@($"{record.ShiftStart:HH:mm} - {record.ShiftEnd:HH:mm}")</div>
+                                <div class="fw-bold text-muted" style="font-size: 0.85em;">
+                                    (@FormatTimeSpan(record.ScheduledShiftDuration))
+                                </div>
+                            }
+                            else
+                            {
+                                <span>-</span>
+                            }
+                        </td>
+                        @* ----------------------------------- *@
+
+                        <td class="text-center d-none-mobile small text-muted">
+                            @if (record.LunchOut.HasValue)
+                            {
+                                @($"{record.LunchOut:HH:mm}-{record.LunchIn:HH:mm}")
+                            }
+                            else
+                            {
+
+                                <span>-</span>
+                            }
+                        </td>
+                        <td class="text-center d-none-mobile">@FormatTimeSpan(record.TotalBreakTime)</td>
+                        <td class="text-center d-none-mobile">@(record.GapsCount > 0 ? record.GapsCount.ToString() : "-")</td>
+
+                        <td class="text-center d-none-mobile">@FormatTimeSpan(record.LatenessDuration)</td>
+                        <td class="text-center d-none-mobile">@FormatTimeSpan(record.EarlyLeavePenalty)</td>
+                        <td class="text-center text-danger fw-bold">@FormatTimeSpan(record.TotalPenalty)</td>
+
+                        <td class="text-center d-none-mobile">@FormatTimeSpan(record.OvertimeDuration)</td>
+                        <td class="text-center fw-bold">@FormatDecimal(record.FinalWorkedHours)</td>
+                        <td class="small text-muted text-truncate" style="max-width: 150px;" title="@record.Punches">@record.Punches</td>
+
+                        <td class="text-center">
+                            @if (CanCorrect(record.Status))
+                            {
+                                <button class="btn btn-sm btn-outline-warning py-0 px-1" @onclick="() => OnCorrect.InvokeAsync(record)">
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public List<AttendanceLogDto>? Logs { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback<AttendanceLogDto> OnCorrect { get; set; }
+
+    private bool CanCorrect(string status) => status == "Absent" || status.StartsWith("Loss");
+    
+    private string GetStatusColor(string status) => status switch {
+        "Present" => "bg-success",
+        "Absent" => "bg-danger",
+        "Half Day" => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    private string FormatTimeSpan(TimeSpan ts) => $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}";
+    private string FormatDecimal(decimal d)
+    {
+        var ts = TimeSpan.FromHours((double)d);
+        // Ensure it's rounded before display
+        ts = TimeSpan.FromMinutes(Math.Round(ts.TotalMinutes));
+        return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}"; // <-- CHANGED TO RETURN STRING
+    }
+}

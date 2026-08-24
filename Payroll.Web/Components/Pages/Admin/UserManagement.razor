@@ -1,0 +1,268 @@
+﻿@page "/admin/users"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Services
+@using global::Payroll.Web.Services
+@using global::Payroll.Web.Models
+@using global::Payroll.Web.Components.UI.Admin
+
+@inject IJSRuntime JSRuntime
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject UserManager<IdentityUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+@inject IToastService toastService
+@inject ILogger<UserManagement> _logger
+@inject AuditService AuditService
+
+@attribute [Authorize(Roles = "SuperAdmin")]
+
+<PageTitle>User & Role Management</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>User & Role Management</h3>
+    <p class="lead mb-0">Manage users, assign roles, and link them to employee records.</p>
+</div>
+
+@if (isLoading)
+{
+    <p><em>Loading users & roles...</em></p>
+}
+else
+{
+    <div class="row">
+        <div class="col-md-5 mb-4">
+            <UserCreationForm NewUserForm="newUserForm"
+                              UnlinkedEmployees="unlinkedEmployees"
+                              IsSaving="isSaving"
+                              OnCreateUser="CreateNewUser" />
+        </div>
+
+        <div class="col-md-7 mb-4">
+
+            @* ---- EVENT HANDLERS PASSED TO CHILD ---- *@
+            @* ---- STATE BINDINGS PASSED TO CHILD ----- *@
+
+            <UserListTable UserList="userList"
+                           IsLoading="isLoading"
+                           IsSaving="isSaving"
+                           OnEditRoleRequested="HandleEditRoleStart"
+                           OnDeleteUser="ConfirmDeleteUser"
+                           UpdateUserRole="UpdateUserRole"
+                           ShowEditRoleModal="showEditRoleModal"
+                           UserToEditRole="userToEditRole"
+                           NewRoleForUser="newRoleForUser"
+                           ShowEditRoleModalChanged="((bool v) => showEditRoleModal = v)"
+                           UserToEditRoleChanged="((UserRoleViewModel? v) => userToEditRole = v)"
+                           NewRoleForUserChanged="((string v) => newRoleForUser = v)" />
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isSaving = false;
+
+    private List<UserRoleViewModel> userList = new();
+    private List<Employee> allEmployees = new();
+
+    private List<Employee> unlinkedEmployees =>
+        allEmployees.Where(e => string.IsNullOrEmpty(e.AspNetUserId)).ToList();
+
+    private NewUserFormModel newUserForm = new();
+
+    private UserRoleViewModel? userToEditRole;
+    private string newRoleForUser = "Employee";
+    private bool showEditRoleModal = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var dbContext = await DbFactory.CreateDbContextAsync();
+        await LoadUsersAndRoles(dbContext);
+    }
+
+    private async Task LoadUsersAndRoles(AppDbContext dbContext)
+    {
+        isLoading = true;
+        try
+        {
+            allEmployees = await dbContext.Employees.AsNoTracking().ToListAsync();
+
+            var users = await UserManager.Users.ToListAsync();
+            userList = new();
+
+            foreach (var u in users)
+            {
+                var roles = await UserManager.GetRolesAsync(u);
+                var role = roles.SingleOrDefault() ?? "Employee";
+
+                var linked = allEmployees.FirstOrDefault(e => e.AspNetUserId == u.Id);
+
+                userList.Add(new UserRoleViewModel
+                {
+                    UserId = u.Id,
+                    Email = u.Email!,
+                    UserName = u.UserName!,
+                    CurrentRole = role,
+                    EmployeeId = linked?.EmployeeID,
+                    EmployeeName = linked?.Name ?? "Unlinked",
+                });
+            }
+        }
+        catch
+        {
+            toastService.ShowError("Error loading user data.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task CreateNewUser()
+    {
+        isSaving = true;
+        await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+        try
+        {
+            var newUser = new IdentityUser { Email = newUserForm.Email, UserName = newUserForm.Email };
+            var result = await UserManager.CreateAsync(newUser, newUserForm.Password);
+
+            if (!result.Succeeded)
+            {
+                toastService.ShowError(string.Join(", ", result.Errors.Select(e => e.Description)));
+                return;
+            }
+
+            await UserManager.AddToRoleAsync(newUser, newUserForm.InitialRole);
+
+            if (newUserForm.EmployeeId.HasValue)
+            {
+                var emp = await dbContext.Employees.FindAsync(newUserForm.EmployeeId.Value);
+                if (emp != null)
+                {
+                    emp.Email = newUser.Email;
+                    emp.AspNetUserId = newUser.Id;
+                    dbContext.Update(emp);
+                    await dbContext.SaveChangesAsync();
+                }
+            }
+
+            toastService.ShowSuccess("User created.");
+            newUserForm = new();
+        }
+        finally
+        {
+            await LoadUsersAndRoles(dbContext);
+            isSaving = false;
+        }
+    }
+
+    private void HandleEditRoleStart(UserRoleViewModel user)
+    {
+        userToEditRole = user;
+        newRoleForUser = user.CurrentRole;
+        showEditRoleModal = true;
+    }
+
+    private async Task UpdateUserRole()
+    {
+        if (userToEditRole == null) return;
+        isSaving = true;
+
+        try
+        {
+            var user = await UserManager.FindByIdAsync(userToEditRole.UserId);
+            if (user == null)
+            {
+                toastService.ShowError("User not found.");
+                return;
+            }
+
+            // 1. Get ALL current roles
+            var currentRoles = await UserManager.GetRolesAsync(user);
+            
+            // 2. Remove ALL existing roles first (clean slate)
+            if (currentRoles.Any())
+            {
+                var removeResult = await UserManager.RemoveFromRolesAsync(user, currentRoles);
+                if (!removeResult.Succeeded)
+                {
+                    throw new Exception("Failed to remove existing roles: " + string.Join(", ", removeResult.Errors.Select(e => e.Description)));
+                }
+            }
+
+            // 3. Add the NEW single role
+            if (!string.IsNullOrEmpty(newRoleForUser))
+            {
+                var addResult = await UserManager.AddToRoleAsync(user, newRoleForUser);
+                if (!addResult.Succeeded)
+                {
+                    throw new Exception("Failed to add new role: " + string.Join(", ", addResult.Errors.Select(e => e.Description)));
+                }
+            }
+
+            toastService.ShowSuccess($"Role updated to {newRoleForUser}.");
+            showEditRoleModal = false; // Close modal on success
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating role");
+            toastService.ShowError(ex.Message);
+        }
+        finally
+        {
+            isSaving = false;
+            await using var db = await DbFactory.CreateDbContextAsync();
+            await LoadUsersAndRoles(db);
+        }
+    }
+
+
+    private async Task ConfirmDeleteUser(UserRoleViewModel user)
+    {
+        if (user.CurrentRole == "SuperAdmin")
+        {
+            toastService.ShowWarning("Cannot delete SuperAdmin.");
+            return;
+        }
+
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Delete {user.Email}?")) return;
+
+        await DeleteUser(user);
+    }
+
+    private async Task DeleteUser(UserRoleViewModel user)
+    {
+        isSaving = true;
+        await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+        try
+        {
+            var u = await UserManager.FindByIdAsync(user.UserId);
+            if (u != null)
+            {
+                var emp = await dbContext.Employees.FirstOrDefaultAsync(e => e.AspNetUserId == u.Id);
+                if (emp != null)
+                {
+                    emp.AspNetUserId = null;
+                    emp.Email = null;
+                    dbContext.Update(emp);
+                    await dbContext.SaveChangesAsync();
+                }
+
+                await UserManager.DeleteAsync(u);
+            }
+
+            toastService.ShowSuccess("User deleted.");
+        }
+        finally
+        {
+            await LoadUsersAndRoles(dbContext);
+            isSaving = false;
+        }
+    }
+}

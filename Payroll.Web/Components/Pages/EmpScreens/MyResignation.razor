@@ -1,0 +1,231 @@
+﻿@page "/my-resignation"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ResignationService ExitService
+@inject AuthenticationStateProvider Auth
+@inject IToastService toastService
+@inject NavigationManager Navigation
+@attribute [Authorize(Roles = "Employee, SuperAdmin")]
+
+<PageTitle>My Resignation</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Resignation & Exit</strong> module is currently disabled or restricted.</p>
+            <hr>
+            <p class="mb-0">Please contact your administrator or <a href="/" class="alert-link">return to the dashboard</a>.</p>
+        </div>
+    </div>
+}
+else if (isLoading)
+{
+    <div class="d-flex justify-content-center align-items-center h-100">
+        <div class="spinner-border text-primary"></div>
+    </div>
+}
+else if (linkedEmployee == null)
+{
+    <div class="alert alert-danger mt-4 shadow-sm">
+        User not linked to Employee record.
+    </div>
+}
+else
+{
+    <div class="container-fluid h-100 d-flex flex-column">
+        @* --- HEADER --- *@
+        <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2 flex-shrink-0">
+            <h3 class="text-primary fw-bold mb-0"><i class="bi bi-door-open me-2"></i>Resignation & Exit</h3>
+        </div>
+
+        <div class="flex-grow-1 overflow-auto">
+            <div class="row justify-content-center">
+                <div class="col-md-8 col-lg-6">
+                    @if (existingRequest != null && existingRequest.Status != "Rejected")
+                    {
+                        @* --- STATUS VIEW (Read Only) --- *@
+                        <div class="card shadow border-0">
+                            <div class="card-header bg-white py-3 text-center">
+                                <h5 class="mb-0 fw-bold">Current Status</h5>
+                                <div class="mt-2">
+                                    @if (existingRequest.IsSettled)
+                                    {
+                                        <span class="badge bg-dark fs-6">Settled & Closed</span>
+                                    }
+                                    else if (existingRequest.Status == "Approved")
+                                    {
+                                        <span class="badge bg-success fs-6">Approved</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning text-dark fs-6">Pending Review</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="card-body p-4">
+                                <div class="row g-3">
+                                    <div class="col-6 text-muted">Submitted On:</div>
+                                    <div class="col-6 fw-bold text-end">@existingRequest.SubmissionDate.ToString("dd-MMM-yyyy")</div>
+
+                                    <div class="col-6 text-muted">Requested Last Day:</div>
+                                    <div class="col-6 fw-bold text-end">@existingRequest.DesiredLastWorkingDay.ToString("dd-MMM-yyyy")</div>
+
+                                    @if (existingRequest.ApprovedLastWorkingDay.HasValue)
+                                    {
+                                        <div class="col-12"><hr /></div>
+                                        <div class="col-6 text-success fw-bold">Approved Last Day:</div>
+                                        <div class="col-6 fw-bold text-end text-success">@existingRequest.ApprovedLastWorkingDay.Value.ToString("dd-MMM-yyyy")</div>
+                                    }
+
+                                    @if (!string.IsNullOrEmpty(existingRequest.AdminRemarks))
+                                    {
+                                        <div class="col-12 mt-3">
+                                            <div class="alert alert-light border">
+                                                <small class="fw-bold text-muted d-block mb-1">Manager Remarks:</small>
+                                                @existingRequest.AdminRemarks
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        @* --- SUBMISSION FORM (New or Re-Submission) --- *@
+                        <div class="card shadow border-0">
+                            <div class="card-header bg-primary text-white py-3">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-pencil-square me-2"></i>
+                                    @(existingRequest?.Status == "Rejected" ? "Re-Submit Resignation" : "Submit Resignation")
+                                </h5>
+                            </div>
+                            <div class="card-body p-4">
+                                @if (existingRequest?.Status == "Rejected")
+                                {
+                                    <div class="alert alert-danger mb-4">
+                                        <strong>Previous Request Rejected</strong><br />
+                                        <span class="small">Manager Remarks: @(existingRequest.AdminRemarks ?? "No remarks provided.")</span>
+                                    </div>
+                                }
+
+                                <p class="text-muted small mb-4">
+                                    Please provide your desired last working day and the reason for resignation. This will be sent to your manager for approval.
+                                </p>
+
+                                <EditForm Model="formModel" OnValidSubmit="SubmitForm">
+                                    <DataAnnotationsValidator />
+
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Desired Last Working Day</label>
+                                        <InputDate class="form-control" @bind-Value="formModel.LastWorkingDay" min="@DateTime.Now.ToString("yyyy-MM-dd")" />
+                                    </div>
+
+                                    <div class="mb-4">
+                                        <label class="form-label fw-bold">Reason</label>
+                                        <InputTextArea class="form-control" rows="4" @bind-Value="formModel.Reason" placeholder="Reason for leaving..." />
+                                    </div>
+
+                                    <div class="d-grid">
+                                        <button type="submit" class="btn btn-danger btn-lg" disabled="@isSaving">
+                                            @if (isSaving)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                            }
+                                            Submit Resignation
+                                        </button>
+                                    </div>
+                                </EditForm>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isAccessDenied = false;
+    private bool isSaving = false;
+    private Employee? linkedEmployee;
+    private ResignationRequest? existingRequest;
+    private SubmitModel formModel = new() { LastWorkingDay = DateTime.Now.AddMonths(1) };
+
+    private class SubmitModel
+    {
+        public DateTime LastWorkingDay { get; set; }
+        public string Reason { get; set; } = "";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            // 1. SECURITY CHECK
+            var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            if (features != null)
+            {
+                // Strict Hierarchy Check: EnableResignationModule (Parent) AND EmployeeCanViewResignation (Child)
+                bool isModuleEnabled = features.EnableResignationModule;
+                bool canView = features.EmployeeCanViewResignation;
+
+                if (!isModuleEnabled || !canView)
+                {
+                    isAccessDenied = true;
+                    isLoading = false;
+                    return; // Stop immediately
+                }
+            }
+
+            // 2. Employee Check
+            var auth = await Auth.GetAuthenticationStateAsync();
+            var email = auth.User.Identity?.Name;
+            linkedEmployee = await db.Employees.FirstOrDefaultAsync(e => e.Email == email);
+            if (linkedEmployee == null) return;
+
+            // 3. Existing Request Check
+            existingRequest = await db.ResignationRequests
+                .Where(r => r.EmployeeId == linkedEmployee.EmployeeID)
+                .OrderByDescending(r => r.SubmissionDate)
+                .FirstOrDefaultAsync();
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task SubmitForm()
+    {
+        if (linkedEmployee == null) return;
+        isSaving = true;
+        try
+        {
+            await ExitService.SubmitResignationAsync(
+                linkedEmployee.EmployeeID,
+                DateOnly.FromDateTime(formModel.LastWorkingDay),
+                formModel.Reason);
+            toastService.ShowSuccess("Resignation submitted successfully.");
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError(ex.Message);
+        }
+        finally { isSaving = false; }
+    }
+}

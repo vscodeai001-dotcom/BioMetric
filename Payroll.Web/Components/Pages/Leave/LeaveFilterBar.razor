@@ -1,0 +1,67 @@
+﻿@using global::Payroll.Shared.Data
+@using Microsoft.AspNetCore.Components.Forms
+
+<div class="row p-3 mb-4 border rounded bg-light">
+    <div class="col-md-3">
+        <label class="form-label small fw-bold">Filter by Employee</label>
+        <select class="form-select" @bind="SelectedEmployeeId" @bind:event="oninput">
+            <option value="0">-- All Employees --</option>
+            @if (Employees != null)
+            {
+                @foreach (var emp in Employees)
+                {
+                    <option value="@emp.EmployeeID">@emp.Name</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label small fw-bold">Status</label>
+        <select class="form-select"
+                value="@FilterStatus"
+                @onchange="OnStatusChanged">
+            <option value="All">All</option>
+            <option value="Pending">Pending</option>
+            <option value="Approved">Approved</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold">Start Date</label>
+        <input type="date" class="form-control" @bind="CurrentStartDate" @bind:event="oninput" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label small fw-bold">End Date</label>
+        <input type="date" class="form-control" @bind="CurrentEndDate" @bind:event="oninput" />
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+        <button class="btn btn-primary w-100" @onclick="() => OnSearch.InvokeAsync()" disabled="@IsLoading">
+            <i class="bi bi-search"></i> Search
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<Employee>? Employees { get; set; }
+    [Parameter] public int SelectedEmployeeId { get; set; }
+    [Parameter] public EventCallback<int> SelectedEmployeeIdChanged { get; set; }
+    [Parameter] public string FilterStatus { get; set; } = "Pending";
+    [Parameter] public EventCallback<string> FilterStatusChanged { get; set; }
+
+    // Date Binding Wrappers
+    [Parameter] public DateTime? StartDate { get; set; }
+    [Parameter] public EventCallback<DateTime?> StartDateChanged { get; set; }
+    [Parameter] public DateTime? EndDate { get; set; }
+    [Parameter] public EventCallback<DateTime?> EndDateChanged { get; set; }
+
+    public DateTime? CurrentStartDate { get => StartDate; set { StartDate = value; StartDateChanged.InvokeAsync(value); } }
+    public DateTime? CurrentEndDate { get => EndDate; set { EndDate = value; EndDateChanged.InvokeAsync(value); } }
+
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSearch { get; set; }
+
+    private async Task OnStatusChanged(ChangeEventArgs e)
+    {
+        FilterStatus = e.Value?.ToString() ?? "Pending";
+        await FilterStatusChanged.InvokeAsync(FilterStatus);
+    }
+}

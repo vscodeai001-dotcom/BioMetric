@@ -1,0 +1,93 @@
+﻿@page "/bonus-management"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Shared
+@using global::Payroll.Shared.Data
+@using Microsoft.EntityFrameworkCore
+@using global::Payroll.Web.Components.UI.Finance
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Bonus Management</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Bonus Management</strong> module is currently disabled.</p>
+            <hr>
+            <p class="mb-0">Please contact your SuperAdmin to enable this feature.</p>
+        </div>
+    </div>
+}
+else
+{
+    <h3>Bonus Management</h3>
+    <p>Issue one-time bonuses or ex-gratia payments to employees.</p>
+
+    <BonusEntryForm NewBonus="newBonus"
+                    Employees="employeeList"
+                    OnSaved="LoadData" />
+
+    <div class="mb-4"></div>
+
+    <BonusHistoryTable Bonuses="bonusList"
+                       Employees="employeeList"
+                       IsLoading="isLoading"
+                       OnDelete="DeleteBonus" />
+}
+
+@code {
+    private List<Employee>? employeeList;
+    private List<BonusRecord>? bonusList;
+    private BonusRecord newBonus = new();
+    private bool isLoading = true;
+    private bool isAccessDenied = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        newBonus.BonusDate = DateTime.Now;
+        await CheckPermissionsAndLoadData();
+    }
+
+    private async Task CheckPermissionsAndLoadData()
+    {
+        isLoading = true;
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+
+            // 1. GATE CHECK
+            var features = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            if (features != null && !features.EnableBonusManagement)
+            {
+                isAccessDenied = true;
+                return;
+            }
+
+            // 2. Load Data
+            employeeList = await dbContext.Employees.OrderBy(e => e.Name).ToListAsync();
+            bonusList = await dbContext.BonusRecords.OrderByDescending(b => b.BonusDate).ToListAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadData() => await CheckPermissionsAndLoadData();
+
+    private async Task DeleteBonus(BonusRecord bonus)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Delete this bonus record?")) return;
+
+        await using var dbContext = await DbFactory.CreateDbContextAsync();
+        dbContext.BonusRecords.Remove(bonus);
+        await dbContext.SaveChangesAsync();
+        toastService.ShowSuccess("Bonus deleted.");
+        await LoadData();
+    }
+}

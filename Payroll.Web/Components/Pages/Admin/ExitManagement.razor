@@ -1,0 +1,290 @@
+﻿@page "/admin/exit-management"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using global::Payroll.Shared.Data
+@using global::Payroll.Web.Services
+@using Microsoft.EntityFrameworkCore
+@using System.Globalization
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ResignationService ExitService
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@attribute [Authorize(Roles = "Admin, SuperAdmin")]
+
+<PageTitle>Exit Management</PageTitle>
+
+@if (isAccessDenied)
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger shadow-sm" role="alert">
+            <h4 class="alert-heading"><i class="bi bi-exclamation-octagon-fill me-2"></i>Access Denied</h4>
+            <p>The <strong>Exit Management</strong> module is currently disabled.</p>
+            <hr>
+            <p class="mb-0">Please enable it in the Feature Toggle settings.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex flex-column h-100">
+        <h3 class="text-primary mb-3 flex-shrink-0"><i class="bi bi-box-arrow-right me-2"></i>Exit & Settlement</h3>
+
+        <div class="row g-3 flex-grow-1 overflow-hidden">
+
+            @* --- LEFT: REQUEST LIST --- *@
+            <div class="col-md-5 h-100 d-flex flex-column">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-light fw-bold">Resignation Requests</div>
+                    <div class="card-body p-0 overflow-auto">
+                        @if (requests == null || !requests.Any())
+                        {
+                            <div class="p-4 text-center text-muted">No pending requests.</div>
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var req in requests)
+                                {
+                                    <button class="list-group-item list-group-item-action @(selectedRequest?.RequestId == req.RequestId ? "active" : "")"
+                                            @onclick="() => SelectRequest(req)">
+                                        <div class="d-flex w-100 justify-content-between">
+                                            <h6 class="mb-1 fw-bold">@GetEmpName(req.EmployeeId)</h6>
+                                            <small>@req.SubmissionDate.ToString("dd-MMM")</small>
+                                        </div>
+                                        <div class="d-flex w-100 justify-content-between align-items-center">
+                                            <small class="@(selectedRequest?.RequestId == req.RequestId ? "text-white" : "text-muted")">Last Day: @req.DesiredLastWorkingDay.ToString("dd-MMM")</small>
+                                            <span class="badge @GetBadge(req.Status)">@req.Status</span>
+                                        </div>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* --- RIGHT: ACTION PANEL --- *@
+            <div class="col-md-7 h-100 overflow-auto">
+                @if (selectedRequest != null)
+                {
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-primary text-white d-flex justify-content-between">
+                            <span>Action: @GetEmpName(selectedRequest.EmployeeId)</span>
+                            <span>ID: @selectedRequest.EmployeeId</span>
+                        </div>
+                        <div class="card-body">
+
+                            @* --- 1. APPROVAL WORKFLOW --- *@
+                            @if (selectedRequest.Status == "Pending")
+                            {
+                                <h5 class="text-secondary border-bottom pb-2">Step 1: Approval</h5>
+                                <p><strong>Reason:</strong> @selectedRequest.Reason</p>
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold">Approved Last Working Day</label>
+                                        <input type="date" class="form-control" @bind="approvalDateHelper" />
+                                    </div>
+                                    <div class="col-md-12">
+                                        <label class="form-label small fw-bold">Remarks</label>
+                                        <input type="text" class="form-control" @bind="adminRemarks" placeholder="Ack notes..." />
+                                    </div>
+                                    <div class="col-12 mt-3 d-flex gap-2">
+                                        <button class="btn btn-success flex-grow-1" @onclick="() => UpdateStatus(true)">Approve</button>
+                                        <button class="btn btn-outline-danger" @onclick="() => UpdateStatus(false)">Reject</button>
+                                    </div>
+                                </div>
+                            }
+
+                            @* --- 2. FNF CALCULATOR (Only if Approved & Not Settled) --- *@
+                            else if (selectedRequest.Status == "Approved" && !selectedRequest.IsSettled)
+                            {
+                                <h5 class="text-secondary border-bottom pb-2">Step 2: Full & Final Settlement</h5>
+
+                                @if (settlementCalc == null)
+                                {
+                                    <div class="alert alert-info">Resignation approved. Ready to calculate settlement.</div>
+                                    <button class="btn btn-primary w-100" @onclick="CalculateFnF" disabled="@isCalculating">
+                                        @if (isCalculating)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                        }
+                                        <i class="bi bi-calculator me-2"></i> Calculate FnF
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div class="row g-3">
+                                        @* EARNINGS *@
+                                        <div class="col-md-6">
+                                            <div class="card bg-success bg-opacity-10 border-success">
+                                                <div class="card-header bg-transparent text-success fw-bold">Earnings (+)</div>
+                                                <div class="card-body small">
+                                                    <div class="d-flex justify-content-between mb-2">
+                                                        <span>Unpaid Salary:</span> <span class="fw-bold">@settlementCalc.UnpaidSalary.ToString("N0")</span>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between mb-2">
+                                                        <span>Leave Encash:</span> <span class="fw-bold">@settlementCalc.LeaveEncashment.ToString("N0")</span>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between mb-2">
+                                                        <span>Gratuity:</span> <span class="fw-bold">@settlementCalc.Gratuity.ToString("N0")</span>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <span>Bonus (Manual):</span>
+                                                        <input type="number" class="form-control form-control-sm w-50 text-end" @bind="settlementCalc.BonusPayable" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        @* DEDUCTIONS *@
+                                        <div class="col-md-6">
+                                            <div class="card bg-danger bg-opacity-10 border-danger">
+                                                <div class="card-header bg-transparent text-danger fw-bold">Deductions (-)</div>
+                                                <div class="card-body small">
+                                                    <div class="d-flex justify-content-between mb-2">
+                                                        <span>Notice Recovery:</span> <span class="fw-bold">@settlementCalc.NoticePeriodRecovery.ToString("N0")</span>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between mb-2">
+                                                        <span>Pending Advances:</span> <span class="fw-bold">@settlementCalc.OutstandingAdvances.ToString("N0")</span>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <span>Asset Recovery (Manual):</span>
+                                                        <input type="number" class="form-control form-control-sm w-50 text-end" @bind="settlementCalc.AssetRecoveryCost" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        @* NET PAYABLE *@
+                                        <div class="col-12">
+                                            <div class="alert alert-secondary text-center">
+                                                <h4 class="mb-0">Net Payable: ₹ @NetPayable.ToString("N2")</h4>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-12">
+                                            <button class="btn btn-danger w-100 py-2 fw-bold" @onclick="FinalizeSettlement" disabled="@isSaving">
+                                                @if (isSaving)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                                }
+                                                <i class="bi bi-check2-all me-2"></i> Finalize & Terminate Employee
+                                            </button>
+                                            <small class="text-muted text-center d-block mt-2">
+                                                Warning: This action is irreversible. It will mark the employee as Terminated and close all balances.
+                                            </small>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                            else if (selectedRequest.IsSettled)
+                            {
+                                <div class="alert alert-success text-center">
+                                    <i class="bi bi-check-circle-fill fs-1"></i>
+                                    <h4 class="mt-2">Settlement Completed</h4>
+                                    <p>This employee has been settled and terminated.</p>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex justify-content-center align-items-center h-100 text-muted border rounded bg-light">
+                        <p>Select a request to view details.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isAccessDenied = false;
+    private bool isCalculating = false;
+    private bool isSaving = false;
+    private List<ResignationRequest> requests = new();
+    private List<Employee> employees = new();
+    private ResignationRequest? selectedRequest;
+    private FnFSettlement? settlementCalc;
+
+    // Helpers
+    private DateTime approvalDateHelper = DateTime.Now;
+    private string adminRemarks = "";
+
+    private decimal NetPayable => (settlementCalc?.UnpaidSalary ?? 0) + (settlementCalc?.LeaveEncashment ?? 0) + (settlementCalc?.Gratuity ?? 0) + (settlementCalc?.BonusPayable ?? 0)
+                                - (settlementCalc?.NoticePeriodRecovery ?? 0) - (settlementCalc?.OutstandingAdvances ?? 0) - (settlementCalc?.AssetRecoveryCost ?? 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // 1. GATE CHECK
+        var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+        if (features != null && !features.EnableResignationModule)
+        {
+            isAccessDenied = true;
+            return;
+        }
+
+        employees = await db.Employees.AsNoTracking().ToListAsync();
+        requests = await db.ResignationRequests.OrderByDescending(r => r.SubmissionDate).ToListAsync();
+    }
+
+    private void SelectRequest(ResignationRequest req)
+    {
+        selectedRequest = req;
+        approvalDateHelper = req.DesiredLastWorkingDay.ToDateTime(TimeOnly.MinValue);
+        settlementCalc = null; // Reset calc
+    }
+
+    private async Task UpdateStatus(bool approved)
+    {
+        if (selectedRequest == null) return;
+        await ExitService.UpdateStatusAsync(selectedRequest.RequestId, approved ? "Approved" : "Rejected", DateOnly.FromDateTime(approvalDateHelper), adminRemarks);
+        toastService.ShowSuccess(approved ? "Approved" : "Rejected");
+        await LoadData();
+        selectedRequest = requests.FirstOrDefault(r => r.RequestId == selectedRequest.RequestId); // Refresh ref
+    }
+
+    private async Task CalculateFnF()
+    {
+        if (selectedRequest == null) return;
+        isCalculating = true;
+        try
+        {
+            settlementCalc = await ExitService.CalculateSettlementAsync(selectedRequest.RequestId);
+        }
+        finally { isCalculating = false; }
+    }
+
+    private async Task FinalizeSettlement()
+    {
+        if (settlementCalc == null) return;
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "FINAL WARNING: This will Terminate the employee and finalize accounts. Continue?")) return;
+
+        isSaving = true;
+        try
+        {
+            // Recalc net just before saving to capture manual inputs
+            settlementCalc.NetPayable = NetPayable;
+            await ExitService.FinalizeSettlementAsync(settlementCalc);
+            toastService.ShowSuccess("Settlement Finalized & Employee Terminated.");
+            await LoadData();
+            selectedRequest = requests.FirstOrDefault(r => r.RequestId == selectedRequest!.RequestId);
+        }
+        catch (Exception ex)
+        {
+            toastService.ShowError($"Error: {ex.Message}");
+        }
+        finally { isSaving = false; }
+    }
+
+    private string GetEmpName(int id) => employees.FirstOrDefault(e => e.EmployeeID == id)?.Name ?? "Unknown";
+    private string GetBadge(string status) => status switch { "Approved" => "bg-success", "Rejected" => "bg-danger", "Pending" => "bg-warning text-dark", _ => "bg-secondary" };
+}
