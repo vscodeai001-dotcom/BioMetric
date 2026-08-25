@@ -1,12 +1,13 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.Data;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using Payroll.Shared.Data;
+using System.ComponentModel.DataAnnotations;
+using System.Data;
 
 namespace Payroll.Web.Areas.Identity.Pages.Account
 {
@@ -160,26 +161,16 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 !isAdmin &&
                 !isSuperAdmin;
 
-            _logger.LogWarning(
-                "BIOMETRIC LOGIN: Email={Email}, UserId={UserId}, Employee={Employee}, Admin={Admin}, SuperAdmin={SuperAdmin}, EmployeeOnly={EmployeeOnly}",
+            _logger.LogInformation(
+                "LOGIN ROLE CHECK: Email={Email}, UserId={UserId}, Employee={Employee}, Admin={Admin}, SuperAdmin={SuperAdmin}",
                 user.Email,
                 user.Id,
                 isEmployee,
                 isAdmin,
-                isSuperAdmin,
-                isEmployeeOnly);
+                isSuperAdmin);
 
             // ========================================================
             // VERIFY PASSWORD FIRST
-            // ========================================================
-            //
-            // VERY IMPORTANT:
-            //
-            // Never create an ActiveDevice lock before the password
-            // has been successfully verified.
-            //
-            // Otherwise someone entering a wrong password could
-            // accidentally reserve the employee account.
             // ========================================================
 
             var passwordResult =
@@ -217,61 +208,51 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 user.Id);
 
             // ========================================================
-            // EMPLOYEE SINGLE-DEVICE ENFORCEMENT
+            // EMPLOYEE SINGLE DEVICE
             // ========================================================
 
             if (isEmployeeOnly)
             {
-                // ----------------------------------------------------
-                // Get existing browser/device ID
-                // ----------------------------------------------------
-
                 var deviceId =
                     GetExistingDeviceId();
 
-                // ----------------------------------------------------
-                // New browser/device
-                // ----------------------------------------------------
+                var isNewDevice =
+                    string.IsNullOrWhiteSpace(deviceId);
 
-                if (string.IsNullOrWhiteSpace(deviceId))
+                if (isNewDevice)
                 {
                     deviceId =
                         Guid.NewGuid().ToString("N");
 
                     _logger.LogInformation(
-                        "NEW DEVICE GENERATED: UserId={UserId}, DeviceId={DeviceId}",
+                        "NEW EMPLOYEE DEVICE CREATED: UserId={UserId}, DeviceId={DeviceId}",
                         user.Id,
                         deviceId);
                 }
                 else
                 {
                     _logger.LogInformation(
-                        "EXISTING DEVICE FOUND: UserId={UserId}, DeviceId={DeviceId}",
+                        "EXISTING EMPLOYEE DEVICE: UserId={UserId}, DeviceId={DeviceId}",
                         user.Id,
                         deviceId);
                 }
 
                 // ----------------------------------------------------
-                // Try to acquire account lock
+                // ATOMIC DATABASE LOCK
                 // ----------------------------------------------------
 
-                var acquired =
-                    await TryAcquireEmployeeDeviceAsync(
-                        user,
+                var lockResult =
+                    await AcquireEmployeeDeviceLockAsync(
+                        user.Id,
+                        deviceId!);
+
+                if (!lockResult)
+                {
+                    _logger.LogWarning(
+                        "SECOND DEVICE LOGIN BLOCKED: UserId={UserId}, DeviceId={DeviceId}",
+                        user.Id,
                         deviceId);
 
-                _logger.LogWarning(
-                    "DEVICE LOCK RESULT: UserId={UserId}, DeviceId={DeviceId}, Acquired={Acquired}",
-                    user.Id,
-                    deviceId,
-                    acquired);
-
-                // ----------------------------------------------------
-                // Another device already owns the account
-                // ----------------------------------------------------
-
-                if (!acquired)
-                {
                     ModelState.AddModelError(
                         string.Empty,
                         "This employee account is already logged in on another device. Please log out from the other device before signing in here.");
@@ -280,19 +261,20 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 }
 
                 // ----------------------------------------------------
-                // Lock successfully acquired
+                // Only save browser device cookie AFTER DB lock
+                // succeeds.
                 // ----------------------------------------------------
 
-                SetDeviceCookie(deviceId);
+                SetDeviceCookie(deviceId!);
 
                 _logger.LogInformation(
-                    "EMPLOYEE DEVICE LOCK ACTIVE: UserId={UserId}, DeviceId={DeviceId}",
+                    "EMPLOYEE DEVICE LOCK ACQUIRED: UserId={UserId}, DeviceId={DeviceId}",
                     user.Id,
                     deviceId);
             }
 
             // ========================================================
-            // CREATE ASP.NET CORE IDENTITY SESSION
+            // CREATE IDENTITY SESSION
             // ========================================================
 
             await _signInManager.SignInAsync(
@@ -305,7 +287,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 user.Id);
 
             // ========================================================
-            // EMPLOYEE REDIRECT
+            // EMPLOYEE
             // ========================================================
 
             if (isEmployeeOnly)
@@ -315,7 +297,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             }
 
             // ========================================================
-            // ADMIN / SUPERADMIN RETURN URL
+            // ADMIN / SUPERADMIN
             // ========================================================
 
             if (
@@ -326,15 +308,11 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     returnUrl);
             }
 
-            // ========================================================
-            // DEFAULT ADMIN / SUPERADMIN
-            // ========================================================
-
             return LocalRedirect("~/");
         }
 
         // ============================================================
-        // DEVICE COOKIE
+        // GET EXISTING DEVICE COOKIE
         // ============================================================
 
         private string? GetExistingDeviceId()
@@ -351,6 +329,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             return null;
         }
 
+        // ============================================================
+        // SET DEVICE COOKIE
+        // ============================================================
+
         private void SetDeviceCookie(
             string deviceId)
         {
@@ -361,7 +343,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 {
                     HttpOnly = true,
 
-                    Secure = Request.IsHttps,
+                    Secure = true,
 
                     SameSite =
                         SameSiteMode.Lax,
@@ -376,73 +358,123 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         }
 
         // ============================================================
-        // EMPLOYEE DEVICE LOCK
+        // ATOMIC EMPLOYEE DEVICE LOCK
+        // ============================================================
+        //
+        // IMPORTANT:
+        //
+        // We lock the employee row itself using PostgreSQL
+        // SELECT ... FOR UPDATE.
+        //
+        // Therefore:
+        //
+        // Login A -> locks employee row
+        // Login B -> waits
+        // Login A -> creates ActiveDevice
+        // Login A -> commits
+        // Login B -> checks ActiveDevice
+        // Login B -> gets rejected
+        //
+        // This prevents the "both logins succeeded" race.
         // ============================================================
 
-        private async Task<bool>
-            TryAcquireEmployeeDeviceAsync(
-                IdentityUser user,
-                string deviceId)
+        private async Task<bool> AcquireEmployeeDeviceLockAsync(
+            string userId,
+            string deviceId)
         {
             await using var db =
-                await _dbFactory
-                    .CreateDbContextAsync();
-
-            // ========================================================
-            // SERIALIZABLE TRANSACTION
-            // ========================================================
-            //
-            // Prevents two simultaneous login requests from both
-            // believing the account is free.
-            // ========================================================
+                await _dbFactory.CreateDbContextAsync();
 
             await using var transaction =
                 await db.Database.BeginTransactionAsync(
-                    IsolationLevel.Serializable);
+                    IsolationLevel.ReadCommitted);
 
             try
             {
                 _logger.LogInformation(
-                    "DEVICE LOCK CHECK: UserId={UserId}",
-                    user.Id);
+                    "DEVICE LOCK START: UserId={UserId}, DeviceId={DeviceId}",
+                    userId,
+                    deviceId);
 
                 // ====================================================
-                // LOOK FOR ACTIVE DEVICE
+                // LOCK USER ROW
                 // ====================================================
 
-                var token =
+                var connection =
+                    (NpgsqlConnection)
+                    db.Database.GetDbConnection();
+
+                if (connection.State != ConnectionState.Open)
+                {
+                    await connection.OpenAsync();
+                }
+
+                await using (
+                    var lockCommand =
+                        new NpgsqlCommand(
+                            """
+                            SELECT "Id"
+                            FROM "AspNetUsers"
+                            WHERE "Id" = @userId
+                            FOR UPDATE
+                            """,
+                            connection,
+                            (NpgsqlTransaction)
+                            transaction.GetDbTransaction()))
+                {
+                    lockCommand.Parameters.AddWithValue(
+                        "userId",
+                        userId);
+
+                    var result =
+                        await lockCommand.ExecuteScalarAsync();
+
+                    if (result == null)
+                    {
+                        await transaction.RollbackAsync();
+
+                        _logger.LogError(
+                            "DEVICE LOCK FAILED: Employee user row not found. UserId={UserId}",
+                            userId);
+
+                        return false;
+                    }
+                }
+
+                // ====================================================
+                // NOW CHECK ACTIVE DEVICE
+                // ====================================================
+
+                var existingToken =
                     await db
                         .Set<IdentityUserToken<string>>()
                         .FirstOrDefaultAsync(
                             x =>
-                                x.UserId == user.Id &&
+                                x.UserId == userId &&
                                 x.LoginProvider ==
                                     LoginProvider &&
                                 x.Name ==
                                     TokenName);
 
                 // ====================================================
-                // ACTIVE DEVICE EXISTS
+                // EXISTING ACTIVE DEVICE
                 // ====================================================
 
                 if (
-                    token != null &&
+                    existingToken != null &&
                     !string.IsNullOrWhiteSpace(
-                        token.Value))
+                        existingToken.Value))
                 {
                     _logger.LogWarning(
-                        "ACTIVE DEVICE FOUND: UserId={UserId}, ExistingDevice={ExistingDevice}, IncomingDevice={IncomingDevice}",
-                        user.Id,
-                        token.Value,
+                        "ACTIVE DEVICE EXISTS: UserId={UserId}, ExistingDevice={ExistingDevice}, IncomingDevice={IncomingDevice}",
+                        userId,
+                        existingToken.Value,
                         deviceId);
 
-                    // ------------------------------------------------
-                    // SAME DEVICE
-                    // ------------------------------------------------
-
+                    // Same browser/device is allowed.
                     if (
                         string.Equals(
-                            token.Value,
+                            existingToken.Value,
                             deviceId,
                             StringComparison.Ordinal))
                     {
@@ -450,22 +482,17 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
                         _logger.LogInformation(
                             "SAME DEVICE LOGIN ALLOWED: UserId={UserId}",
-                            user.Id);
+                            userId);
 
                         return true;
                     }
 
-                    // ------------------------------------------------
-                    // DIFFERENT DEVICE
-                    // ------------------------------------------------
-
+                    // Different browser/device is blocked.
                     await transaction.RollbackAsync();
 
                     _logger.LogWarning(
-                        "SECOND DEVICE LOGIN BLOCKED: UserId={UserId}, ExistingDevice={ExistingDevice}, IncomingDevice={IncomingDevice}",
-                        user.Id,
-                        token.Value,
-                        deviceId);
+                        "SECOND DEVICE REJECTED: UserId={UserId}",
+                        userId);
 
                     return false;
                 }
@@ -475,15 +502,14 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 // ====================================================
 
                 _logger.LogInformation(
-                    "NO ACTIVE DEVICE FOUND: Creating lock. UserId={UserId}, DeviceId={DeviceId}",
-                    user.Id,
+                    "NO ACTIVE DEVICE: Creating new lock. UserId={UserId}, DeviceId={DeviceId}",
+                    userId,
                     deviceId);
 
                 var newToken =
                     new IdentityUserToken<string>
                     {
-                        UserId =
-                            user.Id,
+                        UserId = userId,
 
                         LoginProvider =
                             LoginProvider,
@@ -501,7 +527,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 await db.SaveChangesAsync();
 
                 // ====================================================
-                // VERIFY THAT THE ROW REALLY EXISTS
+                // VERIFY INSERT
                 // ====================================================
 
                 var verification =
@@ -510,7 +536,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                         .AsNoTracking()
                         .FirstOrDefaultAsync(
                             x =>
-                                x.UserId == user.Id &&
+                                x.UserId == userId &&
                                 x.LoginProvider ==
                                     LoginProvider &&
                                 x.Name ==
@@ -523,21 +549,21 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     await transaction.RollbackAsync();
 
                     _logger.LogError(
-                        "DEVICE LOCK VERIFICATION FAILED: UserId={UserId}",
-                        user.Id);
+                        "DEVICE LOCK INSERT VERIFICATION FAILED: UserId={UserId}",
+                        userId);
 
                     return false;
                 }
 
                 // ====================================================
-                // COMMIT
+                // COMMIT LOCK
                 // ====================================================
 
                 await transaction.CommitAsync();
 
                 _logger.LogInformation(
-                    "DEVICE LOCK CREATED SUCCESSFULLY: UserId={UserId}, DeviceId={DeviceId}",
-                    user.Id,
+                    "DEVICE LOCK CREATED: UserId={UserId}, DeviceId={DeviceId}",
+                    userId,
                     deviceId);
 
                 return true;
@@ -549,15 +575,6 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     pg.SqlState ==
                         PostgresErrorCodes.UniqueViolation)
             {
-                // ====================================================
-                // CONCURRENT LOGIN
-                // ====================================================
-                //
-                // Another device inserted the token at exactly the
-                // same time. PostgreSQL's unique key allows only one.
-                // This device loses the race.
-                // ====================================================
-
                 try
                 {
                     await transaction.RollbackAsync();
@@ -568,8 +585,8 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 }
 
                 _logger.LogWarning(
-                    "CONCURRENT LOGIN BLOCKED: UserId={UserId}, DeviceId={DeviceId}",
-                    user.Id,
+                    "DEVICE LOCK UNIQUE VIOLATION: UserId={UserId}, DeviceId={DeviceId}",
+                    userId,
                     deviceId);
 
                 return false;
@@ -588,10 +605,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 _logger.LogError(
                     ex,
                     "DEVICE LOCK ERROR: UserId={UserId}, DeviceId={DeviceId}",
-                    user.Id,
+                    userId,
                     deviceId);
 
-                throw;
+                return false;
             }
         }
     }
