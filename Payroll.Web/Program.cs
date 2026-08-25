@@ -355,7 +355,7 @@ if (!app.Environment.IsDevelopment())
 // MIDDLEWARE PIPELINE
 // ============================================================
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 
 app.UseStaticFiles();
 
