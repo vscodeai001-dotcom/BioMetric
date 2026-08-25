@@ -44,30 +44,18 @@
                        value="@Antiforgery.GetAndStoreTokens(
                                                   HttpContextAccessor.HttpContext!).RequestToken" />
 
-
-                <button type="button"
+                <button type="submit"
                         class="logout-button"
-                        disabled="@loggingOut"
-                        @onclick="LogoutAsync"
                         title="Logout"
-                        aria-label="Logout">
+                        aria-label="Logout"
+                        @onclick="PrepareLogout">
 
-                    @if (loggingOut)
-                    {
-                        <span class="spinner-border spinner-border-sm"
-                              role="status"
-                              aria-hidden="true">
-                        </span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-box-arrow-right logout-icon"
-                           aria-hidden="true">
-                        </i>
-                    }
+                    <i class="bi bi-box-arrow-right logout-icon"
+                       aria-hidden="true">
+                    </i>
 
                     <span class="logout-text">
-                        @(loggingOut ? "Logging out..." : "Logout")
+                        Logout
                     </span>
 
                 </button>
@@ -98,61 +86,41 @@
 
 @code
 {
-    private bool loggingOut;
-
-
-    private async Task LogoutAsync()
+    private async Task PrepareLogout()
     {
-        if (loggingOut)
-            return;
-
-
-        loggingOut = true;
-
+        /*
+         * ============================================================
+         * STOP EMPLOYEE GPS BEFORE REAL LOGOUT
+         * ============================================================
+         *
+         * This does NOT perform the logout.
+         *
+         * The browser will continue with the normal HTML
+         * form POST to:
+         *
+         * /Identity/Account/Logout
+         *
+         * This avoids the previous JavaScript form-submission
+         * problem.
+         */
 
         try
         {
-            /*
-             * ========================================================
-             * STOP GPS WATCHER
-             * ========================================================
-             */
-
-            try
-            {
-                await JSRuntime.InvokeVoidAsync(
-                    "stopPersistentEmployeeGps");
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine(
-                    $"Unable to stop employee GPS during logout: {ex}");
-            }
-
-
-            /*
-             * Give browser GPS watcher a moment to stop.
-             */
-
-            await Task.Delay(150);
-
-
-            /*
-             * ========================================================
-             * NORMAL ASP.NET CORE IDENTITY LOGOUT
-             * ========================================================
-             */
-
             await JSRuntime.InvokeVoidAsync(
-                "submitEmployeeLogoutForm",
-                "employee-logout-form");
+                "stopPersistentEmployeeGps");
         }
         catch (Exception ex)
         {
-            loggingOut = false;
-
             Console.Error.WriteLine(
-                $"Employee logout failed: {ex}");
+                $"Unable to stop employee GPS during logout: {ex}");
         }
+
+        /*
+         * Give the GPS watcher a short moment to stop.
+         *
+         * The form submission itself remains the normal browser
+         * POST handled by ASP.NET Core Identity.
+         */
+        await Task.Delay(150);
     }
 }

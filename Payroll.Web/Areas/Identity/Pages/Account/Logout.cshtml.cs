@@ -47,21 +47,36 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         public async Task<IActionResult> OnPostAsync(
             string? returnUrl = null)
         {
-            var user =
-                await _userManager.GetUserAsync(User);
+            var user = await _userManager.GetUserAsync(User);
 
-            if (user != null)
+            try
             {
-                await ReleaseEmployeeDeviceAsync(user);
+                if (user != null)
+                {
+                    await ReleaseEmployeeDeviceAsync(user);
+                }
+
+                await _signInManager.SignOutAsync();
+
+                Response.Cookies.Delete(DeviceCookieName);
+
+                _logger.LogInformation(
+                    "User logged out successfully. UserId={UserId}",
+                    user?.Id);
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error while logging out UserId={UserId}",
+                    user?.Id);
 
-            await _signInManager.SignOutAsync();
+                // Even if device cleanup fails,
+                // make sure the authentication cookie is removed.
+                await _signInManager.SignOutAsync();
 
-            Response.Cookies.Delete(DeviceCookieName);
-
-            _logger.LogInformation(
-                "User logged out: {UserId}",
-                user?.Id);
+                Response.Cookies.Delete(DeviceCookieName);
+            }
 
             if (!string.IsNullOrWhiteSpace(returnUrl) &&
                 Url.IsLocalUrl(returnUrl))
@@ -92,9 +107,8 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     user,
                     "SuperAdmin");
 
-            if (!isEmployee ||
-                isAdmin ||
-                isSuperAdmin)
+            // Only Employee accounts have device locking.
+            if (!isEmployee || isAdmin || isSuperAdmin)
             {
                 return;
             }
@@ -104,6 +118,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     out var deviceId) ||
                 string.IsNullOrWhiteSpace(deviceId))
             {
+                _logger.LogWarning(
+                    "Employee logout had no device cookie. UserId={UserId}",
+                    user.Id);
+
                 return;
             }
 
@@ -112,22 +130,34 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             var token =
                 await db.Set<IdentityUserToken<string>>()
-                    .FirstOrDefaultAsync(x =>
-                        x.UserId == user.Id &&
-                        x.LoginProvider == LoginProvider &&
-                        x.Name == TokenName);
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.UserId == user.Id &&
+                            x.LoginProvider == LoginProvider &&
+                            x.Name == TokenName);
 
-            if (token != null &&
-                token.Value == deviceId)
+            if (token == null)
             {
-                db.Remove(token);
-
-                await db.SaveChangesAsync();
-
-                _logger.LogInformation(
-                    "Employee device lock released. UserId={UserId}",
-                    user.Id);
+                return;
             }
+
+            // Only the device that owns the lock can release it.
+            if (token.Value != deviceId)
+            {
+                _logger.LogWarning(
+                    "Employee logout device ID did not match active device. UserId={UserId}",
+                    user.Id);
+
+                return;
+            }
+
+            db.Remove(token);
+
+            await db.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Employee device lock released. UserId={UserId}",
+                user.Id);
         }
     }
 }
