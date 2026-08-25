@@ -7,8 +7,7 @@
 		<IsTrimmable>false</IsTrimmable>
 		<PreserveCompilationContext>true</PreserveCompilationContext>
 		<MvcRazorExcludeRefAssembliesFromPublish>false</MvcRazorExcludeRefAssembliesFromPublish>
-		<BaseOutputPath>E:\Project\Toupgradeneed\BioMetric\Payroll.Web\bin\Release\net8.0\win-x64</BaseOutputPath>
-	</PropertyGroup>
+		</PropertyGroup>
 	<ItemGroup>
 		<!-- Blazored Toast -->
 		<PackageReference Include="Blazor-ApexCharts" Version="6.0.2" />

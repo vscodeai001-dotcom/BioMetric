@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+**/publish/
+.vs/
+.git/
+*.user
+*.suo
+*.pfx
+*.pem
+*.key
+*.crt
+.env
+appsettings.Production.json
