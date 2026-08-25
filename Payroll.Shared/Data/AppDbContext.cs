@@ -4,9 +4,11 @@ using Microsoft.EntityFrameworkCore;
 using Payroll.Shared;
 using Payroll.Shared.Data;
 
-public class AppDbContext : IdentityDbContext<IdentityUser, IdentityRole, string>
+public class AppDbContext
+    : IdentityDbContext<IdentityUser, IdentityRole, string>
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options)
+    public AppDbContext(
+        DbContextOptions<AppDbContext> options)
         : base(options)
     {
     }
@@ -49,21 +51,39 @@ public class AppDbContext : IdentityDbContext<IdentityUser, IdentityRole, string
 
     public DbSet<ReportDefinition> ReportDefinitions { get; set; }
 
-    public DbSet<AttendanceRegularization> AttendanceRegularizations { get; set; }
+    public DbSet<AttendanceRegularization>
+        AttendanceRegularizations
+    { get; set; }
 
     public DbSet<FBPComponent> FBPComponents { get; set; }
 
     public DbSet<GeoPunchAudit> GeoPunchAudits { get; set; }
 
-    public DbSet<FlexibleBenefitDeclaration> FlexibleBenefitDeclarations { get; set; }
-    public DbSet<EmployeeGpsSession> EmployeeGpsSessions { get; set; }
-    public DbSet<EmployeeLocationHistory> EmployeeLocationHistory { get; set; }
+    public DbSet<FlexibleBenefitDeclaration>
+        FlexibleBenefitDeclarations
+    { get; set; }
+
+    public DbSet<EmployeeGpsSession>
+        EmployeeGpsSessions
+    { get; set; }
+
+    public DbSet<EmployeeLocationHistory>
+        EmployeeLocationHistory
+    { get; set; }
+
+    // ============================================================
+    // EMPLOYEE SINGLE DEVICE LOCK
+    // ============================================================
+
+    public DbSet<EmployeeDeviceLock>
+        EmployeeDeviceLocks
+    { get; set; }
 
 
-    protected override void OnModelCreating(ModelBuilder builder)
+    protected override void OnModelCreating(
+        ModelBuilder builder)
     {
         base.OnModelCreating(builder);
-
 
         // ============================================================
         // ASP.NET IDENTITY KEYS
@@ -105,6 +125,42 @@ public class AppDbContext : IdentityDbContext<IdentityUser, IdentityRole, string
 
 
         // ============================================================
+        // EMPLOYEE DEVICE LOCK
+        // ============================================================
+
+        builder.Entity<EmployeeDeviceLock>(entity =>
+        {
+            entity.ToTable("employee_device_locks");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Id)
+                .ValueGeneratedOnAdd();
+
+            entity.Property(x => x.UserId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(x => x.DeviceId)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(x => x.CreatedAtUtc)
+                .IsRequired();
+
+            entity.Property(x => x.LastSeenAtUtc)
+                .IsRequired();
+
+            // ONE active device per employee.
+            entity.HasIndex(x => x.UserId)
+                .IsUnique();
+
+            // Device lookup.
+            entity.HasIndex(x => x.DeviceId);
+        });
+
+
+        // ============================================================
         // EMPLOYEE GPS LOCATION HISTORY
         // ============================================================
 
@@ -112,36 +168,16 @@ public class AppDbContext : IdentityDbContext<IdentityUser, IdentityRole, string
         {
             entity.ToTable("employee_location_history");
 
-
-            // --------------------------------------------------------
-            // PRIMARY KEY
-            // --------------------------------------------------------
-
             entity.HasKey(x => x.Id);
 
             entity.Property(x => x.Id)
                 .ValueGeneratedOnAdd();
 
-
-            // --------------------------------------------------------
-            // EMPLOYEE
-            // --------------------------------------------------------
-
             entity.Property(x => x.EmployeeId)
                 .IsRequired();
 
-
-            // --------------------------------------------------------
-            // GPS SESSION
-            // --------------------------------------------------------
-
             entity.Property(x => x.SessionId)
                 .IsRequired();
-
-
-            // --------------------------------------------------------
-            // GPS COORDINATES
-            // --------------------------------------------------------
 
             entity.Property(x => x.Latitude)
                 .IsRequired();
@@ -149,54 +185,21 @@ public class AppDbContext : IdentityDbContext<IdentityUser, IdentityRole, string
             entity.Property(x => x.Longitude)
                 .IsRequired();
 
-
-            // --------------------------------------------------------
-            // GPS ACCURACY
-            // --------------------------------------------------------
-
             entity.Property(x => x.AccuracyMeters)
                 .HasColumnName("accuracy_meters")
                 .IsRequired();
 
-
-            // --------------------------------------------------------
-            // OFFICE DISTANCE
-            // --------------------------------------------------------
-
             entity.Property(x => x.DistanceFromOfficeMeters)
                 .IsRequired();
-
-
-            // --------------------------------------------------------
-            // GEO-FENCE RADIUS
-            // --------------------------------------------------------
 
             entity.Property(x => x.AllowedRadiusMeters)
                 .IsRequired();
 
-
-            // --------------------------------------------------------
-            // GEO-FENCE RESULT
-            // --------------------------------------------------------
-
             entity.Property(x => x.IsWithinAllowedRadius)
                 .IsRequired();
 
-
-            // --------------------------------------------------------
-            // TIMESTAMP
-            // --------------------------------------------------------
-
             entity.Property(x => x.RecordedAtUtc)
                 .IsRequired();
-
-
-            // --------------------------------------------------------
-            // PERFORMANCE INDEX
-            //
-            // Used for:
-            // Employee + date/time history queries
-            // --------------------------------------------------------
 
             entity.HasIndex(x => new
             {
@@ -204,20 +207,17 @@ public class AppDbContext : IdentityDbContext<IdentityUser, IdentityRole, string
                 x.RecordedAtUtc
             });
 
-
-            // --------------------------------------------------------
-            // SESSION INDEX
-            //
-            // Used for:
-            // Route playback / individual GPS sessions
-            // --------------------------------------------------------
-
             entity.HasIndex(x => new
             {
                 x.SessionId,
                 x.RecordedAtUtc
             });
         });
+
+
+        // ============================================================
+        // EMPLOYEE GPS SESSION
+        // ============================================================
 
         builder.Entity<EmployeeGpsSession>(entity =>
         {
@@ -265,6 +265,22 @@ public class AppDbContext : IdentityDbContext<IdentityUser, IdentityRole, string
             });
         });
     }
+}
 
 
+// ================================================================
+// EMPLOYEE DEVICE LOCK ENTITY
+// ================================================================
+
+public class EmployeeDeviceLock
+{
+    public Guid Id { get; set; }
+
+    public string UserId { get; set; } = string.Empty;
+
+    public string DeviceId { get; set; } = string.Empty;
+
+    public DateTime CreatedAtUtc { get; set; }
+
+    public DateTime LastSeenAtUtc { get; set; }
 }
