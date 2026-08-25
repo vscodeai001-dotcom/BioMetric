@@ -145,8 +145,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 !isSuperAdmin;
 
             _logger.LogInformation(
-                "LOGIN ROLE CHECK: UserId={UserId}, Email={Email}, Employee={Employee}, Admin={Admin}, SuperAdmin={SuperAdmin}",
-                user.Id,
+                "LOGIN: User={Email}, Employee={Employee}, Admin={Admin}, SuperAdmin={SuperAdmin}",
                 user.Email,
                 isEmployee,
                 isAdmin,
@@ -165,7 +164,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             if (passwordResult.IsLockedOut)
             {
                 _logger.LogWarning(
-                    "LOGIN FAILED: Account locked. UserId={UserId}",
+                    "LOGIN: Account locked. UserId={UserId}",
                     user.Id);
 
                 return RedirectToPage("./Lockout");
@@ -220,6 +219,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     return Page();
                 }
 
+                // Device lock was successfully acquired.
                 SetDeviceCookie(deviceId);
 
                 _logger.LogInformation(
@@ -284,7 +284,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         }
 
         // ============================================================
-        // DEVICE COOKIE
+        // SAVE DEVICE COOKIE
         // ============================================================
 
         private void SetDeviceCookie(
@@ -296,23 +296,16 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 new CookieOptions
                 {
                     HttpOnly = true,
-
-                    // Render terminates HTTPS at the proxy.
-                    // The cookie is still sent over the public HTTPS URL.
-                    Secure = true,
-
+                    Secure = Request.IsHttps,
                     SameSite = SameSiteMode.Lax,
-
                     IsEssential = true,
-
                     MaxAge = TimeSpan.FromDays(365),
-
                     Path = "/"
                 });
         }
 
         // ============================================================
-        // SINGLE DEVICE LOCK
+        // ACQUIRE SINGLE EMPLOYEE DEVICE
         // ============================================================
 
         private async Task<bool> AcquireEmployeeDeviceAsync(
@@ -327,113 +320,27 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             try
             {
-                // ====================================================
-                // POSTGRESQL TRANSACTION ADVISORY LOCK
-                // ====================================================
-                //
-                // This lock is held until this transaction finishes.
-                //
-                // Only one login attempt for this user can inspect
-                // or create ActiveDevice at a time.
-                //
+                // ----------------------------------------------------
+                // PostgreSQL transaction advisory lock
+                // ----------------------------------------------------
+
+                var lockKey =
+                    CreateStableLockKey(user.Id);
 
                 await db.Database.ExecuteSqlInterpolatedAsync(
                     $"""
-                    SELECT pg_advisory_xact_lock(
-                        hashtextextended({user.Id}, 0)
-                    )
+                    SELECT pg_advisory_xact_lock({lockKey})
                     """);
 
                 _logger.LogInformation(
-                    "DEVICE LOCK: PostgreSQL advisory lock acquired. UserId={UserId}",
+                    "DEVICE LOCK: PostgreSQL lock acquired. UserId={UserId}",
                     user.Id);
 
-                // ====================================================
-                // READ ACTIVE DEVICE
-                // ====================================================
+                // ----------------------------------------------------
+                // Read existing ActiveDevice
+                // ----------------------------------------------------
 
                 var existingToken =
-                    await db
-                        .Set<IdentityUserToken<string>>()
-                        .FirstOrDefaultAsync(
-                            x =>
-                                x.UserId == user.Id &&
-                                x.LoginProvider == LoginProvider &&
-                                x.Name == TokenName);
-
-                // ====================================================
-                // EXISTING DEVICE
-                // ====================================================
-
-                if (existingToken != null)
-                {
-                    if (
-                        !string.IsNullOrWhiteSpace(
-                            existingToken.Value))
-                    {
-                        // Same browser/device.
-                        if (
-                            string.Equals(
-                                existingToken.Value,
-                                deviceId,
-                                StringComparison.Ordinal))
-                        {
-                            _logger.LogInformation(
-                                "DEVICE LOCK: SAME DEVICE ALLOWED. UserId={UserId}",
-                                user.Id);
-
-                            await transaction.CommitAsync();
-
-                            return true;
-                        }
-
-                        // Different browser/device.
-                        _logger.LogWarning(
-                            "DEVICE LOCK: SECOND DEVICE BLOCKED. UserId={UserId}",
-                            user.Id);
-
-                        await transaction.RollbackAsync();
-
-                        return false;
-                    }
-
-                    // Existing row but empty value.
-                    existingToken.Value = deviceId;
-
-                    await db.SaveChangesAsync();
-
-                    await transaction.CommitAsync();
-
-                    _logger.LogInformation(
-                        "DEVICE LOCK: EMPTY TOKEN REPAIRED. UserId={UserId}",
-                        user.Id);
-
-                    return true;
-                }
-
-                // ====================================================
-                // CREATE ACTIVE DEVICE
-                // ====================================================
-
-                var newToken =
-                    new IdentityUserToken<string>
-                    {
-                        UserId = user.Id,
-                        LoginProvider = LoginProvider,
-                        Name = TokenName,
-                        Value = deviceId
-                    };
-
-                db.Set<IdentityUserToken<string>>()
-                    .Add(newToken);
-
-                await db.SaveChangesAsync();
-
-                // ====================================================
-                // VERIFY DIRECTLY FROM SAME DB CONTEXT
-                // ====================================================
-
-                var savedToken =
                     await db
                         .Set<IdentityUserToken<string>>()
                         .AsNoTracking()
@@ -443,10 +350,102 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                                 x.LoginProvider == LoginProvider &&
                                 x.Name == TokenName);
 
+                // ----------------------------------------------------
+                // EXISTING DEVICE
+                // ----------------------------------------------------
+
                 if (
-                    savedToken == null ||
+                    existingToken != null &&
+                    !string.IsNullOrWhiteSpace(
+                        existingToken.Value))
+                {
+                    _logger.LogInformation(
+                        "DEVICE LOCK: Existing ActiveDevice found. UserId={UserId}",
+                        user.Id);
+
+                    // Same browser/device is allowed to continue.
+                    if (
+                        string.Equals(
+                            existingToken.Value,
+                            deviceId,
+                            StringComparison.Ordinal))
+                    {
+                        _logger.LogInformation(
+                            "DEVICE LOCK: Same device confirmed. UserId={UserId}",
+                            user.Id);
+
+                        await transaction.CommitAsync();
+
+                        return true;
+                    }
+
+                    // Different device is blocked.
+                    _logger.LogWarning(
+                        "DEVICE LOCK: SECOND DEVICE BLOCKED. UserId={UserId}, ExistingDevice={ExistingDevice}, IncomingDevice={IncomingDevice}",
+                        user.Id,
+                        existingToken.Value,
+                        deviceId);
+
+                    await transaction.RollbackAsync();
+
+                    return false;
+                }
+
+                // ----------------------------------------------------
+                // NO DEVICE EXISTS
+                // ----------------------------------------------------
+
+                _logger.LogInformation(
+                    "DEVICE LOCK: No ActiveDevice exists. Creating one. UserId={UserId}",
+                    user.Id);
+
+                // ----------------------------------------------------
+                // Use ASP.NET Core Identity token API
+                // ----------------------------------------------------
+
+                var tokenResult =
+                    await _userManager.SetAuthenticationTokenAsync(
+                        user,
+                        LoginProvider,
+                        TokenName,
+                        deviceId);
+
+                if (tokenResult != null)
+                {
+                    // This should normally be IdentityResult.Success,
+                    // but log failures defensively.
+                    if (!tokenResult.Succeeded)
+                    {
+                        _logger.LogError(
+                            "DEVICE LOCK: Identity token creation failed. UserId={UserId}, Errors={Errors}",
+                            user.Id,
+                            string.Join(
+                                "; ",
+                                tokenResult.Errors.Select(
+                                    e =>
+                                        $"{e.Code}:{e.Description}")));
+
+                        await transaction.RollbackAsync();
+
+                        return false;
+                    }
+                }
+
+                // ----------------------------------------------------
+                // Verify immediately using Identity API
+                // ----------------------------------------------------
+
+                var savedDeviceId =
+                    await _userManager.GetAuthenticationTokenAsync(
+                        user,
+                        LoginProvider,
+                        TokenName);
+
+                if (
+                    string.IsNullOrWhiteSpace(
+                        savedDeviceId) ||
                     !string.Equals(
-                        savedToken.Value,
+                        savedDeviceId,
                         deviceId,
                         StringComparison.Ordinal))
                 {
@@ -460,23 +459,13 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 }
 
                 _logger.LogInformation(
-                    "DEVICE LOCK: ActiveDevice CREATED AND VERIFIED. UserId={UserId}",
-                    user.Id);
+                    "DEVICE LOCK: ActiveDevice VERIFIED. UserId={UserId}, DeviceId={DeviceId}",
+                    user.Id,
+                    deviceId);
 
                 await transaction.CommitAsync();
 
                 return true;
-            }
-            catch (DbUpdateException ex)
-            {
-                await transaction.RollbackAsync();
-
-                _logger.LogError(
-                    ex,
-                    "DEVICE LOCK: Database update failed. UserId={UserId}",
-                    user.Id);
-
-                return false;
             }
             catch (Exception ex)
             {
@@ -484,10 +473,32 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
                 _logger.LogError(
                     ex,
-                    "DEVICE LOCK: Unexpected error. UserId={UserId}",
+                    "DEVICE LOCK: Exception while acquiring device lock. UserId={UserId}",
                     user.Id);
 
                 return false;
+            }
+        }
+
+        // ============================================================
+        // STABLE POSTGRES LOCK KEY
+        // ============================================================
+
+        private static long CreateStableLockKey(
+            string userId)
+        {
+            unchecked
+            {
+                long hash = 17;
+
+                foreach (var c in userId)
+                {
+                    hash =
+                        hash * 31 +
+                        c;
+                }
+
+                return hash;
             }
         }
     }
