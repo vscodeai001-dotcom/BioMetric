@@ -1,21 +1,15 @@
-﻿// Import necessary namespaces
-using Blazored.Toast;
+﻿using Blazored.Toast;
 using Blazored.Toast.Services;
 using Hangfire;
 using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.Components.Forms;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
-using Microsoft.Extensions.Logging;
 using Payroll.Shared;
 using Payroll.Shared.Data;
 using Payroll.Shared.Services;
@@ -31,12 +25,10 @@ var options = new WebApplicationOptions
 {
     Args = args,
 
-    // IMPORTANT:
-    // When running as Windows Service, use the installed
-    // application folder as the ContentRoot.
-    ContentRootPath = WindowsServiceHelpers.IsWindowsService()
-                      ? AppContext.BaseDirectory
-                      : default
+    ContentRootPath =
+        WindowsServiceHelpers.IsWindowsService()
+            ? AppContext.BaseDirectory
+            : default
 };
 
 // ============================================================
@@ -75,6 +67,12 @@ var connectionString =
     builder.Configuration.GetConnectionString(
         "DefaultConnection");
 
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "DefaultConnection is not configured.");
+}
+
 builder.Services.AddDbContextFactory<AppDbContext>(
     options =>
         options.UseNpgsql(connectionString));
@@ -87,7 +85,7 @@ builder.Services.AddScoped<AttendanceCalculatorService>();
 builder.Services.AddScoped<AttendanceBoundsService>();
 
 // ============================================================
-// NEW SPLIT SERVICES
+// APPLICATION SERVICES
 // ============================================================
 
 builder.Services.AddScoped<AttendancePunchProcessor>();
@@ -119,18 +117,17 @@ builder.Services.AddScoped<LeaveManagementService>();
 
 builder.Services.AddTransient<AutomatedJobsService>();
 
-builder.Services.AddScoped<UserManager<IdentityUser>>();
-
 builder.Services.AddScoped<NotificationService>();
 
 builder.Services.AddScoped<IEmailSender, EmailSender>();
-builder.Services.AddTransient<IEmailSender, EmailSender>();
 
 builder.Services.AddScoped<CsvExportService>();
 builder.Services.AddScoped<ThemeService>();
 builder.Services.AddScoped<FBPService>();
 builder.Services.AddScoped<PayrollLockService>();
+
 builder.Services.AddTransient<YearEndSummaryService>();
+
 builder.Services.AddScoped<TaxDeclarationService>();
 builder.Services.AddScoped<FeatureCleanUpService>();
 builder.Services.AddScoped<EmployeeDeletionService>();
@@ -167,7 +164,8 @@ builder.Services.AddIdentity<IdentityUser, IdentityRole>(
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultUI()
-    .AddTokenProvider<EmailTokenProvider<IdentityUser>>("Default")
+    .AddTokenProvider<EmailTokenProvider<IdentityUser>>(
+        "Default")
     .AddDefaultTokenProviders();
 
 // ============================================================
@@ -190,7 +188,9 @@ builder.Services.AddAuthorizationBuilder()
 
     .AddPolicy(
         "AdminOrSuper",
-        p => p.RequireRole("Admin", "SuperAdmin"))
+        p => p.RequireRole(
+            "Admin",
+            "SuperAdmin"))
 
     .AddPolicy(
         "EmployeeOrHigher",
@@ -258,7 +258,9 @@ builder.Services.AddHangfireServer(
     options =>
     {
         options.WorkerCount =
-            Environment.ProcessorCount * 2;
+            Math.Max(
+                1,
+                Environment.ProcessorCount * 2);
     });
 
 // ============================================================
@@ -298,7 +300,7 @@ catch (Exception ex)
 
     logger.LogError(
         ex,
-        "❌ Error during DB migration.");
+        "Error during DB migration.");
 }
 
 // ============================================================
@@ -331,7 +333,7 @@ catch (Exception ex)
 
     logger.LogError(
         ex,
-        "❌ Error during initial seeding.");
+        "Error during initial seeding.");
 }
 
 // ============================================================
@@ -370,8 +372,22 @@ app.MapControllers();
 app.UseAntiforgery();
 
 // ============================================================
-// HANGFIRE DASHBOARD
+// HANGFIRE
 // ============================================================
+//
+// IMPORTANT:
+// Do NOT use the static JobStorage.Current /
+// RecurringJob.AddOrUpdate APIs here.
+//
+// Resolve Hangfire services from DI.
+// ============================================================
+
+var hangfireStorage =
+    app.Services.GetRequiredService<JobStorage>();
+
+var recurringJobManager =
+    app.Services
+        .GetRequiredService<IRecurringJobManager>();
 
 app.UseHangfireDashboard(
     "/hangfire",
@@ -381,13 +397,14 @@ app.UseHangfireDashboard(
         [
             new HangfireAuth()
         ]
-    });
+    },
+    hangfireStorage);
 
 // ============================================================
 // RECURRING JOBS
 // ============================================================
 
-RecurringJob.AddOrUpdate<AutomatedJobsService>(
+recurringJobManager.AddOrUpdate<AutomatedJobsService>(
     "mark-daily-absences",
     s => s.MarkYesterdayAbsencesAsync(),
     "5 9 * * *",
@@ -397,7 +414,7 @@ RecurringJob.AddOrUpdate<AutomatedJobsService>(
             TimeZoneInfo.Local
     });
 
-RecurringJob.AddOrUpdate<LeaveAccrualService>(
+recurringJobManager.AddOrUpdate<LeaveAccrualService>(
     "monthly-leave-accrual",
     s => s.RunMonthlyAccrualAsync(),
     "0 0 1 * *",
@@ -407,7 +424,7 @@ RecurringJob.AddOrUpdate<LeaveAccrualService>(
             TimeZoneInfo.Local
     });
 
-RecurringJob.AddOrUpdate<YearEndSummaryService>(
+recurringJobManager.AddOrUpdate<YearEndSummaryService>(
     "annual-yearend-summary",
     s => s.RunYearEndConsolidationAsync(
         DateTime.Now.Year - 1),
@@ -418,7 +435,7 @@ RecurringJob.AddOrUpdate<YearEndSummaryService>(
             TimeZoneInfo.Local
     });
 
-RecurringJob.AddOrUpdate<RosteringService>(
+recurringJobManager.AddOrUpdate<RosteringService>(
     "monthly-roster-generation",
     s =>
         s.GenerateScheduleFromPatternsAsync(
@@ -433,7 +450,7 @@ RecurringJob.AddOrUpdate<RosteringService>(
             TimeZoneInfo.Local
     });
 
-RecurringJob.AddOrUpdate<RosteringService>(
+recurringJobManager.AddOrUpdate<RosteringService>(
     "weekly-shift-rotation",
     s => s.RunShiftRotationJobAsync(),
     "0 2 * * 0",
@@ -458,7 +475,6 @@ app.MapRazorComponents<App>()
 
 app.Run();
 
-
 // ============================================================
 // HELPERS
 // ============================================================
@@ -477,12 +493,12 @@ async Task SeedRolesAsync(
         "Employee"
     ];
 
-    foreach (var r in roles)
+    foreach (var role in roles)
     {
-        if (!await roleMgr.RoleExistsAsync(r))
+        if (!await roleMgr.RoleExistsAsync(role))
         {
             await roleMgr.CreateAsync(
-                new IdentityRole(r));
+                new IdentityRole(role));
         }
     }
 }
@@ -495,7 +511,6 @@ async Task SeedCompanySettingsAsync(
     var db =
         sp.GetRequiredService<AppDbContext>();
 
-    // Company settings
     if (!await db.CompanySettings
         .AnyAsync(x => x.SettingID == 1))
     {
@@ -516,7 +531,6 @@ async Task SeedCompanySettingsAsync(
         await db.SaveChangesAsync();
     }
 
-    // Feature settings
     if (!await db.FeatureSettings
         .AnyAsync(x => x.Id == 1))
     {
@@ -554,7 +568,9 @@ async Task SeedAdminUserAsync(
             "SuperAdmin");
 
     if (superAdmins.Any())
+    {
         return;
+    }
 
     var firstUser =
         await userMgr.Users
@@ -589,7 +605,8 @@ async Task EnsureEmployeeRoleForAllUsers(
     }
 
     var users =
-        userMgr.Users.ToList();
+        await userMgr.Users
+            .ToListAsync();
 
     foreach (var user in users)
     {
