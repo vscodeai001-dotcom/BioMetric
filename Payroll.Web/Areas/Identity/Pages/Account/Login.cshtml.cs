@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Payroll.Shared.Data;
 
 namespace Payroll.Web.Areas.Identity.Pages.Account
@@ -62,7 +63,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
         public void OnGet(string? returnUrl = null)
         {
-            if (!string.IsNullOrEmpty(ErrorMessage))
+            if (!string.IsNullOrWhiteSpace(ErrorMessage))
             {
                 ModelState.AddModelError(
                     string.Empty,
@@ -82,14 +83,16 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 Url.Content("~/") ??
                 "/";
 
+            ReturnUrl = returnUrl;
+
             if (!ModelState.IsValid)
             {
                 return Page();
             }
 
             var user =
-                await _userManager
-                    .FindByEmailAsync(Input.Email);
+                await _userManager.FindByEmailAsync(
+                    Input.Email);
 
             if (user == null)
             {
@@ -100,116 +103,48 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 return Page();
             }
 
+            // ========================================================
+            // CHECK ROLE
+            // ========================================================
+
             var isEmployee =
-                await _userManager
-                    .IsInRoleAsync(
-                        user,
-                        "Employee");
+                await _userManager.IsInRoleAsync(
+                    user,
+                    "Employee");
 
             var isAdmin =
-                await _userManager
-                    .IsInRoleAsync(
-                        user,
-                        "Admin");
+                await _userManager.IsInRoleAsync(
+                    user,
+                    "Admin");
 
             var isSuperAdmin =
-                await _userManager
-                    .IsInRoleAsync(
-                        user,
-                        "SuperAdmin");
+                await _userManager.IsInRoleAsync(
+                    user,
+                    "SuperAdmin");
 
             var isEmployeeOnly =
                 isEmployee &&
                 !isAdmin &&
                 !isSuperAdmin;
 
-            /*
-             * ========================================================
-             * EMPLOYEE SINGLE-DEVICE CHECK
-             * ========================================================
-             *
-             * Admin / SuperAdmin are NOT restricted.
-             *
-             * Employee:
-             *
-             * Device A -> login -> allowed
-             * Device B -> login -> blocked
-             *
-             * Device A -> real logout
-             * Device B -> login -> allowed
-             */
+            // ========================================================
+            // VERIFY PASSWORD FIRST
+            // ========================================================
+            //
+            // IMPORTANT:
+            // Do NOT reserve the device before checking the password.
+            //
+            // This prevents a failed login attempt from temporarily
+            // locking the employee account.
+            // ========================================================
 
-            if (isEmployeeOnly)
-            {
-                var deviceId =
-                    GetOrCreateDeviceId();
+            var passwordResult =
+                await _signInManager.CheckPasswordSignInAsync(
+                    user,
+                    Input.Password,
+                    lockoutOnFailure: false);
 
-                var deviceAvailable =
-                    await TryAcquireEmployeeDeviceAsync(
-                        user,
-                        deviceId);
-
-                if (!deviceAvailable)
-                {
-                    ModelState.AddModelError(
-                        string.Empty,
-                        "This employee account is already logged in on another device. Please log out from the other device before signing in here.");
-
-                    return Page();
-                }
-            }
-
-            var result =
-                await _signInManager
-                    .PasswordSignInAsync(
-                        user,
-                        Input.Password,
-                        Input.RememberMe,
-                        lockoutOnFailure: false);
-
-            if (result.Succeeded)
-            {
-                _logger.LogInformation(
-                    "User logged in: {Email}",
-                    user.Email);
-
-                if (isEmployeeOnly)
-                {
-                    return LocalRedirect(
-                        "~/employee-home");
-                }
-
-                if (
-                    Url.IsLocalUrl(returnUrl) &&
-                    returnUrl != "/")
-                {
-                    return LocalRedirect(
-                        returnUrl);
-                }
-
-                return LocalRedirect("~/");
-            }
-
-            /*
-             * Login failed.
-             *
-             * If employee device was reserved but password failed,
-             * release it so the user is not locked out accidentally.
-             */
-            if (isEmployeeOnly)
-            {
-                var deviceId =
-                    GetExistingDeviceId();
-
-                if (!string.IsNullOrWhiteSpace(deviceId))
-                {
-                    await ReleaseEmployeeDeviceAsync(
-                        user,
-                        deviceId);
-                }
-            }
-
-            if (result.IsLockedOut)
+            if (passwordResult.IsLockedOut)
             {
                 _logger.LogWarning(
                     "User account locked out: {Email}",
@@ -219,72 +154,141 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     "./Lockout");
             }
 
-            ModelState.AddModelError(
-                string.Empty,
-                "Invalid login attempt.");
-
-            return Page();
-        }
-
-        // ============================================================
-        // DEVICE ID
-        // ============================================================
-
-        private string GetOrCreateDeviceId()
-        {
-            if (
-                Request.Cookies.TryGetValue(
-                    DeviceCookieName,
-                    out var existing) &&
-                !string.IsNullOrWhiteSpace(existing))
+            if (!passwordResult.Succeeded)
             {
-                return existing;
+                ModelState.AddModelError(
+                    string.Empty,
+                    "Invalid login attempt.");
+
+                return Page();
             }
 
-            var deviceId =
-                Guid.NewGuid().ToString("N");
+            // ========================================================
+            // EMPLOYEE SINGLE-DEVICE LOCK
+            // ========================================================
 
-            Response.Cookies.Append(
-                DeviceCookieName,
-                deviceId,
-                new CookieOptions
+            if (isEmployeeOnly)
+            {
+                var deviceId =
+                    GetExistingDeviceId();
+
+                if (string.IsNullOrWhiteSpace(deviceId))
                 {
-                    HttpOnly = true,
-                    Secure = Request.IsHttps,
-                    SameSite = SameSiteMode.Lax,
-                    IsEssential = true,
-                    MaxAge = TimeSpan.FromDays(365)
-                });
+                    deviceId =
+                        Guid.NewGuid().ToString("N");
+                }
 
-            return deviceId;
+                var acquired =
+                    await TryAcquireEmployeeDeviceAsync(
+                        user,
+                        deviceId);
+
+                if (!acquired)
+                {
+                    ModelState.AddModelError(
+                        string.Empty,
+                        "This employee account is already logged in on another device. Please log out from the other device before signing in here.");
+
+                    return Page();
+                }
+
+                // Only create the device cookie AFTER the database
+                // lock has been successfully acquired.
+                SetDeviceCookie(deviceId);
+            }
+
+            // ========================================================
+            // CREATE IDENTITY LOGIN SESSION
+            // ========================================================
+
+            await _signInManager.SignInAsync(
+                user,
+                isPersistent: Input.RememberMe);
+
+            _logger.LogInformation(
+                "User logged in successfully: {Email}",
+                user.Email);
+
+            // ========================================================
+            // EMPLOYEE
+            // ========================================================
+
+            if (isEmployeeOnly)
+            {
+                return LocalRedirect(
+                    "~/employee-home");
+            }
+
+            // ========================================================
+            // ADMIN / SUPER ADMIN
+            // ========================================================
+
+            if (
+                Url.IsLocalUrl(returnUrl) &&
+                returnUrl != "/")
+            {
+                return LocalRedirect(returnUrl);
+            }
+
+            return LocalRedirect("~/");
         }
+
+        // ============================================================
+        // DEVICE COOKIE
+        // ============================================================
 
         private string? GetExistingDeviceId()
         {
             if (
                 Request.Cookies.TryGetValue(
                     DeviceCookieName,
-                    out var existing) &&
-                !string.IsNullOrWhiteSpace(existing))
+                    out var deviceId) &&
+                !string.IsNullOrWhiteSpace(deviceId))
             {
-                return existing;
+                return deviceId;
             }
 
             return null;
         }
 
+        private void SetDeviceCookie(
+            string deviceId)
+        {
+            Response.Cookies.Append(
+                DeviceCookieName,
+                deviceId,
+                new CookieOptions
+                {
+                    HttpOnly = true,
+
+                    Secure = Request.IsHttps,
+
+                    SameSite = SameSiteMode.Lax,
+
+                    IsEssential = true,
+
+                    MaxAge =
+                        TimeSpan.FromDays(365)
+                });
+        }
+
         // ============================================================
-        // ACQUIRE DEVICE
+        // ACQUIRE EMPLOYEE DEVICE
         // ============================================================
 
-        private async Task<bool> TryAcquireEmployeeDeviceAsync(
-            IdentityUser user,
-            string deviceId)
+        private async Task<bool>
+            TryAcquireEmployeeDeviceAsync(
+                IdentityUser user,
+                string deviceId)
         {
             await using var db =
                 await _dbFactory
                     .CreateDbContextAsync();
 
+            /*
+             * SERIALIZABLE prevents two devices from both seeing
+             * "no active device" and acquiring the account together.
+             */
             await using var transaction =
                 await db.Database.BeginTransactionAsync(
                     IsolationLevel.Serializable);
@@ -292,95 +296,119 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             try
             {
                 var token =
-                    await db.Set<IdentityUserToken<string>>()
+                    await db
+                        .Set<IdentityUserToken<string>>()
                         .FirstOrDefaultAsync(
                             x =>
                                 x.UserId == user.Id &&
-                                x.LoginProvider == LoginProvider &&
-                                x.Name == TokenName);
+                                x.LoginProvider ==
+                                    LoginProvider &&
+                                x.Name ==
+                                    TokenName);
 
-                if (
-                    token != null &&
+                // ====================================================
+                // AN ACTIVE DEVICE ALREADY EXISTS
+                // ====================================================
+
+                if (token != null &&
                     !string.IsNullOrWhiteSpace(token.Value))
                 {
-                    /*
-                     * Same browser/device:
-                     * allow continued login.
-                     */
+                    // Same device/browser.
                     if (token.Value == deviceId)
                     {
                         await transaction.CommitAsync();
+
+                        _logger.LogInformation(
+                            "Employee continued from existing device. UserId={UserId}",
+                            user.Id);
+
                         return true;
                     }
 
-                    /*
-                     * Another browser/device is already active.
-                     */
+                    // Different device.
                     await transaction.RollbackAsync();
 
                     _logger.LogWarning(
-                        "Employee login blocked because another device is active. UserId={UserId}",
+                        "Employee login blocked. Another device is already active. UserId={UserId}",
                         user.Id);
 
                     return false;
                 }
+
+                // ====================================================
+                // NO ACTIVE DEVICE
+                // ====================================================
 
                 db.Set<IdentityUserToken<string>>()
                     .Add(
                         new IdentityUserToken<string>
                         {
                             UserId = user.Id,
-                            LoginProvider = LoginProvider,
-                            Name = TokenName,
-                            Value = deviceId
+                            LoginProvider =
+                                LoginProvider,
+                            Name =
+                                TokenName,
+                            Value =
+                                deviceId
                         });
 
                 await db.SaveChangesAsync();
 
                 await transaction.CommitAsync();
 
+                _logger.LogInformation(
+                    "Employee device lock acquired. UserId={UserId}",
+                    user.Id);
+
                 return true;
+            }
+            catch (DbUpdateException ex)
+                when (
+                    ex.InnerException
+                        is PostgresException pg &&
+                    pg.SqlState ==
+                        PostgresErrorCodes.UniqueViolation)
+            {
+                /*
+                 * Two devices attempted login at exactly the same
+                 * time. PostgreSQL allowed only one token.
+                 *
+                 * Therefore this device loses the race and must
+                 * be rejected.
+                 */
+
+                try
+                {
+                    await transaction.RollbackAsync();
+                }
+                catch
+                {
+                    // Ignore rollback failure.
+                }
+
+                _logger.LogWarning(
+                    "Concurrent employee login rejected. UserId={UserId}",
+                    user.Id);
+
+                return false;
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                try
+                {
+                    await transaction.RollbackAsync();
+                }
+                catch
+                {
+                    // Ignore rollback failure.
+                }
 
                 _logger.LogError(
                     ex,
-                    "Unable to acquire employee device lock for UserId={UserId}",
+                    "Error acquiring employee device lock. UserId={UserId}",
                     user.Id);
 
                 throw;
-            }
-        }
-
-        // ============================================================
-        // RELEASE DEVICE
-        // ============================================================
-
-        private async Task ReleaseEmployeeDeviceAsync(
-            IdentityUser user,
-            string deviceId)
-        {
-            await using var db =
-                await _dbFactory
-                    .CreateDbContextAsync();
-
-            var token =
-                await db.Set<IdentityUserToken<string>>()
-                    .FirstOrDefaultAsync(
-                        x =>
-                            x.UserId == user.Id &&
-                            x.LoginProvider == LoginProvider &&
-                            x.Name == TokenName);
-
-            if (
-                token != null &&
-                token.Value == deviceId)
-            {
-                db.Remove(token);
-
-                await db.SaveChangesAsync();
             }
         }
     }
