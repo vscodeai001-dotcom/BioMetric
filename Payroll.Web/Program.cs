@@ -34,7 +34,9 @@ var options = new WebApplicationOptions
 // ============================================================
 // BUILDER
 // ============================================================
-
+Environment.SetEnvironmentVariable(
+    "DOTNET_USE_POLLING_FILE_WATCHER",
+    "true");
 var builder = WebApplication.CreateBuilder(options);
 
 // ============================================================
