@@ -1,4 +1,9 @@
+/* =========================================================
+   PRINT
+   ========================================================= */
+
 @media print {
+
     /* Hide everything except the main payslip content */
     body > *:not(.page),
     .page > *:not(main),
@@ -10,39 +15,43 @@
     }
 
     /* Reset page margins and padding for print */
-    html, body, .page, main, 
+    html,
+    body,
+    .page,
+    main,
     t {
         margin: 0 !important;
         padding: 0 !important;
         width: 100% !important;
     }
 
-    /* --- FIX FOR OVERLAPPING --- */
+    /* -----------------------------------------------------
+       FIX FOR OVERLAPPING
+       ----------------------------------------------------- */
 
-    /* Force rows to be full width */
     .payslip-container .row {
         width: 100%;
-        display: block; /* Change from flex to block for printing */
+        display: block;
         margin-left: 0;
         margin-right: 0;
     }
 
-        /* Force columns (col-6) to be full width and stack */
         .payslip-container .row > [class*="col-"] {
             width: 100% !important;
             flex: 0 0 100% !important;
             max-width: 100% !important;
-            padding-left: 0; /* Reset padding */
+            padding-left: 0;
             padding-right: 0;
         }
 
-        /* Add space between the stacked Earnings/Deductions blocks */
         .payslip-container .row > .col-6:last-child {
-            margin-top: 20px; /* Add space above the Deductions block */
+            margin-top: 20px;
         }
-    /* --- END FIX --- */
 
-    /* Style the payslip container for printing */
+    /* -----------------------------------------------------
+       PAYSLIP
+       ----------------------------------------------------- */
+
     .payslip-container {
         width: 90%;
         margin: 1cm auto;
@@ -53,8 +62,8 @@
         font-size: 10pt;
     }
 
-    /* Ensure table borders are visible */
-    .payslip-details-table td, .payslip-details-table th {
+    .payslip-details-table td,
+    .payslip-details-table th {
         border-top: 1px solid #eee;
         padding: 0.2rem 0.4rem;
     }
@@ -73,24 +82,36 @@
         color: inherit;
     }
 
-    .payslip-header, .payslip-details-table, .payslip-summary {
+    .payslip-header,
+    .payslip-details-table,
+    .payslip-summary {
         page-break-inside: avoid;
     }
 }
-/* --- RESPONSIVE HELPERS --- */
+
+
+/* =========================================================
+   RESPONSIVE HELPERS
+   ========================================================= */
+
 @media (max-width: 768px) {
+
     .d-none-mobile {
         display: none !important;
     }
 }
 
-/* --- PAYROLL TABLE STYLING (Light Mode) --- */
+
+/* =========================================================
+   PAYROLL TABLE - LIGHT MODE
+   ========================================================= */
+
 .table-responsive {
     background-color: transparent;
 }
 
-/* Ensure table text is readable in light mode */
-.table td, .table th {
+.table td,
+.table th {
     background-color: #ffffff;
     color: #212529;
 }
@@ -105,7 +126,10 @@
     color: #212529;
 }
 
-/* ---- INPUT FIX FOR DARK MODE ---- */
+
+/* =========================================================
+   DARK MODE - INPUTS
+   ========================================================= */
 
 body.dark input.form-control,
 body.dark select.form-select,
@@ -115,18 +139,15 @@ body.dark textarea.form-control {
     border: 1px solid #555 !important;
 }
 
-/* Labels */
 body.dark label {
     color: #e0e0e0 !important;
 }
 
-/* Placeholder text */
 body.dark input.form-control::placeholder,
 body.dark textarea.form-control::placeholder {
     color: #b3b3b3 !important;
 }
 
-/* Focus effect */
 body.dark input.form-control:focus,
 body.dark select.form-select:focus,
 body.dark textarea.form-control:focus {
@@ -134,16 +155,19 @@ body.dark textarea.form-control:focus {
     box-shadow: 0 0 0 0.20rem rgba(13, 110, 253, 0.25) !important;
 }
 
-/* --- WIDE SIDE PANEL (DRAWER) STYLE --- */
+
+/* =========================================================
+   WIDE SIDE PANEL / DRAWER
+   ========================================================= */
 
 .modal-dialog-right {
     position: absolute !important;
-    top: 3.5rem !important; /* Pushes it DOWN below the Menu Bar */
+    top: 3.5rem !important;
     right: 0;
     margin: 0 !important;
-    height: calc(100vh - 3.5rem) !important; /* Full height minus Menu Bar */
-    max-width: 1100px !important; /* WIDE enough for 6 columns */
-    width: 90vw !important; /* Responsive width */
+    height: calc(100vh - 3.5rem) !important;
+    max-width: 1100px !important;
+    width: 90vw !important;
     display: flex;
 }
 
@@ -152,33 +176,34 @@ body.dark textarea.form-control:focus {
         border-radius: 0 !important;
         border: none;
         border-left: 1px solid #dee2e6;
-        box-shadow: -5px 0 15px rgba(0,0,0,0.1);
+        box-shadow: -5px 0 15px rgba(0, 0, 0, 0.1);
         display: flex;
         flex-direction: column;
     }
 
     .modal-dialog-right .modal-header {
         flex-shrink: 0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         z-index: 10;
     }
 
-    /* Internal Scrolling for the Body */
     .modal-dialog-right .modal-body {
-        flex-grow: 1; /* Take up all remaining space */
-        overflow-y: auto; /* Scroll ONLY inside this area */
+        flex-grow: 1;
+        overflow-y: auto;
         overflow-x: hidden;
-        padding: 2rem; /* UNIFORM SPACING on all 4 sides */
+        padding: 2rem;
     }
 
     .modal-dialog-right .modal-footer {
         flex-shrink: 0;
-        box-shadow: 0 -1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.05);
         z-index: 10;
-        padding: 1.5rem 2rem; /* Match horizontal padding */
+        padding: 1.5rem 2rem;
     }
 
-/* Slide Animation */
+
+/* Drawer animation */
+
 .modal.fade .modal-dialog-right {
     transform: translateX(100%);
     transition: transform 0.3s ease-in-out;
@@ -189,3 +214,270 @@ body.dark textarea.form-control:focus {
 }
 
 
+/* =========================================================
+   BIOMETRIC
+   BLAZOR SERVER RECONNECT
+   NON-BLOCKING MOBILE STATUS
+   ========================================================= */
+
+/*
+   IMPORTANT:
+
+   Normal state:
+   hidden
+
+   Reconnecting:
+   small floating banner
+
+   Failed:
+   visible red banner
+
+   Rejected:
+   visible red banner
+*/
+
+#components-reconnect-modal {
+    position: fixed !important;
+    top: 10px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: auto !important;
+    min-width: 240px !important;
+    max-width: calc(100vw - 20px) !important;
+    padding: 9px 16px !important;
+    border-radius: 999px !important;
+    background: rgba(33, 37, 41, 0.96) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.25) !important;
+    z-index: 999999 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    line-height: 1.4 !important;
+    text-align: center !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-sizing: border-box !important;
+}
+
+
+    /* ---------------------------------------------------------
+   NORMAL STATE
+   --------------------------------------------------------- */
+
+    #components-reconnect-modal:not(.components-reconnect-show):not(.components-reconnect-failed):not(.components-reconnect-rejected) {
+        display: none !important;
+    }
+
+
+    /* ---------------------------------------------------------
+   RECONNECTING
+   --------------------------------------------------------- */
+
+    #components-reconnect-modal.components-reconnect-show {
+        display: block !important;
+    }
+
+
+    /* ---------------------------------------------------------
+   RECONNECT FAILED
+   --------------------------------------------------------- */
+
+    #components-reconnect-modal.components-reconnect-failed {
+        display: block !important;
+        background: linear-gradient( 135deg, rgba(180, 35, 35, 0.98), rgba(145, 25, 25, 0.98) ) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+    }
+
+
+    /* ---------------------------------------------------------
+   RECONNECT REJECTED / SESSION ENDED
+   --------------------------------------------------------- */
+
+    #components-reconnect-modal.components-reconnect-rejected {
+        display: block !important;
+        background: linear-gradient( 135deg, rgba(180, 35, 35, 0.98), rgba(145, 25, 25, 0.98) ) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+    }
+
+
+/* =========================================================
+   MOBILE RECONNECT
+   ========================================================= */
+
+@media (max-width: 576px) {
+
+    #components-reconnect-modal {
+        top: 8px !important;
+        left: 10px !important;
+        transform: none !important;
+        width: calc(100vw - 20px) !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        padding: 9px 12px !important;
+        font-size: 12px !important;
+        border-radius: 12px !important;
+    }
+}
+
+
+/* =========================================================
+   VERY SMALL PHONES
+   ========================================================= */
+
+@media (max-width: 360px) {
+
+    #components-reconnect-modal {
+        font-size: 11px !important;
+        padding: 8px 10px !important;
+        border-radius: 10px !important;
+    }
+}
+
+
+/* =========================================================
+   DARK MODE - DRAWER
+   ========================================================= */
+
+body.dark .modal-dialog-right .modal-content {
+    background-color: #1f2327;
+    color: #f1f1f1;
+    border-left-color: #3d4349;
+}
+
+body.dark .modal-dialog-right .modal-header {
+    background-color: #252a2f;
+    color: #f1f1f1;
+    border-bottom-color: #3d4349;
+}
+
+body.dark .modal-dialog-right .modal-footer {
+    background-color: #252a2f;
+    border-top-color: #3d4349;
+}
+
+
+/* =========================================================
+   DARK MODE - TABLES
+   ========================================================= */
+
+body.dark .table td,
+body.dark .table th {
+    background-color: #252a2f !important;
+    color: #f1f1f1 !important;
+    border-color: #41474d !important;
+}
+
+body.dark .table.table-striped > tbody > tr:nth-of-type(odd) > * {
+    background-color: #2b3035 !important;
+    color: #f1f1f1 !important;
+}
+
+body.dark .table.table-hover > tbody > tr:hover > * {
+    background-color: #343a40 !important;
+    color: #ffffff !important;
+}
+
+
+/* =========================================================
+   DARK MODE - FORM CONTROLS
+   ========================================================= */
+
+body.dark .form-control,
+body.dark .form-select {
+    background-color: #2b2f33 !important;
+    color: #f1f1f1 !important;
+    border-color: #555d64 !important;
+}
+
+    body.dark .form-control:focus,
+    body.dark .form-select:focus {
+        background-color: #30353a !important;
+        color: #ffffff !important;
+        border-color: #0d6efd !important;
+    }
+
+
+/* =========================================================
+   DARK MODE - CARDS / PANELS
+   ========================================================= */
+
+body.dark .card,
+body.dark .modal-content,
+body.dark .dropdown-menu,
+body.dark .list-group-item {
+    background-color: #252a2f;
+    color: #f1f1f1;
+    border-color: #41474d;
+}
+
+
+/* =========================================================
+   DARK MODE - BUTTONS / LINKS
+   ========================================================= */
+
+body.dark .btn-light {
+    background-color: #343a40 !important;
+    color: #ffffff !important;
+    border-color: #555d64 !important;
+}
+
+body.dark .btn-outline-secondary {
+    color: #d8dde2 !important;
+    border-color: #666 !important;
+}
+
+    body.dark .btn-outline-secondary:hover {
+        background-color: #343a40 !important;
+        color: #ffffff !important;
+    }
+
+
+/* =========================================================
+   DARK MODE - DATE / TIME INPUT ICON
+   ========================================================= */
+
+body.dark input[type="date"]::-webkit-calendar-picker-indicator,
+body.dark input[type="time"]::-webkit-calendar-picker-indicator,
+body.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+
+/* =========================================================
+   MOBILE DRAWER
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+    .modal-dialog-right {
+        top: 0 !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+    }
+
+        .modal-dialog-right .modal-body {
+            padding: 1rem !important;
+        }
+
+        .modal-dialog-right .modal-footer {
+            padding: 1rem !important;
+        }
+}
+
+
+/* =========================================================
+   ACCESSIBILITY / TOUCH TARGETS
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+    button,
+    .btn,
+    a.btn,
+    input[type="button"],
+    input[type="submit"] {
+        min-height: 42px;
+    }
+}
