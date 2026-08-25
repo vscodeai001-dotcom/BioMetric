@@ -285,6 +285,15 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     "EMPLOYEE DEVICE LOCK ACQUIRED: UserId={UserId}, DeviceId={DeviceId}",
                     user.Id,
                     deviceId);
+
+                _logger.LogWarning(
+    "========== BIOMETRIC LOCK CONFIRMED ==========");
+                _logger.LogWarning(
+                    "UserId={UserId}", user.Id);
+                _logger.LogWarning(
+                    "DeviceId={DeviceId}", deviceId);
+                _logger.LogWarning(
+                    "========== BIOMETRIC LOCK CONFIRMED ==========");
             }
 
             // ========================================================
