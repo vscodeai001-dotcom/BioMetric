@@ -43,9 +43,8 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 new { area = "Identity" });
         }
 
-        [ValidateAntiForgeryToken]
         public async Task<IActionResult> OnPostAsync(
-            string? returnUrl = null)
+    string? returnUrl = null)
         {
             var user = await _userManager.GetUserAsync(User);
 
