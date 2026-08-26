@@ -1100,13 +1100,16 @@ namespace Payroll.Shared.Services
 
                     if (
                         pr.LastOut.HasValue &&
-                        scheduleResult
-                            .EndGraceStart
-                            .HasValue &&
                         pr.LastOut.Value <
-                            scheduleResult
-                                .EndGraceStart.Value)
+                            scheduleResult.ShiftEnd)
                     {
+                        // Early leave is measured against the actual
+                        // scheduled shift end, not the grace boundary.
+                        //
+                        // Example:
+                        // Shift end = 22:00
+                        // Final OUT = 18:30
+                        // Early = 03:30
                         earlyLeave =
                             scheduleResult.ShiftEnd -
                             pr.LastOut.Value;
@@ -1153,9 +1156,28 @@ namespace Payroll.Shared.Services
                             scheduleResult.ShiftEnd,
                             openPunchEnd);
 
+                    // IMPORTANT:
+                    //
+                    // Worked is the actual punch time inside the
+                    // scheduled shift.
+                    //
+                    // Break/gap time remains a separate value and is
+                    // passed independently to DailySummaryBuilder.
+                    //
+                    // Do NOT subtract totalBreak here. That would make
+                    // the Worked column smaller than the actual
+                    // shift-overlap work.
+                    //
+                    // Example:
+                    //
+                    // 18:00 - 18:05 = 00:05
+                    // 18:10 - 18:30 = 00:20
+                    //
+                    // Worked = 00:25
+                    // OT     = 06:20
+                    //
                     earnedStandard =
-                        workedInsideShift -
-                        totalBreak;
+                        workedInsideShift;
 
                     if (earnedStandard <
                         TimeSpan.Zero)
