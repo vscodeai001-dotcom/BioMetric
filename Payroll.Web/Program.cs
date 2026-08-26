@@ -171,6 +171,21 @@ builder.Services.AddIdentity<IdentityUser, IdentityRole>(
     .AddDefaultTokenProviders();
 
 // ============================================================
+// EMPLOYEE SINGLE-SESSION IDENTITY MANAGER
+// ============================================================
+//
+// Replaces the default SignInManager implementation.
+//
+// The built-in Identity Login page calls PasswordSignInAsync(),
+// so this enforces the employee device lock at the real login
+// pipeline without requiring Login.cshtml.
+//
+
+builder.Services.AddScoped<
+    SignInManager<IdentityUser>,
+    EmployeeSingleSessionSignInManager>();
+
+// ============================================================
 // AUTHORIZATION POLICIES
 // ============================================================
 
