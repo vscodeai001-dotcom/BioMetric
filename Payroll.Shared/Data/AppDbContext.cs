@@ -122,6 +122,11 @@ public class AppDbContext
         // ASP.NET IDENTITY KEYS
         // ========================================================
 
+        builder.Entity<DailySummary>(entity =>
+        {
+            entity.ToTable("daily_summaries");
+        });
+
         builder.Entity<IdentityUser>()
             .HasKey(u => u.Id);
 
