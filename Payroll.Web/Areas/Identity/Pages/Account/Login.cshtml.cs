@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Payroll.Shared.Data;
 using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
 
 namespace Payroll.Web.Areas.Identity.Pages.Account
 {
@@ -16,12 +17,11 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         // CONSTANTS
         // ============================================================
 
-        private const string DeviceCookieName =
+        public const string DeviceCookieName =
             "BioMetric-Employee-Device";
 
-        // ============================================================
-        // SERVICES
-        // ============================================================
+        public const string DeviceClaimType =
+            "BioMetric-Employee-Device";
 
         private readonly SignInManager<IdentityUser> _signInManager;
         private readonly UserManager<IdentityUser> _userManager;
@@ -45,7 +45,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         }
 
         // ============================================================
-        // FORM
+        // INPUT
         // ============================================================
 
         [BindProperty]
@@ -94,7 +94,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         }
 
         // ============================================================
-        // POST LOGIN
+        // POST
         // ============================================================
 
         public async Task<IActionResult> OnPostAsync(
@@ -105,9 +105,9 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     ? returnUrl
                     : "/";
 
-            // ========================================================
-            // VALIDATE FORM
-            // ========================================================
+            // --------------------------------------------------------
+            // VALIDATION
+            // --------------------------------------------------------
 
             if (!ModelState.IsValid)
             {
@@ -116,25 +116,22 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             var email = Input.Email.Trim();
 
-            // ========================================================
+            // --------------------------------------------------------
             // FIND USER
-            // ========================================================
+            // --------------------------------------------------------
 
             var user =
                 await _userManager.FindByEmailAsync(email);
 
             if (user == null)
             {
-                ModelState.AddModelError(
-                    string.Empty,
-                    "Invalid email or password.");
-
+                AddLoginError();
                 return Page();
             }
 
-            // ========================================================
-            // CHECK ROLES
-            // ========================================================
+            // --------------------------------------------------------
+            // ROLE
+            // --------------------------------------------------------
 
             var isEmployee =
                 await _userManager.IsInRoleAsync(
@@ -151,20 +148,14 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     user,
                     "SuperAdmin");
 
-            // Employee-only means:
-            //
-            // Employee = YES
-            // Admin = NO
-            // SuperAdmin = NO
-
             var isEmployeeOnly =
                 isEmployee &&
                 !isAdmin &&
                 !isSuperAdmin;
 
-            // ========================================================
-            // VERIFY PASSWORD
-            // ========================================================
+            // --------------------------------------------------------
+            // PASSWORD
+            // --------------------------------------------------------
 
             var passwordResult =
                 await _signInManager.CheckPasswordSignInAsync(
@@ -188,65 +179,56 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             if (!passwordResult.Succeeded)
             {
-                ModelState.AddModelError(
-                    string.Empty,
-                    "Invalid email or password.");
-
+                AddLoginError();
                 return Page();
             }
 
             _logger.LogInformation(
-                "PASSWORD VERIFIED. UserId={UserId}, Email={Email}, EmployeeOnly={EmployeeOnly}",
+                "LOGIN PASSWORD VERIFIED. UserId={UserId}, Email={Email}, EmployeeOnly={EmployeeOnly}",
                 user.Id,
                 user.Email,
                 isEmployeeOnly);
 
             // ========================================================
-            // EMPLOYEE SINGLE LOGIN LOCK
+            // EMPLOYEE SINGLE-SESSION CONTROL
             // ========================================================
 
             string? deviceId = null;
-            bool lockCreated = false;
 
             if (isEmployeeOnly)
             {
-                // Every successful login attempt gets a new device ID.
                 deviceId =
                     Guid.NewGuid().ToString("N");
 
                 _logger.LogInformation(
-                    "EMPLOYEE DEVICE LOCK ATTEMPT. UserId={UserId}, DeviceId={DeviceId}",
+                    "EMPLOYEE LOGIN LOCK ATTEMPT. UserId={UserId}, DeviceId={DeviceId}",
                     user.Id,
                     deviceId);
 
-                // ----------------------------------------------------
-                // CREATE DATABASE LOCK
-                // ----------------------------------------------------
-
-                lockCreated =
-                    await TryCreateEmployeeDeviceLockAsync(
+                var lockCreated =
+                    await TryAcquireEmployeeLockAsync(
                         user.Id,
                         deviceId);
 
                 // ----------------------------------------------------
-                // EXISTING LOCK
+                // SECOND DEVICE / EXISTING LOGIN
                 // ----------------------------------------------------
 
                 if (!lockCreated)
                 {
                     _logger.LogWarning(
-                        "EMPLOYEE LOGIN BLOCKED. EXISTING DEVICE LOCK. UserId={UserId}",
+                        "EMPLOYEE LOGIN BLOCKED. ACCOUNT ALREADY ACTIVE. UserId={UserId}",
                         user.Id);
 
                     ModelState.AddModelError(
                         string.Empty,
-                        "This employee account is already logged in. Please log out from the other device before signing in again.");
+                        "This employee account is already logged in on another device. Please log out from that device before logging in here.");
 
                     return Page();
                 }
 
                 _logger.LogInformation(
-                    "EMPLOYEE DEVICE LOCK CONFIRMED. UserId={UserId}, DeviceId={DeviceId}",
+                    "EMPLOYEE LOCK ACQUIRED. UserId={UserId}, DeviceId={DeviceId}",
                     user.Id,
                     deviceId);
             }
@@ -257,9 +239,33 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             try
             {
-                await _signInManager.SignInAsync(
-                    user,
-                    isPersistent: Input.RememberMe);
+                if (isEmployeeOnly &&
+                    !string.IsNullOrWhiteSpace(deviceId))
+                {
+                    // ------------------------------------------------
+                    // CRITICAL:
+                    // Device ID is stored INSIDE the Identity cookie.
+                    // ------------------------------------------------
+
+                    var claims =
+                        new[]
+                        {
+                            new Claim(
+                                DeviceClaimType,
+                                deviceId)
+                        };
+
+                    await _signInManager.SignInWithClaimsAsync(
+                        user,
+                        Input.RememberMe,
+                        claims);
+                }
+                else
+                {
+                    await _signInManager.SignInAsync(
+                        user,
+                        Input.RememberMe);
+                }
             }
             catch (Exception ex)
             {
@@ -268,18 +274,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     "IDENTITY SIGN-IN FAILED. UserId={UserId}",
                     user.Id);
 
-                // ----------------------------------------------------
-                // IMPORTANT:
-                // If Identity sign-in fails after our device lock was
-                // created, remove ONLY our newly-created lock.
-                // ----------------------------------------------------
-
-                if (
-                    isEmployeeOnly &&
-                    lockCreated &&
+                if (isEmployeeOnly &&
                     !string.IsNullOrWhiteSpace(deviceId))
                 {
-                    await RemoveEmployeeDeviceLockAsync(
+                    await RemoveEmployeeLockAsync(
                         user.Id,
                         deviceId);
                 }
@@ -292,12 +290,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             }
 
             // ========================================================
-            // CREATE DEVICE COOKIE
+            // DEVICE COOKIE
             // ========================================================
 
-            if (
-                isEmployeeOnly &&
-                lockCreated &&
+            if (isEmployeeOnly &&
                 !string.IsNullOrWhiteSpace(deviceId))
             {
                 Response.Cookies.Append(
@@ -312,22 +308,17 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                         MaxAge = TimeSpan.FromDays(365),
                         Path = "/"
                     });
-
-                _logger.LogInformation(
-                    "EMPLOYEE DEVICE COOKIE CREATED. UserId={UserId}",
-                    user.Id);
             }
 
             // ========================================================
-            // LOGIN SUCCESS
+            // SUCCESS
             // ========================================================
 
             _logger.LogInformation(
-                "LOGIN SUCCESS. UserId={UserId}, Email={Email}, EmployeeOnly={EmployeeOnly}, RememberMe={RememberMe}",
+                "LOGIN SUCCESS. UserId={UserId}, Email={Email}, EmployeeOnly={EmployeeOnly}",
                 user.Id,
                 user.Email,
-                isEmployeeOnly,
-                Input.RememberMe);
+                isEmployeeOnly);
 
             // ========================================================
             // EMPLOYEE
@@ -342,8 +333,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             // ADMIN / SUPERADMIN
             // ========================================================
 
-            if (
-                !string.IsNullOrWhiteSpace(ReturnUrl) &&
+            if (!string.IsNullOrWhiteSpace(ReturnUrl) &&
                 ReturnUrl != "/" &&
                 Url.IsLocalUrl(ReturnUrl))
             {
@@ -354,20 +344,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         }
 
         // ============================================================
-        // CREATE EMPLOYEE DEVICE LOCK
-        //
-        // IMPORTANT:
-        // The UNIQUE(UserId) database index is the final authority.
-        //
-        // Even if two login requests arrive at exactly the same time:
-        //
-        // Request A -> INSERT succeeds
-        // Request B -> ON CONFLICT -> does nothing
-        //
-        // Therefore only ONE login can obtain the lock.
+        // ATOMIC EMPLOYEE LOCK
         // ============================================================
 
-        private async Task<bool> TryCreateEmployeeDeviceLockAsync(
+        private async Task<bool> TryAcquireEmployeeLockAsync(
             string userId,
             string deviceId)
         {
@@ -379,118 +359,29 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 var connection =
                     db.Database.GetDbConnection();
 
-                // ====================================================
-                // MUST BE POSTGRESQL
-                // ====================================================
-
-                if (connection is not NpgsqlConnection npgsqlConnection)
+                if (connection is not NpgsqlConnection postgres)
                 {
                     _logger.LogError(
-                        "DEVICE LOCK FAILED: Database connection is not PostgreSQL.");
+                        "EMPLOYEE LOCK FAILED. Database is not PostgreSQL.");
 
                     return false;
                 }
 
-                // ====================================================
-                // OPEN CONNECTION
-                // ====================================================
-
-                if (
-                    npgsqlConnection.State !=
+                if (postgres.State !=
                     System.Data.ConnectionState.Open)
                 {
-                    await npgsqlConnection.OpenAsync();
+                    await postgres.OpenAsync();
                 }
 
-                // ====================================================
-                // CHECK DATABASE
-                // ====================================================
-
-                const string databaseCheckSql =
-                    """
-                    SELECT
-                        current_database(),
-                        current_schema();
-                    """;
-
-                await using (
-                    var databaseCheckCommand =
-                        new NpgsqlCommand(
-                            databaseCheckSql,
-                            npgsqlConnection))
-                {
-                    await using var databaseReader =
-                        await databaseCheckCommand.ExecuteReaderAsync();
-
-                    if (await databaseReader.ReadAsync())
-                    {
-                        var databaseName =
-                            databaseReader.GetString(0);
-
-                        var schemaName =
-                            databaseReader.GetString(1);
-
-                        _logger.LogInformation(
-                            "DEVICE LOCK DATABASE = {Database}, SCHEMA = {Schema}",
-                            databaseName,
-                            schemaName);
-                    }
-                }
-
-                // ====================================================
-                // FIRST CHECK
+                // ----------------------------------------------------
+                // IMPORTANT:
                 //
-                // This is only a fast check.
+                // DO NOT perform a separate SELECT before INSERT.
                 //
-                // The UNIQUE database constraint below is the real
-                // protection against simultaneous login requests.
-                // ====================================================
+                // PostgreSQL unique constraint is the authority.
+                // ----------------------------------------------------
 
-                const string existingLockSql =
-                    """
-                    SELECT "DeviceId"
-                    FROM public."employee_device_locks"
-                    WHERE "UserId" = @userId
-                    LIMIT 1;
-                    """;
-
-                await using (
-                    var existingCommand =
-                        new NpgsqlCommand(
-                            existingLockSql,
-                            npgsqlConnection))
-                {
-                    existingCommand.Parameters.AddWithValue(
-                        "userId",
-                        userId);
-
-                    var existingDevice =
-                        await existingCommand.ExecuteScalarAsync();
-
-                    if (existingDevice != null)
-                    {
-                        _logger.LogWarning(
-                            "DEVICE LOCK ALREADY EXISTS. UserId={UserId}",
-                            userId);
-
-                        return false;
-                    }
-                }
-
-                // ====================================================
-                // ATOMIC INSERT
-                //
-                // CRITICAL:
-                //
-                // AppDbContext must have:
-                //
-                // entity.HasIndex(x => x.UserId)
-                //       .IsUnique();
-                //
-                // This makes simultaneous logins safe.
-                // ====================================================
-
-                const string insertSql =
+                const string sql =
                     """
                     INSERT INTO public."employee_device_locks"
                     (
@@ -513,146 +404,52 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     RETURNING "Id";
                     """;
 
-                await using var insertCommand =
+                await using var command =
                     new NpgsqlCommand(
-                        insertSql,
-                        npgsqlConnection);
+                        sql,
+                        postgres);
 
-                insertCommand.Parameters.AddWithValue(
+                command.Parameters.AddWithValue(
                     "id",
                     Guid.NewGuid());
 
-                insertCommand.Parameters.AddWithValue(
+                command.Parameters.AddWithValue(
                     "userId",
                     userId);
 
-                insertCommand.Parameters.AddWithValue(
+                command.Parameters.AddWithValue(
                     "deviceId",
                     deviceId);
 
                 var now =
                     DateTime.UtcNow;
 
-                insertCommand.Parameters.AddWithValue(
+                command.Parameters.AddWithValue(
                     "createdAtUtc",
                     now);
 
-                insertCommand.Parameters.AddWithValue(
+                command.Parameters.AddWithValue(
                     "lastSeenAtUtc",
                     now);
 
-                var insertedId =
-                    await insertCommand.ExecuteScalarAsync();
+                var result =
+                    await command.ExecuteScalarAsync();
 
-                // ====================================================
-                // INSERT WAS BLOCKED
-                // ====================================================
+                // ----------------------------------------------------
+                // NULL = ANOTHER DEVICE ALREADY OWNS THE LOCK
+                // ----------------------------------------------------
 
-                if (insertedId == null)
+                if (result == null)
                 {
                     _logger.LogWarning(
-                        "DEVICE LOCK INSERT BLOCKED BY EXISTING LOCK. UserId={UserId}",
+                        "EMPLOYEE LOCK DENIED BY DATABASE UNIQUE CONSTRAINT. UserId={UserId}",
                         userId);
 
                     return false;
                 }
-
-                // ====================================================
-                // VERIFY LOCK
-                //
-                // Never allow login unless the lock actually exists.
-                // ====================================================
-
-                const string verifySql =
-                    """
-                    SELECT
-                        "Id",
-                        "UserId",
-                        "DeviceId"
-                    FROM public."employee_device_locks"
-                    WHERE "UserId" = @userId
-                      AND "DeviceId" = @deviceId
-                    LIMIT 1;
-                    """;
-
-                await using var verifyCommand =
-                    new NpgsqlCommand(
-                        verifySql,
-                        npgsqlConnection);
-
-                verifyCommand.Parameters.AddWithValue(
-                    "userId",
-                    userId);
-
-                verifyCommand.Parameters.AddWithValue(
-                    "deviceId",
-                    deviceId);
-
-                await using var verifyReader =
-                    await verifyCommand.ExecuteReaderAsync();
-
-                // ====================================================
-                // LOCK NOT FOUND
-                // ====================================================
-
-                if (!await verifyReader.ReadAsync())
-                {
-                    await verifyReader.CloseAsync();
-
-                    _logger.LogError(
-                        "CRITICAL: DEVICE LOCK INSERTED BUT COULD NOT BE VERIFIED. LOGIN BLOCKED. UserId={UserId}",
-                        userId);
-
-                    await RemoveEmployeeDeviceLockAsync(
-                        userId,
-                        deviceId);
-
-                    return false;
-                }
-
-                // ====================================================
-                // READ VERIFIED VALUES
-                // ====================================================
-
-                var verifiedUserId =
-                    verifyReader.GetString(1);
-
-                var verifiedDeviceId =
-                    verifyReader.GetString(2);
-
-                await verifyReader.CloseAsync();
-
-                // ====================================================
-                // FINAL VERIFICATION
-                // ====================================================
-
-                if (
-                    !string.Equals(
-                        verifiedUserId,
-                        userId,
-                        StringComparison.Ordinal) ||
-                    !string.Equals(
-                        verifiedDeviceId,
-                        deviceId,
-                        StringComparison.Ordinal))
-                {
-                    _logger.LogError(
-                        "CRITICAL: DEVICE LOCK VERIFICATION FAILED. LOGIN BLOCKED. UserId={UserId}",
-                        userId);
-
-                    await RemoveEmployeeDeviceLockAsync(
-                        userId,
-                        deviceId);
-
-                    return false;
-                }
-
-                // ====================================================
-                // SUCCESS
-                // ====================================================
 
                 _logger.LogInformation(
-                    "DEVICE LOCK SUCCESSFULLY VERIFIED. UserId={UserId}, DeviceId={DeviceId}",
+                    "EMPLOYEE LOCK CREATED. UserId={UserId}, DeviceId={DeviceId}",
                     userId,
                     deviceId);
 
@@ -662,7 +459,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             {
                 _logger.LogError(
                     ex,
-                    "POSTGRES DEVICE LOCK ERROR. UserId={UserId}, SqlState={SqlState}",
+                    "POSTGRES EMPLOYEE LOCK ERROR. UserId={UserId}, SqlState={SqlState}",
                     userId,
                     ex.SqlState);
 
@@ -672,7 +469,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             {
                 _logger.LogError(
                     ex,
-                    "DEVICE LOCK ERROR. UserId={UserId}",
+                    "EMPLOYEE LOCK ERROR. UserId={UserId}",
                     userId);
 
                 return false;
@@ -680,17 +477,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         }
 
         // ============================================================
-        // REMOVE DEVICE LOCK
-        //
-        // Used only when:
-        //
-        // 1. Identity sign-in fails after lock creation
-        // 2. Lock verification fails
-        //
-        // Logout uses Logout.cshtml.cs to release the normal lock.
+        // REMOVE LOCK
         // ============================================================
 
-        private async Task RemoveEmployeeDeviceLockAsync(
+        private async Task RemoveEmployeeLockAsync(
             string userId,
             string deviceId)
         {
@@ -702,19 +492,15 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 var connection =
                     db.Database.GetDbConnection();
 
-                if (connection is not NpgsqlConnection npgsqlConnection)
+                if (connection is not NpgsqlConnection postgres)
                 {
-                    _logger.LogError(
-                        "DEVICE LOCK CLEANUP FAILED: Database is not PostgreSQL.");
-
                     return;
                 }
 
-                if (
-                    npgsqlConnection.State !=
+                if (postgres.State !=
                     System.Data.ConnectionState.Open)
                 {
-                    await npgsqlConnection.OpenAsync();
+                    await postgres.OpenAsync();
                 }
 
                 const string sql =
@@ -727,7 +513,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 await using var command =
                     new NpgsqlCommand(
                         sql,
-                        npgsqlConnection);
+                        postgres);
 
                 command.Parameters.AddWithValue(
                     "userId",
@@ -737,21 +523,26 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     "deviceId",
                     deviceId);
 
-                var deletedRows =
-                    await command.ExecuteNonQueryAsync();
-
-                _logger.LogInformation(
-                    "DEVICE LOCK CLEANUP. UserId={UserId}, DeletedRows={DeletedRows}",
-                    userId,
-                    deletedRows);
+                await command.ExecuteNonQueryAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
-                    "FAILED TO REMOVE DEVICE LOCK. UserId={UserId}",
+                    "EMPLOYEE LOCK CLEANUP FAILED. UserId={UserId}",
                     userId);
             }
+        }
+
+        // ============================================================
+        // INVALID LOGIN
+        // ============================================================
+
+        private void AddLoginError()
+        {
+            ModelState.AddModelError(
+                string.Empty,
+                "Invalid email or password.");
         }
     }
 }
