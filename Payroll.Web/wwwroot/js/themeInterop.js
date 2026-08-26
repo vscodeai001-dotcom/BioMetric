@@ -4030,28 +4030,82 @@ window.attendanceRefresh = (function () {
             async function (data) {
 
                 console.log(
-                    "Live location change:",
+                    "[AttendanceRefresh] LocationChanged",
                     data
                 );
 
-                for (const listener of listeners) {
+                /*
+                 * Also expose the event to any browser-side listeners.
+                 */
+                try {
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "location-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+                catch (error) {
+                    console.warn(
+                        "[AttendanceRefresh] Location browser event failed:",
+                        error
+                    );
+                }
+
+                /*
+                 * Notify registered Blazor components.
+                 *
+                 * The component reads LiveLocationStore.GetAll()
+                 * after receiving this event.
+                 */
+                for (const listener of [...listeners]) {
+
+                    if (!listener)
+                        continue;
 
                     try {
 
-                        await listener
-                            .invokeMethodAsync(
-                                "LocationChanged"
-                            );
+                        await listener.invokeMethodAsync(
+                            "LocationChanged",
+                            data
+                        );
 
                     }
                     catch (error) {
 
                         console.warn(
-                            "Location listener failed:",
+                            "[AttendanceRefresh] Location listener failed:",
                             error
                         );
+
                     }
                 }
+            }
+        );
+
+        connection.onreconnected(
+            async function (connectionId) {
+
+                started = true;
+
+                console.log(
+                    "[AttendanceRefresh] Connection restored.",
+                    connectionId
+                );
+
+                /*
+                 * Refresh both attendance and current GPS location
+                 * after SignalR reconnects.
+                 */
+                await notifyListeners(
+                    "AttendanceChanged"
+                );
+
+                await notifyListeners(
+                    "LocationChanged"
+                );
             }
         );
 

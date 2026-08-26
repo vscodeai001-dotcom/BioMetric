@@ -1,4 +1,4 @@
-window.attendanceRefresh = (function () {
+﻿window.attendanceRefresh = (function () {
 
     let connection = null;
     let started = false;
@@ -43,11 +43,6 @@ window.attendanceRefresh = (function () {
              * ==========================================================
              * GENERIC DATA CHANGED
              * ==========================================================
-             *
-             * This is the important event.
-             *
-             * Any attendance-related CRUD operation can trigger this.
-             *
              */
 
             connection.on(
@@ -62,7 +57,8 @@ window.attendanceRefresh = (function () {
                     await notifyViewer();
 
                     await notifyListeners(
-                        "AttendanceChanged"
+                        "AttendanceChanged",
+                        data
                     );
 
                     window.dispatchEvent(
@@ -95,7 +91,8 @@ window.attendanceRefresh = (function () {
                     await notifyViewer();
 
                     await notifyListeners(
-                        "AttendanceChanged"
+                        "AttendanceChanged",
+                        data
                     );
 
                     window.dispatchEvent(
@@ -114,6 +111,19 @@ window.attendanceRefresh = (function () {
              * ==========================================================
              * LOCATION CHANGED
              * ==========================================================
+             *
+             * Employee GPS sends:
+             *
+             * Employee
+             *     ↓
+             * LiveLocationStore
+             *     ↓
+             * SignalR
+             *     ↓
+             * LocationChanged
+             *     ↓
+             * Admin listeners
+             *
              */
 
             connection.on(
@@ -134,8 +144,17 @@ window.attendanceRefresh = (function () {
                         )
                     );
 
+                    /*
+                     * IMPORTANT:
+                     * Pass the location payload through.
+                     *
+                     * The current LiveStaffLocationPanel can still
+                     * reload LiveLocationStore, so this remains
+                     * backward compatible.
+                     */
                     await notifyListeners(
-                        "LocationChanged"
+                        "LocationChanged",
+                        data
                     );
                 }
             );
@@ -156,6 +175,13 @@ window.attendanceRefresh = (function () {
                         data
                     );
 
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "RegularizationChanged",
+                        data
+                    );
+
                     window.dispatchEvent(
                         new CustomEvent(
                             "regularization-data-changed",
@@ -164,15 +190,15 @@ window.attendanceRefresh = (function () {
                             }
                         )
                     );
-
-                    await notifyViewer();
-
-                    await notifyListeners(
-                        "RegularizationChanged"
-                    );
                 }
             );
 
+
+            /*
+             * ==========================================================
+             * RECONNECTING
+             * ==========================================================
+             */
 
             connection.onreconnecting(
                 function () {
@@ -184,25 +210,46 @@ window.attendanceRefresh = (function () {
             );
 
 
+            /*
+             * ==========================================================
+             * RECONNECTED
+             * ==========================================================
+             */
+
             connection.onreconnected(
-                async function () {
+                async function (connectionId) {
 
                     console.log(
-                        "Attendance refresh connection restored."
+                        "Attendance refresh connection restored.",
+                        connectionId
                     );
 
                     /*
-                     * Important:
-                     *
-                     * If something changed while the browser was
-                     * disconnected, refresh the viewer once the
-                     * connection comes back.
+                     * Refresh normal attendance viewers.
                      */
-
                     await notifyViewer();
+
+                    /*
+                     * IMPORTANT:
+                     *
+                     * Refresh all live-location listeners too.
+                     *
+                     * This allows the admin map to recover the latest
+                     * in-memory employee positions after reconnect.
+                     */
+                    await notifyListeners(
+                        "LocationChanged",
+                        null
+                    );
                 }
             );
 
+
+            /*
+             * ==========================================================
+             * CLOSED
+             * ==========================================================
+             */
 
             connection.onclose(
                 function () {
@@ -257,7 +304,7 @@ window.attendanceRefresh = (function () {
     /*
      * ==============================================================
      * VIEWER NOTIFICATION
-     * ============================================================== 
+     * ==============================================================
      */
 
     async function notifyViewer() {
@@ -285,10 +332,27 @@ window.attendanceRefresh = (function () {
     /*
      * ==============================================================
      * LISTENER NOTIFICATION
-     * ============================================================== 
+     * ==============================================================
+     *
+     * data is optional.
+     *
+     * Existing components that define:
+     *
+     * LocationChanged()
+     *
+     * continue to work.
+     *
+     * Components that define:
+     *
+     * LocationChanged(data)
+     *
+     * can now receive the actual event payload.
      */
 
-    async function notifyListeners(methodName) {
+    async function notifyListeners(
+        methodName,
+        data
+    ) {
 
         const currentListeners =
             [...listeners];
@@ -297,9 +361,21 @@ window.attendanceRefresh = (function () {
 
             try {
 
-                await listener.invokeMethodAsync(
-                    methodName
-                );
+                if (typeof data === "undefined") {
+
+                    await listener.invokeMethodAsync(
+                        methodName
+                    );
+
+                }
+                else {
+
+                    await listener.invokeMethodAsync(
+                        methodName,
+                        data
+                    );
+
+                }
 
             }
             catch (error) {
@@ -308,6 +384,7 @@ window.attendanceRefresh = (function () {
                     "Attendance refresh listener failed:",
                     error
                 );
+
             }
         }
     }
@@ -316,7 +393,7 @@ window.attendanceRefresh = (function () {
     /*
      * ==============================================================
      * VIEWER REGISTRATION
-     * ============================================================== 
+     * ==============================================================
      */
 
     function registerViewer(dotNetReference) {
@@ -327,7 +404,9 @@ window.attendanceRefresh = (function () {
     }
 
 
-    async function unregisterViewer(dotNetReference) {
+    async function unregisterViewer(
+        dotNetReference
+    ) {
 
         if (viewerRef === dotNetReference) {
             viewerRef = null;
@@ -338,7 +417,7 @@ window.attendanceRefresh = (function () {
     /*
      * ==============================================================
      * GENERAL LISTENER REGISTRATION
-     * ============================================================== 
+     * ==============================================================
      */
 
     function register(dotNetReference) {
@@ -354,7 +433,9 @@ window.attendanceRefresh = (function () {
     }
 
 
-    async function unregister(dotNetReference) {
+    async function unregister(
+        dotNetReference
+    ) {
 
         listeners =
             listeners.filter(

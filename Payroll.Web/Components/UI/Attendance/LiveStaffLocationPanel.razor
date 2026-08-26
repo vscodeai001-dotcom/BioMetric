@@ -1922,6 +1922,9 @@
     private readonly List<LiveEmployeeLocation> locations = new();
 
     private CancellationTokenSource? refreshCts;
+    private DotNetObjectReference<LiveStaffLocationPanel>? liveLocationSignalRReference;
+
+    private bool disposed;
 
     private bool isRefreshing;
 
@@ -2005,6 +2008,31 @@
         }
     }
 
+    [JSInvokable]
+    public async Task LocationChanged(
+    object? data)
+    {
+        if (disposed)
+            return;
+
+        try
+        {
+            /*
+             * The server has already updated LiveLocationStore.
+             *
+             * Therefore get the latest in-memory snapshot.
+             *
+             * This is NOT a database query.
+             */
+            await RefreshLocations();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Admin SignalR location update failed: {ex}");
+        }
+    }
+
     private string PlaybackDistanceText
     {
         get
@@ -2043,8 +2071,40 @@
     {
         await LoadEmployees();
 
+        /*
+         * Initial snapshot only.
+         *
+         * After this, GPS updates arrive through SignalR.
+         */
         await RefreshLocations();
 
+        /*
+         * Register this admin component with the existing
+         * AttendanceRefresh SignalR connection.
+         */
+        liveLocationSignalRReference =
+            DotNetObjectReference.Create(this);
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "attendanceRefresh.register",
+                liveLocationSignalRReference);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Unable to register admin live location SignalR listener: {ex}");
+        }
+
+        /*
+         * Keep the existing timer only for:
+         *
+         * 1. Playback state
+         * 2. LIVE → STALE → OFFLINE UI aging
+         *
+         * It MUST NOT call RefreshLocations().
+         */
         refreshCts =
             new CancellationTokenSource();
 
@@ -2116,42 +2176,46 @@
 
 
     private async Task AutoRefresh(
-        CancellationToken token)
+    CancellationToken token)
     {
         try
         {
             while (!token.IsCancellationRequested)
             {
                 await Task.Delay(
-                    TimeSpan.FromSeconds(2),
+                    TimeSpan.FromSeconds(5),
                     token);
 
                 if (token.IsCancellationRequested)
                     break;
 
-                await RefreshLocations();
+                /*
+                 * IMPORTANT:
+                 *
+                 * Do NOT call RefreshLocations() here.
+                 *
+                 * Location data arrives through SignalR.
+                 *
+                 * This timer exists only so the UI can age:
+                 *
+                 * LIVE
+                 *   ↓ 30 sec
+                 * STALE
+                 *   ↓ 120 sec
+                 * OFFLINE
+                 *
+                 * No database query.
+                 * No LiveLocationStore polling.
+                 */
+
+                mapNeedsUpdate = true;
+
+                await InvokeAsync(
+                    StateHasChanged);
 
                 /*
-                 * ========================================================
-                 * REAL-TIME PUNCH AUDIT REFRESH
-                 * ========================================================
-                 *
-                 * A mobile punch is written to geo_punch_audits from the
-                 * employee device. The selected employee's audit table
-                 * used to load only when:
-                 *
-                 *   - employee was selected
-                 *   - Refresh was clicked
-                 *   - date was changed
-                 *
-                 * Therefore a new mobile punch was not visible in this
-                 * card until the user manually refreshed or navigated.
-                 *
-                 * Keep this refresh lightweight and silent. Do NOT show
-                 * the loading panel every time the background poll runs.
+                 * Existing history playback functionality.
                  */
-                await RefreshSelectedEmployeePunchAuditsSilently();
-
                 await PollPlaybackState();
             }
         }
@@ -2161,7 +2225,7 @@
         catch (Exception ex)
         {
             Console.Error.WriteLine(
-                $"Live staff auto refresh failed: {ex}");
+                $"Live staff UI timer failed: {ex}");
         }
     }
 
@@ -3245,6 +3309,14 @@
 
     public async ValueTask DisposeAsync()
     {
+        if (disposed)
+            return;
+
+        disposed = true;
+
+        /*
+         * Stop UI timer.
+         */
         try
         {
             refreshCts?.Cancel();
@@ -3253,10 +3325,60 @@
         {
         }
 
-        refreshCts?.Dispose();
+        try
+        {
+            refreshCts?.Dispose();
+        }
+        catch
+        {
+        }
 
-        StopPlaybackPolling();
+        refreshCts = null;
 
+        /*
+         * Stop playback polling.
+         */
+        try
+        {
+            playbackStateCts?.Cancel();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            playbackStateCts?.Dispose();
+        }
+        catch
+        {
+        }
+
+        playbackStateCts = null;
+
+        /*
+         * Unregister this component from SignalR.
+         */
+        if (liveLocationSignalRReference != null)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "attendanceRefresh.unregister",
+                    liveLocationSignalRReference);
+            }
+            catch
+            {
+            }
+
+            liveLocationSignalRReference.Dispose();
+
+            liveLocationSignalRReference = null;
+        }
+
+        /*
+         * Stop historical playback.
+         */
         try
         {
             await JSRuntime.InvokeVoidAsync(
@@ -3267,6 +3389,9 @@
         {
         }
 
+        /*
+         * Destroy only this admin map.
+         */
         try
         {
             await JSRuntime.InvokeVoidAsync(

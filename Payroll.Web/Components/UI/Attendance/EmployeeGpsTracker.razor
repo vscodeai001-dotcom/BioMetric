@@ -1,10 +1,13 @@
 ﻿@using global::Payroll.Web.Services
+@using global::Payroll.Web.Hubs
 @using Microsoft.JSInterop
+@using Microsoft.AspNetCore.SignalR
 @implements IAsyncDisposable
 
 @inject IJSRuntime JSRuntime
 @inject GeoLocationService GeoService
 @inject GeoFeatureAccessService GeoAccess
+@inject IHubContext<AttendanceRefreshHub> AttendanceHub
 
 @*
     Persistent employee GPS tracker.
@@ -355,6 +358,52 @@
                     $"SessionId={liveLocationSessionId}");
 
                 return;
+            }
+
+            // ============================================================
+            // REAL-TIME ADMIN LOCATION BROADCAST
+            // ============================================================
+            //
+            // IMPORTANT:
+            // LiveLocationStore is updated first.
+            // SignalR failure must NEVER stop GPS tracking.
+            //
+            // Employee
+            //    ↓
+            // LiveLocationStore
+            //    ↓
+            // SignalR
+            //    ↓
+            // Admin browsers
+            //
+            try
+            {
+                await AttendanceHub.Clients.All.SendAsync(
+                    "LocationChanged",
+                    new
+                    {
+                        EmployeeId = EmployeeId,
+                        Latitude = coords.Latitude,
+                        Longitude = coords.Longitude,
+                        AccuracyMeters = accuracy,
+                        DistanceMeters =
+                            distanceResult.DistanceMeters,
+                        AllowedRadiusMeters =
+                            distanceResult.AllowedRadiusMeters,
+                        IsWithinAllowedRadius =
+                            distanceResult.IsWithinAllowedRadius,
+                        SessionId = liveLocationSessionId,
+                        LastUpdatedUtc = DateTime.UtcNow
+                    });
+            }
+            catch (Exception signalREx)
+            {
+                // SignalR is an enhancement.
+                // GPS tracking must continue even if broadcasting fails.
+                Console.Error.WriteLine(
+                    $"GPS SignalR broadcast failed. " +
+                    $"EmployeeId={EmployeeId}. " +
+                    $"Error={signalREx}");
             }
 
             /*
