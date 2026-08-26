@@ -644,7 +644,7 @@ public class GeoLocationService
         var log = new AttendanceLog
         {
             EmployeeID = employeeId,
-            PunchTime = DateTime.Now,
+            PunchTime = GetIndiaNow(),
             BiometricID = "MOBILE_APP",
             DeviceID = "MobileWeb",
             LogType = "Punch",
@@ -766,6 +766,35 @@ public class GeoLocationService
         }
 
         return value;
+    }
+
+
+    private static readonly TimeZoneInfo IndiaTimeZone =
+    GetIndiaTimeZone();
+
+    private static TimeZoneInfo GetIndiaTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(
+                "India Standard Time");
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(
+                "India Standard Time");
+        }
+    }
+
+    private static DateTime GetIndiaNow()
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(
+            DateTime.UtcNow,
+            IndiaTimeZone);
     }
 
     // ================================================================

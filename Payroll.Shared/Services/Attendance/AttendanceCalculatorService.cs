@@ -139,6 +139,94 @@ namespace Payroll.Shared.Services
                 GetIndiaNow().Date);
         }
 
+        // ================================================================
+        // CALCULATE ACTUAL WORK OUTSIDE SHIFT
+        // ================================================================
+
+        private static TimeSpan CalculateOutsideShiftOvertime(
+            List<AttendanceLog> punches,
+            DateTime shiftStart,
+            DateTime shiftEnd)
+        {
+            if (punches == null ||
+                punches.Count < 2)
+            {
+                return TimeSpan.Zero;
+            }
+
+            shiftStart =
+                DateTime.SpecifyKind(
+                    shiftStart,
+                    DateTimeKind.Unspecified);
+
+            shiftEnd =
+                DateTime.SpecifyKind(
+                    shiftEnd,
+                    DateTimeKind.Unspecified);
+
+            TimeSpan totalOt =
+                TimeSpan.Zero;
+
+            // Punches are already ordered by the processor.
+            for (int i = 0;
+                 i + 1 < punches.Count;
+                 i += 2)
+            {
+                DateTime inTime =
+                    DateTime.SpecifyKind(
+                        punches[i].PunchTime,
+                        DateTimeKind.Unspecified);
+
+                DateTime outTime =
+                    DateTime.SpecifyKind(
+                        punches[i + 1].PunchTime,
+                        DateTimeKind.Unspecified);
+
+                if (outTime <= inTime)
+                {
+                    continue;
+                }
+
+                // --------------------------------------------------------
+                // WORK BEFORE SHIFT
+                // --------------------------------------------------------
+
+                if (inTime < shiftStart)
+                {
+                    DateTime preShiftEnd =
+                        outTime < shiftStart
+                            ? outTime
+                            : shiftStart;
+
+                    if (preShiftEnd > inTime)
+                    {
+                        totalOt +=
+                            preShiftEnd - inTime;
+                    }
+                }
+
+                // --------------------------------------------------------
+                // WORK AFTER SHIFT
+                // --------------------------------------------------------
+
+                if (outTime > shiftEnd)
+                {
+                    DateTime postShiftStart =
+                        inTime > shiftEnd
+                            ? inTime
+                            : shiftEnd;
+
+                    if (outTime > postShiftStart)
+                    {
+                        totalOt +=
+                            outTime - postShiftStart;
+                    }
+                }
+            }
+
+            return totalOt;
+        }
+
         // ============================================================
         // MONTHLY RATE
         // ============================================================
@@ -793,35 +881,44 @@ namespace Payroll.Shared.Services
                     }
 
                     // ------------------------------------------------
-                    // OT
+                    // OT OUTSIDE ACTUAL SHIFT
+                    // ------------------------------------------------
+                    //
+                    // Rule:
+                    //
+                    // Only ACTUAL WORK outside the scheduled shift
+                    // counts as OT.
+                    //
+                    // Example:
+                    //
+                    // Shift: 18:00 - 22:00
+                    //
+                    // 17:00 IN
+                    // 17:03 OUT
+                    //
+                    // OT = 00:03
+                    //
+                    // NOT 01:00.
+                    //
+                    // Likewise:
+                    //
+                    // 18:00 IN
+                    // 22:03 OUT
+                    //
+                    // OT = 00:03.
+                    //
+                    // We calculate OT from actual punch segments,
+                    // not simply FirstIn -> ShiftStart.
+                    //
                     // ------------------------------------------------
 
-                    TimeSpan earlyInOT =
-                        TimeSpan.Zero;
-
-                    TimeSpan earlyOutDeduction =
-                        earlyLeave;
-
-                    TimeSpan postShiftOT =
-                        postShiftWork;
-
-                    if (
-                        pr.FirstIn.HasValue &&
-                        pr.FirstIn.Value <
-                            scheduleResult.ShiftStart)
-                    {
-                        earlyInOT =
-                            scheduleResult.ShiftStart -
-                            pr.FirstIn.Value;
-                    }
-
                     overtime =
-                        earlyInOT -
-                        earlyOutDeduction +
-                        postShiftOT;
+                        CalculateOutsideShiftOvertime(
+                            pr.Ordered,
+                            scheduleResult.ShiftStart,
+                            scheduleResult.ShiftEnd);
 
-                    if (overtime <
-                        TimeSpan.Zero)
+                    if (overtime < TimeSpan.Zero)
                     {
                         overtime =
                             TimeSpan.Zero;
