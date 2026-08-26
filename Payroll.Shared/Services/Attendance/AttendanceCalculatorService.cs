@@ -4,60 +4,30 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Payroll.Shared.Models;
+using Payroll.Shared.Services;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 
 namespace Payroll.Shared.Services
 {
     /// <summary>
-    /// V2 - CENTRAL ATTENDANCE CALCULATION ENGINE
-    ///
-    /// BUSINESS REGION:
-    /// India
-    ///
-    /// BUSINESS TIMEZONE:
-    /// Asia/Kolkata
-    ///
-    /// IMPORTANT:
-    /// Existing database PunchTime values are treated as business-local
-    /// attendance timestamps. They are NOT automatically converted to UTC.
-    ///
-    /// This service remains the single source of truth for:
-    /// - Worked hours
-    /// - OT
-    /// - Breaks
-    /// - Penalties
-    /// - Lateness
-    /// - Early leave
-    /// - Attendance status
+    /// V2 - REWRITTEN CALCULATION ENGINE
+    /// This service is the single source of truth for all daily attendance calculations.
+    /// It correctly implements all locked-in rules (OT, Breaks, Penalties, Status)
+    /// and is used by the LogViewer, CompanyReport, and RunPayroll.
     /// </summary>
     public class AttendanceCalculatorService
     {
-        private const string IndiaTimeZoneId =
-            "Asia/Kolkata";
+        private readonly ILogger<AttendanceCalculatorService> _logger;
+        private readonly AttendancePunchProcessor _punchProcessor;
+        private readonly AttendanceScheduleService _scheduleService;
+        private readonly AttendanceBreakPenaltyService _breakService;
+        private readonly AttendanceDayTypeService _dayTypeService;
+        private readonly DailySummaryBuilder _summaryBuilder;
+        private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
-        private readonly TimeZoneInfo _indiaTimeZone;
-
-        private readonly ILogger<AttendanceCalculatorService>
-            _logger;
-
-        private readonly AttendancePunchProcessor
-            _punchProcessor;
-
-        private readonly AttendanceScheduleService
-            _scheduleService;
-
-        private readonly AttendanceBreakPenaltyService
-            _breakService;
-
-        private readonly AttendanceDayTypeService
-            _dayTypeService;
-
-        private readonly DailySummaryBuilder
-            _summaryBuilder;
-
-        private readonly IDbContextFactory<AppDbContext>
-            _dbFactory;
+        // ---== We will add these dependencies in Program.cs ==---
+        // (Note: These services are already in your project, we are just using them)
 
         public AttendanceCalculatorService(
             ILogger<AttendanceCalculatorService> logger,
@@ -69,303 +39,115 @@ namespace Payroll.Shared.Services
             IDbContextFactory<AppDbContext> dbFactory)
         {
             _logger = logger;
-
-            _punchProcessor =
-                punchProcessor;
-
-            _scheduleService =
-                scheduleService;
-
-            _breakService =
-                breakService;
-
-            _dayTypeService =
-                dayTypeService;
-
-            _summaryBuilder =
-                summaryBuilder;
-
-            _dbFactory =
-                dbFactory;
-
-            _indiaTimeZone =
-                TimeZoneInfo.FindSystemTimeZoneById(
-                    IndiaTimeZoneId);
+            _punchProcessor = punchProcessor;
+            _scheduleService = scheduleService;
+            _breakService = breakService;
+            _dayTypeService = dayTypeService;
+            _summaryBuilder = summaryBuilder;
+            _dbFactory = dbFactory;
         }
 
-        // ============================================================
-        // BUSINESS DATE NORMALIZATION
-        // ============================================================
-
-        private DateTime NormalizeBusinessDate(
-            DateTime value)
-        {
-            /*
-             * DateTime values used by payroll attendance are business
-             * wall-clock values.
-             *
-             * We deliberately do NOT call ToLocalTime().
-             *
-             * Render runs in UTC, while payroll runs in India.
-             */
-
-            return DateTime.SpecifyKind(
-                value,
-                DateTimeKind.Unspecified);
-        }
-
-        private DateTime NormalizePunchTime(
-            DateTime value)
-        {
-            return DateTime.SpecifyKind(
-                value,
-                DateTimeKind.Unspecified);
-        }
-
-        // ============================================================
-        // CURRENT INDIA DATE
-        // ============================================================
-
-        public DateTime GetIndiaNow()
-        {
-            return TimeZoneInfo.ConvertTimeFromUtc(
-                DateTime.UtcNow,
-                _indiaTimeZone);
-        }
-
-        public DateOnly GetIndiaToday()
-        {
-            return DateOnly.FromDateTime(
-                GetIndiaNow().Date);
-        }
-
-        // ============================================================
-        // MONTHLY RATE
-        // ============================================================
-
+        /// <summary>
+        /// Calculates the Hourly Rate for an employee for a specific payroll month.
+        /// This logic is now centralized here.
+        /// </summary>
         public Task<PayrollRateResult> CalculateMonthlyRate(
             Employee emp,
             int year,
             int month,
-            CompanySetting settings,
+            CompanySetting settings,            
             List<ShiftSchedule> schedules,
             List<CompanyHoliday> holidays)
         {
-            // --------------------------------------------------------
-            // DIRECT HOURLY WAGE
-            // --------------------------------------------------------
-
-            if (emp.DirectHourlyWage.HasValue &&
-                emp.DirectHourlyWage > 0)
+            // Rule 1: Direct Hourly Wage (Overrides everything)
+            if (emp.DirectHourlyWage.HasValue && emp.DirectHourlyWage > 0)
             {
-                return Task.FromResult(
-                    new PayrollRateResult
-                    {
-                        HourlyRate =
-                            emp.DirectHourlyWage.Value,
-
-                        CalculationMethod =
-                            "Pro-Rata Hourly (Direct)"
-                    });
+                return Task.FromResult(new PayrollRateResult
+                {
+                    HourlyRate = emp.DirectHourlyWage.Value,
+                    CalculationMethod = "Pro-Rata Hourly (Direct)"
+                });
             }
 
-            // --------------------------------------------------------
-            // NO MONTHLY SALARY
-            // --------------------------------------------------------
-
+            // Rule 2: Monthly Salary (Calculate rate based on method)
             if (emp.MonthlySalary <= 0)
             {
-                return Task.FromResult(
-                    new PayrollRateResult
-                    {
-                        HourlyRate = 0,
-
-                        CalculationMethod =
-                            "N/A (No Salary)"
-                    });
+                return Task.FromResult(new PayrollRateResult { HourlyRate = 0, CalculationMethod = "N/A (No Salary)" });
             }
 
-            string calcMethod =
-                emp.SalaryCalculationMethod ??
-                settings.SalaryCalculationMethod;
-
-            decimal monthlySalary =
-                emp.MonthlySalary;
-
+            string calcMethod = emp.SalaryCalculationMethod ?? settings.SalaryCalculationMethod;
+            decimal monthlySalary = emp.MonthlySalary;
             decimal dailyRate = 0;
             decimal hourlyRate = 0;
 
-            int daysInMonth =
-                DateTime.DaysInMonth(
-                    year,
-                    month);
+            int daysInMonth = DateTime.DaysInMonth(year, month);
+            int workDaysInMonth = 0; // Includes holidays and comp-offs
 
-            int workDaysInMonth = 0;
-
-            // --------------------------------------------------------
-            // COUNT WORK DAYS
-            // --------------------------------------------------------
-
-            for (int d = 1;
-                 d <= daysInMonth;
-                 d++)
+            // Count actual work days (Mon-Fri, excluding CompOff, includes Holidays)
+            for (int d = 1; d <= daysInMonth; d++)
             {
-                DateTime day =
-                    new DateTime(
-                        year,
-                        month,
-                        d);
-
-                bool isCompOff =
-                    emp.CompOffDayOfWeek.HasValue &&
-                    day.DayOfWeek ==
-                    emp.CompOffDayOfWeek.Value;
-
+                DateTime day = new DateTime(year, month, d);
+                bool isCompOff = emp.CompOffDayOfWeek.HasValue && day.DayOfWeek == emp.CompOffDayOfWeek.Value;
                 if (!isCompOff)
                 {
                     workDaysInMonth++;
                 }
             }
 
-            // --------------------------------------------------------
-            // MONTH SCHEDULED HOURS
-            // --------------------------------------------------------
-
-            TimeSpan totalMonthScheduledNet =
-                TimeSpan.Zero;
-
-            for (int d = 1;
-                 d <= daysInMonth;
-                 d++)
+            // Get total scheduled hours for the month (for Pro-Rata)
+            TimeSpan totalMonthScheduledNet = TimeSpan.Zero;
+            for (int d = 1; d <= daysInMonth; d++)
             {
-                DateTime day =
-                    new DateTime(
-                        year,
-                        month,
-                        d);
-
-                var schedule =
-                    schedules.FirstOrDefault(
-                        s =>
-                            s.ShiftDate ==
-                            DateOnly.FromDateTime(day) &&
-                            s.EmployeeID ==
-                            emp.EmployeeID);
-
-                var sr =
-                    _scheduleService.CalculateSchedule(
-                        emp,
-                        day,
-                        schedule,
-                        settings,
-                        emp.StandardBreakMinutes,
-                        0,
-                        0);
-
-                totalMonthScheduledNet +=
-                    sr.NetScheduled;
+                DateTime day = new DateTime(year, month, d);
+                var schedule = schedules.FirstOrDefault(s => s.ShiftDate == DateOnly.FromDateTime(day) && s.EmployeeID == emp.EmployeeID);
+                var sr = _scheduleService.CalculateSchedule(emp, day, schedule, settings, emp.StandardBreakMinutes, 0, 0);
+                totalMonthScheduledNet += sr.NetScheduled;
             }
 
-            // --------------------------------------------------------
-            // RATE METHOD
-            // --------------------------------------------------------
 
             switch (calcMethod)
             {
                 case "Fixed 30-Day":
-
-                    dailyRate =
-                        monthlySalary / 30;
-
-                    hourlyRate =
-                        dailyRate /
-                        (
-                            emp.StandardHours > 0
-                                ? emp.StandardHours
-                                : 8
-                        );
-
+                    dailyRate = monthlySalary / 30;
+                    hourlyRate = dailyRate / (emp.StandardHours > 0 ? emp.StandardHours : 8);
                     break;
 
                 case "Fixed 26-Day":
-
-                    dailyRate =
-                        monthlySalary / 26;
-
-                    hourlyRate =
-                        dailyRate /
-                        (
-                            emp.StandardHours > 0
-                                ? emp.StandardHours
-                                : 8
-                        );
-
+                    dailyRate = monthlySalary / 26;
+                    hourlyRate = dailyRate / (emp.StandardHours > 0 ? emp.StandardHours : 8);
                     break;
 
-                case "Days in Month":
-
-                    dailyRate =
-                        monthlySalary /
-                        daysInMonth;
-
-                    hourlyRate =
-                        dailyRate /
-                        (
-                            emp.StandardHours > 0
-                                ? emp.StandardHours
-                                : 8
-                        );
-
+                case "Days in Month": // ActualDaysInMonth
+                    dailyRate = monthlySalary / daysInMonth;
+                    hourlyRate = dailyRate / (emp.StandardHours > 0 ? emp.StandardHours : 8);
                     break;
 
                 case "Pro-Rata Hourly":
-
                 default:
-
                     if (totalMonthScheduledNet.TotalHours > 0)
                     {
-                        hourlyRate =
-                            monthlySalary /
-                            (decimal)
-                            totalMonthScheduledNet.TotalHours;
+                        hourlyRate = monthlySalary / (decimal)totalMonthScheduledNet.TotalHours;
                     }
                     else
                     {
-                        hourlyRate = 0;
+                        hourlyRate = 0; // No hours scheduled, can't calc rate
                     }
-
-                    dailyRate =
-                        hourlyRate *
-                        (
-                            emp.StandardHours > 0
-                                ? emp.StandardHours
-                                : 8
-                        );
-
+                    dailyRate = hourlyRate * (emp.StandardHours > 0 ? emp.StandardHours : 8);
                     break;
             }
 
-            return Task.FromResult(
-                new PayrollRateResult
-                {
-                    HourlyRate =
-                        hourlyRate,
-
-                    DailyRate =
-                        dailyRate,
-
-                    CalculationMethod =
-                        calcMethod,
-
-                    TotalMonthlyScheduledNetHours =
-                        totalMonthScheduledNet
-                });
+            return Task.FromResult(new PayrollRateResult
+            {
+                HourlyRate = hourlyRate,
+                DailyRate = dailyRate,
+                CalculationMethod = calcMethod,
+                TotalMonthlyScheduledNetHours = totalMonthScheduledNet
+            });
         }
 
-        // ============================================================
-        // DAILY CALCULATION
-        // ============================================================
-
+        /// <summary>
+        /// This is the new, single "brain" function for all daily calculations.
+        /// </summary>
         public DailyAttendanceRecord CalculateDailyResult(
             Employee emp,
             DateTime day,
@@ -376,572 +158,228 @@ namespace Payroll.Shared.Services
             List<CompanyHoliday> holidays,
             FeatureSettings featureSettings)
         {
-            // --------------------------------------------------------
-            // NORMALIZE BUSINESS DATE
-            // --------------------------------------------------------
+            // === 1. NORMALIZE PUNCHES ===
 
-            day =
-                NormalizeBusinessDate(day);
-
-            // --------------------------------------------------------
-            // NORMALIZE EXISTING PUNCHES
-            //
-            // IMPORTANT:
-            // No timezone conversion.
-            // Existing database punch clock values are preserved.
-            // --------------------------------------------------------
-
-            punchesForDay =
-                (punchesForDay ??
-                 new List<AttendanceLog>())
-                .Select(p =>
-                {
-                    p.PunchTime =
-                        NormalizePunchTime(
-                            p.PunchTime);
-
-                    return p;
-                })
-                .OrderBy(
-                    p => p.PunchTime)
+            // CRITICAL FIX: Filter out unapproved manual punch requests before processing.
+            punchesForDay = punchesForDay
+                .Where(p => p.LogType != "Correction Request" || p.IsApproved)
                 .ToList();
 
-            // --------------------------------------------------------
-            // REMOVE UNAPPROVED CORRECTIONS
-            // --------------------------------------------------------
+            // Get a clean, ordered list of IN/OUT pairs (handles odd punches)
+            var pr = _punchProcessor.ProcessPunches(punchesForDay ?? new(), day);
 
-            punchesForDay =
-                punchesForDay
-                    .Where(
-                        p =>
-                            p.LogType !=
-                                "Correction Request" ||
-                            p.IsApproved)
-                    .ToList();
+            // === 2. DETERMINE DAY TYPE ===
+            // Is this a Holiday, Comp-Off, Leave Day, or simple Working Day?
+            var dayTypeResult = _dayTypeService.DetectDayType(emp, day, pr.Ordered, leaveRecord, holidays);
 
-            // --------------------------------------------------------
-            // PROCESS PUNCHES
-            // --------------------------------------------------------
+            // === 3. GET SHIFT SCHEDULE ===
+            // Get shift times, grace periods, and scheduled durations
+            int paidBreakMin = emp.StandardBreakMinutes;
+            int startGrace = settings.LateGraceMinutes;
+            int endGrace = settings.EndTimeGraceMinutes;
 
-            var pr =
-                _punchProcessor.ProcessPunches(
-                    punchesForDay,
-                    day);
 
-            // --------------------------------------------------------
-            // DETERMINE DAY TYPE
-            // --------------------------------------------------------
-
-            var dayTypeResult =
-                _dayTypeService.DetectDayType(
-                    emp,
-                    day,
-                    pr.Ordered,
-                    leaveRecord,
-                    holidays);
-
-            // --------------------------------------------------------
-            // SCHEDULE
-            // --------------------------------------------------------
-
-            int paidBreakMin =
-                emp.StandardBreakMinutes;
-
-            int startGrace =
-                settings.LateGraceMinutes;
-
-            int endGrace =
-                settings.EndTimeGraceMinutes;
-
-            // --------------------------------------------------------
-            // RECURRING PATTERN
-            // --------------------------------------------------------
-
+            // --- NEW: Pattern Lookup Logic ---
             if (schedule == null)
             {
-                using var dbContext =
-                    _dbFactory.CreateDbContext();
+                using var dbContext = _dbFactory.CreateDbContext();
+                // Find a recurring pattern shift that matches the current day of the week
+                schedule = dbContext.ShiftSchedules
+                    .AsNoTracking()
+                    .FirstOrDefault(s =>
+                        s.EmployeeID == emp.EmployeeID &&
+                        s.IsRecurringPattern &&
+                        s.AppliesToDayOfWeek == day.DayOfWeek);
 
-                schedule =
-                    dbContext.ShiftSchedules
-                        .AsNoTracking()
-                        .FirstOrDefault(
-                            s =>
-                                s.EmployeeID ==
-                                    emp.EmployeeID &&
-                                s.IsRecurringPattern &&
-                                s.AppliesToDayOfWeek ==
-                                    day.DayOfWeek);
+                // Note: PatternDurationDays is reserved for future complex rotation logic.
             }
+            // --- END NEW: Pattern Lookup Logic ---
 
-            // --------------------------------------------------------
-            // CALCULATE SCHEDULE
-            // --------------------------------------------------------
+            var scheduleResult = _scheduleService.CalculateSchedule(emp, day, schedule, settings, paidBreakMin, startGrace, endGrace);
 
-            var scheduleResult =
-                _scheduleService.CalculateSchedule(
-                    emp,
-                    day,
-                    schedule,
-                    settings,
-                    paidBreakMin,
-                    startGrace,
-                    endGrace);
-
-            // --------------------------------------------------------
-            // INITIAL VALUES
-            // --------------------------------------------------------
-
+            // === 4. INITIALIZE CALCULATION VARS ===
             string status = "ERROR";
+            TimeSpan earnedStandard = TimeSpan.Zero;
+            TimeSpan lateness = TimeSpan.Zero;
+            TimeSpan earlyLeave = TimeSpan.Zero;
+            TimeSpan overtime = TimeSpan.Zero;
+            TimeSpan totalBreak = TimeSpan.Zero;
+            TimeSpan breakPenalty = TimeSpan.Zero;
 
-            TimeSpan earnedStandard =
-                TimeSpan.Zero;
-
-            TimeSpan lateness =
-                TimeSpan.Zero;
-
-            TimeSpan earlyLeave =
-                TimeSpan.Zero;
-
-            TimeSpan overtime =
-                TimeSpan.Zero;
-
-            TimeSpan totalBreak =
-                TimeSpan.Zero;
-
-            TimeSpan breakPenalty =
-                TimeSpan.Zero;
-
-            // ========================================================
-            // DAY TYPE
-            // ========================================================
-
+            // === 5. CALCULATE BASED ON DAY TYPE ===
             switch (dayTypeResult.Type)
             {
-                // ----------------------------------------------------
-                // NOT EMPLOYED
-                // ----------------------------------------------------
-
                 case DayType.NonEmployment:
-
-                    status =
-                        "Not Employed";
-
-                    scheduleResult =
-                        new ScheduleResult();
-
+                    status = "Not Employed";
+                    scheduleResult = new ScheduleResult(); // Blank out schedule
                     break;
-
-                // ----------------------------------------------------
-                // HOLIDAY
-                // ----------------------------------------------------
 
                 case DayType.Holiday:
-
-                    status =
-                        holidays
-                            .FirstOrDefault(
-                                h =>
-                                    h.HolidayDate ==
-                                    DateOnly.FromDateTime(day))
-                            ?.HolidayName ??
-                        "Holiday";
-
-                    scheduleResult =
-                        new ScheduleResult();
-
+                    status = holidays.FirstOrDefault(h => h.HolidayDate == DateOnly.FromDateTime(day))?.HolidayName ?? "Holiday";
+                    scheduleResult = new ScheduleResult(); // No scheduled hours on holiday
                     break;
-
-                // ----------------------------------------------------
-                // HOLIDAY WORKED
-                // ----------------------------------------------------
 
                 case DayType.HolidayWithWork:
-
-                    status =
-                        "Holiday (Worked)";
-
-                    (totalBreak,
-                     breakPenalty) =
-                        _breakService
-                            .CalculateBreakPenalty(
-                                pr.Ordered,
-                                0);
-
-                    overtime =
-                        pr.GrossWorked() -
-                        totalBreak;
-
-                    if (overtime < TimeSpan.Zero)
-                    {
-                        overtime =
-                            TimeSpan.Zero;
-                    }
-
-                    scheduleResult =
-                        new ScheduleResult();
-
+                    status = "Holiday (Worked)";
+                    (totalBreak, breakPenalty) = _breakService.CalculateBreakPenalty(pr.Ordered, 0); // 0 paid break on holiday
+                    overtime = pr.GrossWorked() - totalBreak; // All worked time is OT
+                    scheduleResult = new ScheduleResult(); // No scheduled hours
                     break;
-
-                // ----------------------------------------------------
-                // WEEKLY OFF NO WORK
-                // ----------------------------------------------------
 
                 case DayType.CompOffNoWork:
-
-                    status =
-                        "Weekly Off";
-
-                    scheduleResult =
-                        new ScheduleResult();
-
+                    status = "Weekly Off"; // Use "Weekly Off" for clarity
+                    scheduleResult = new ScheduleResult(); // No scheduled hours
                     break;
-
-                // ----------------------------------------------------
-                // WEEKLY OFF WORKED
-                // ----------------------------------------------------
 
                 case DayType.CompOffWithWork:
-
-                    status =
-                        "Weekly Off (Worked)";
-
-                    (totalBreak,
-                     breakPenalty) =
-                        _breakService
-                            .CalculateBreakPenalty(
-                                pr.Ordered,
-                                0);
-
-                    overtime =
-                        pr.GrossWorked() -
-                        totalBreak;
-
-                    if (overtime < TimeSpan.Zero)
-                    {
-                        overtime =
-                            TimeSpan.Zero;
-                    }
-
-                    scheduleResult =
-                        new ScheduleResult();
-
+                    status = "Weekly Off (Worked)";
+                    (totalBreak, breakPenalty) = _breakService.CalculateBreakPenalty(pr.Ordered, 0); // 0 paid break
+                    overtime = pr.GrossWorked() - totalBreak; // All worked time is OT
+                    scheduleResult = new ScheduleResult(); // No scheduled hours
                     break;
 
-                // ----------------------------------------------------
-                // ABSENT
-                // ----------------------------------------------------
-
                 case DayType.WorkingAbsent:
-
-                    if (leaveRecord != null &&
-                        leaveRecord.IsApproved)
+                    // Only APPROVED leave may override an absence.
+                    // Pending leave requests must never change attendance status.
+                    if (leaveRecord != null && leaveRecord.IsApproved)
                     {
-                        status =
-                            leaveRecord.LeaveType;
+                        status = leaveRecord.LeaveType;
 
                         if (leaveRecord.IsHalfDay)
                         {
-                            status =
-                                "Absent (Half Day)";
+                            // Half-day leave, but no punches = Absent (Half)
+                            status = "Absent (Half Day)";
 
                             scheduleResult.NetScheduled =
                                 TimeSpan.FromTicks(
-                                    scheduleResult
-                                        .NetScheduled
-                                        .Ticks / 2);
+                                    scheduleResult.NetScheduled.Ticks / 2);
                         }
                     }
                     else
                     {
-                        status =
-                            "Absent";
+                        status = "Absent";
                     }
-
                     break;
 
-                // ----------------------------------------------------
-                // PRESENT / HALF DAY
-                // ----------------------------------------------------
-
+                // This is the main calculation block
                 case DayType.WorkingPresent:
                 case DayType.HalfDayApproved:
                 default:
-
-                    status =
-                        "Present";
-
-                    if (dayTypeResult.Type ==
-                        DayType.HalfDayApproved)
+                    status = "Present";
+                    if (dayTypeResult.Type == DayType.HalfDayApproved)
                     {
-                        status =
-                            "Half Day";
-
-                        scheduleResult.NetScheduled =
-                            TimeSpan.FromTicks(
-                                scheduleResult
-                                    .NetScheduled
-                                    .Ticks / 2);
+                        status = "Half Day";
+                        scheduleResult.NetScheduled = TimeSpan.FromTicks(scheduleResult.NetScheduled.Ticks / 2);
                     }
 
-                    // ------------------------------------------------
-                    // LATENESS
-                    // ------------------------------------------------
-
-                    if (
-                        pr.FirstIn.HasValue &&
-                        scheduleResult
-                            .StartGraceEnd
-                            .HasValue &&
-                        pr.FirstIn.Value >
-                            scheduleResult
-                                .StartGraceEnd.Value)
+                    // --- A. Lateness & Early Leave (Based on LOCKED rules) ---
+                    if (pr.FirstIn.HasValue && scheduleResult.StartGraceEnd.HasValue &&
+                        pr.FirstIn.Value > scheduleResult.StartGraceEnd.Value)
                     {
-                        lateness =
-                            pr.FirstIn.Value -
-                            scheduleResult.ShiftStart;
+                        lateness = pr.FirstIn.Value - scheduleResult.ShiftStart; // Penalty from SHIFT START
                     }
 
-                    // ------------------------------------------------
-                    // EARLY LEAVE
-                    // ------------------------------------------------
-
-                    if (
-                        pr.LastOut.HasValue &&
-                        scheduleResult
-                            .EndGraceStart
-                            .HasValue &&
-                        pr.LastOut.Value <
-                            scheduleResult
-                                .EndGraceStart.Value)
+                    if (pr.LastOut.HasValue && scheduleResult.EndGraceStart.HasValue &&
+                        pr.LastOut.Value < scheduleResult.EndGraceStart.Value)
                     {
-                        earlyLeave =
-                            scheduleResult.ShiftEnd -
-                            pr.LastOut.Value;
+                        earlyLeave = scheduleResult.ShiftEnd - pr.LastOut.Value; // Penalty from SHIFT END
                     }
 
-                    // ------------------------------------------------
-                    // BREAKS
-                    // ------------------------------------------------
+                    // --- B. Breaks & Penalties (Based on LOCKED rules) ---
+                    (totalBreak, breakPenalty) = _breakService.CalculateBreakPenalty(pr.Ordered, paidBreakMin);
 
-                    (totalBreak,
-                     breakPenalty) =
-                        _breakService
-                            .CalculateBreakPenalty(
-                                pr.Ordered,
-                                paidBreakMin);
+                    // --- C. Standard Worked Hours ---
+                    // Standard time is the sum of IN/OUT segments, clamped to the shift window
+                    TimeSpan grossWorkedInSegments = pr.GrossWorked();
+                    earnedStandard = grossWorkedInSegments - totalBreak; // Start with total work
 
-                    // ------------------------------------------------
-                    // GROSS WORK
-                    // ------------------------------------------------
+                    // Clamp to shift boundaries (remove time worked *before* or *after* shift)
+                    TimeSpan preShiftWork = TimeSpan.Zero;
+                    TimeSpan postShiftWork = TimeSpan.Zero;
 
-                    TimeSpan grossWorkedInSegments =
-                        pr.GrossWorked();
-
-                    earnedStandard =
-                        grossWorkedInSegments -
-                        totalBreak;
-
-                    // ------------------------------------------------
-                    // PRE-SHIFT
-                    // ------------------------------------------------
-
-                    TimeSpan preShiftWork =
-                        TimeSpan.Zero;
-
-                    TimeSpan postShiftWork =
-                        TimeSpan.Zero;
-
-                    if (
-                        pr.FirstIn.HasValue &&
-                        pr.FirstIn.Value <
-                            scheduleResult.ShiftStart)
+                    if (pr.FirstIn.HasValue && pr.FirstIn < scheduleResult.ShiftStart)
                     {
-                        preShiftWork =
-                            scheduleResult.ShiftStart -
-                            pr.FirstIn.Value;
+                        preShiftWork = scheduleResult.ShiftStart - pr.FirstIn.Value;
+                    }
+                    if (pr.LastOut.HasValue && pr.LastOut > scheduleResult.ShiftEnd)
+                    {
+                        postShiftWork = pr.LastOut.Value - scheduleResult.ShiftEnd;
                     }
 
-                    // ------------------------------------------------
-                    // POST-SHIFT
-                    // ------------------------------------------------
+                    // 'earnedStandard' is ONLY the time worked INSIDE the shift, minus breaks
+                    earnedStandard = earnedStandard - preShiftWork - postShiftWork;
+                    if (earnedStandard < TimeSpan.Zero) earnedStandard = TimeSpan.Zero;
 
-                    if (
-                        pr.LastOut.HasValue &&
-                        pr.LastOut.Value >
-                            scheduleResult.ShiftEnd)
+                    // --- D. Overtime (Based on LOCKED rule) ---
+                    // OT = (Early-IN) - (Early-OUT) + (Post-Shift)
+                    TimeSpan earlyInOT = TimeSpan.Zero;
+                    TimeSpan earlyOutDeduction = earlyLeave; // Use the already-calculated penalty
+                    TimeSpan postShiftOT = postShiftWork;
+
+                    if (pr.FirstIn.HasValue && pr.FirstIn < scheduleResult.ShiftStart)
                     {
-                        postShiftWork =
-                            pr.LastOut.Value -
-                            scheduleResult.ShiftEnd;
+                        earlyInOT = scheduleResult.ShiftStart - pr.FirstIn.Value;
                     }
 
-                    // ------------------------------------------------
-                    // STANDARD WORKED HOURS
-                    // ------------------------------------------------
+                    // Apply the formula
+                    overtime = earlyInOT - earlyOutDeduction + postShiftOT;
+                    if (overtime < TimeSpan.Zero) overtime = TimeSpan.Zero;
 
-                    earnedStandard =
-                        earnedStandard -
-                        preShiftWork -
-                        postShiftWork;
-
-                    if (earnedStandard <
-                        TimeSpan.Zero)
+                    // --- E. Final Status Check (Missing Punch) ---
+                    if (pr.Ordered.Count % 2 != 0 || pr.Ordered.Count == 0)
                     {
-                        earnedStandard =
-                            TimeSpan.Zero;
+                        // This case should be WorkingAbsent, but as a fallback:
+                        status = "Missing Punch";
+                        earnedStandard = TimeSpan.Zero;
+                        overtime = TimeSpan.Zero;
                     }
-
-                    // ------------------------------------------------
-                    // OT
-                    // ------------------------------------------------
-
-                    TimeSpan earlyInOT =
-                        TimeSpan.Zero;
-
-                    TimeSpan earlyOutDeduction =
-                        earlyLeave;
-
-                    TimeSpan postShiftOT =
-                        postShiftWork;
-
-                    if (
-                        pr.FirstIn.HasValue &&
-                        pr.FirstIn.Value <
-                            scheduleResult.ShiftStart)
+                    else if (pr.Ordered.Count == 1) // Single punch (e.g. IN only)
                     {
-                        earlyInOT =
-                            scheduleResult.ShiftStart -
-                            pr.FirstIn.Value;
+                        status = "Missing Punch";
                     }
-
-                    overtime =
-                        earlyInOT -
-                        earlyOutDeduction +
-                        postShiftOT;
-
-                    if (overtime <
-                        TimeSpan.Zero)
-                    {
-                        overtime =
-                            TimeSpan.Zero;
-                    }
-
-                    // ------------------------------------------------
-                    // MISSING PUNCH
-                    // ------------------------------------------------
-
-                    if (pr.Ordered.Count == 0)
-                    {
-                        status =
-                            "Missing Punch";
-
-                        earnedStandard =
-                            TimeSpan.Zero;
-
-                        overtime =
-                            TimeSpan.Zero;
-                    }
-                    else if (
-                        pr.Ordered.Count % 2 != 0)
-                    {
-                        status =
-                            "Missing Punch";
-
-                        earnedStandard =
-                            TimeSpan.Zero;
-
-                        overtime =
-                            TimeSpan.Zero;
-                    }
-
                     break;
+
+
             }
 
-            // ========================================================
-            // BUILD SUMMARY
-            // ========================================================
+            // === 6. BUILD THE FINAL SUMMARY OBJECT ===
+            var summary = _summaryBuilder.BuildSummary(
+                day,
+                status,
+                scheduleResult,
+                pr.Ordered.Select(p => TimeOnly.FromDateTime(p.PunchTime)).ToList(),
+                totalBreak,
+                lateness,
+                earlyLeave,
+                breakPenalty,
+                earnedStandard, // Pass the clamped standard hours
+                overtime       // Pass the new OT calculation
+            );
 
-            var summary =
-                _summaryBuilder.BuildSummary(
-                    day,
-                    status,
-                    scheduleResult,
-                    pr.Ordered
-                        .Select(
-                            p =>
-                                TimeOnly.FromDateTime(
-                                    p.PunchTime))
-                        .ToList(),
-                    totalBreak,
-                    lateness,
-                    earlyLeave,
-                    breakPenalty,
-                    earnedStandard,
-                    overtime);
+            // Add First/Last punch times for display
+            if (pr.FirstIn.HasValue) summary.FirstIn = TimeOnly.FromDateTime(pr.FirstIn.Value);
+            if (pr.LastOut.HasValue) summary.FinalOut = TimeOnly.FromDateTime(pr.LastOut.Value);
 
-            // ========================================================
-            // FIRST / FINAL PUNCH
-            // ========================================================
-
-            if (pr.FirstIn.HasValue)
+            if (featureSettings.EnableShiftAllowance && settings.EnableShiftAllowance && emp.NightShiftAllowance > 0)
             {
-                summary.FirstIn =
-                    TimeOnly.FromDateTime(
-                        pr.FirstIn.Value);
-            }
-
-            if (pr.LastOut.HasValue)
-            {
-                summary.FinalOut =
-                    TimeOnly.FromDateTime(
-                        pr.LastOut.Value);
-            }
-
-            // ========================================================
-            // NIGHT SHIFT ALLOWANCE
-            // ========================================================
-
-            if (
-                featureSettings.EnableShiftAllowance &&
-                settings.EnableShiftAllowance &&
-                emp.NightShiftAllowance > 0 &&
-                (
-                    status == "Present" ||
-                    status == "Half Day"
-                ) &&
-                scheduleResult
-                    .ShiftEnd
-                    .Date >
-                scheduleResult
-                    .ShiftStart
-                    .Date)
-            {
-                summary.ShiftAllowanceEarned =
-                    emp.NightShiftAllowance;
+                if ((status == "Present" || status == "Half Day") &&
+                    scheduleResult.ShiftEnd.Date > scheduleResult.ShiftStart.Date)
+                {
+                    // It's a night shift!
+                    summary.ShiftAllowanceEarned = emp.NightShiftAllowance;
+                }
             }
 
             return summary;
         }
     }
 
-    // ================================================================
-    // PAYROLL RATE RESULT
-    // ================================================================
-
+    // Helper model for the Rate Calculator
     public class PayrollRateResult
     {
         public decimal HourlyRate { get; set; }
-
         public decimal DailyRate { get; set; }
-
-        public string CalculationMethod { get; set; }
-            = string.Empty;
-
-        public TimeSpan TotalMonthlyScheduledNetHours
-        {
-            get;
-            set;
-        }
+        public string CalculationMethod { get; set; } = string.Empty;
+        public TimeSpan TotalMonthlyScheduledNetHours { get; set; }
     }
 }
