@@ -1,4 +1,4 @@
-@page "/attendancelogs"
+﻿@page "/attendancelogs"
 @rendermode InteractiveServer
 @implements IAsyncDisposable
 
@@ -10,7 +10,9 @@
 @using global::Payroll.Web.Models
 @using global::Payroll.Web.Services
 @using global::Payroll.Shared.Services
-
+@using System.Collections.Concurrent
+@using System.Security.Cryptography
+@using System.Threading
 @inject Payroll.Web.Services.AuditService AuditService
 @using global::Payroll.Web.Components.Pages.Attendance
 
@@ -66,13 +68,12 @@
     </div>
 </div>
 
-<AttendanceFilterBar
-    Employees="employees"
-    @bind-SelectedEmployeeId="selectedEmployeeId"
-    @bind-StartDate="startDate"
-    @bind-EndDate="endDate"
-    IsLoading="isLoading"
-    OnSearch="LoadLogs" />
+<AttendanceFilterBar Employees="employees"
+                     @bind-SelectedEmployeeId="selectedEmployeeId"
+                     @bind-StartDate="startDate"
+                     @bind-EndDate="endDate"
+                     IsLoading="isLoading"
+                     OnSearch="@(() => LoadLogs(autoProcessNewPunches: true))" />
 
 @if (cumulative != null)
 {
@@ -91,80 +92,78 @@
                     <span class="fs-5"
                           style="color:#663399;">
                         @FormatTime(
-                            cumulative.TotalScheduledHours)
-                    </span>
-                </div>
-
-                <div class="col border-end">
-                    <h6 class="fw-bold text-success mb-1">
-                        Worked
-                    </h6>
-
-                    <span class="fs-5 text-success fw-bold">
-                        @FormatDecimalHoursToTime(
-                            cumulative.TotalWorkedHours)
-                    </span>
-                </div>
-
-                <div class="col border-end">
-                    <h6 class="fw-bold text-primary mb-1">
-                        OT
-                    </h6>
-
-                    <span class="fs-5 text-primary">
-                        @FormatTime(
-                            cumulative.TotalOvertime)
-                    </span>
-                </div>
-
-                <div class="col border-end">
-                    <h6 class="fw-bold text-danger mb-1">
-                        Penalty
-                    </h6>
-
-                    <span class="fs-5 text-danger">
-                        @FormatTime(
-                            cumulative.TotalOverallPenalty)
-                    </span>
-                </div>
-
-                <div class="col border-end">
-                    <h6 class="fw-bold text-warning mb-1">
-                        Lateness
-                    </h6>
-
-                    <span class="fs-5 text-warning">
-                        @FormatTime(
-                            cumulative.TotalLateness)
-                    </span>
-                </div>
-
-                <div class="col">
-                    <h6 class="fw-bold text-warning mb-1">
-                        Break Pen.
-                    </h6>
-
-                    <span class="fs-5 text-warning">
-                        @FormatTime(
-                            cumulative.TotalBreakPenalty)
-                    </span>
-                </div>
-
+                        cumulative.TotalScheduledHours)
+                </span>
             </div>
+
+            <div class="col border-end">
+                <h6 class="fw-bold text-success mb-1">
+                    Worked
+                </h6>
+
+                <span class="fs-5 text-success fw-bold">
+                    @FormatDecimalHoursToTime(
+                                        cumulative.TotalWorkedHours)
+                </span>
+            </div>
+
+            <div class="col border-end">
+                <h6 class="fw-bold text-primary mb-1">
+                    OT
+                </h6>
+
+                <span class="fs-5 text-primary">
+                    @FormatTime(
+                                        cumulative.TotalOvertime)
+                </span>
+            </div>
+
+            <div class="col border-end">
+                <h6 class="fw-bold text-danger mb-1">
+                    Penalty
+                </h6>
+
+                <span class="fs-5 text-danger">
+                    @FormatTime(
+                                        cumulative.TotalOverallPenalty)
+                </span>
+            </div>
+
+            <div class="col border-end">
+                <h6 class="fw-bold text-warning mb-1">
+                    Lateness
+                </h6>
+
+                <span class="fs-5 text-warning">
+                    @FormatTime(
+                                        cumulative.TotalLateness)
+                </span>
+            </div>
+
+            <div class="col">
+                <h6 class="fw-bold text-warning mb-1">
+                    Break Pen.
+                </h6>
+
+                <span class="fs-5 text-warning">
+                    @FormatTime(
+                                        cumulative.TotalBreakPenalty)
+                </span>
+            </div>
+
         </div>
     </div>
+</div>
 }
 
-<AttendanceLogTable
-    Logs="logs"
-    IsLoading="isLoading"
-    OnCorrect="OpenCorrectionDrawer" />
+<AttendanceLogTable Logs="logs"
+                    IsLoading="isLoading"
+                    OnCorrect="OpenCorrectionDrawer" />
 
-<AttendanceCorrectionDrawer
-    Show="showDrawer"
-    Record="selectedRecord"
-    OnClose="CloseDrawer"
-    OnSaved="LoadLogs" />
+<AttendanceCorrectionDrawer Show="showDrawer"
+                            Record="selectedRecord"
+                            OnClose="CloseDrawer"
+                            OnSaved="@(() => LoadLogs(autoProcessNewPunches: true))" />
 
 @code
 {
@@ -203,6 +202,25 @@
     private AttendanceLogDto? selectedRecord;
 
     private int _refreshVersion = 0;
+
+    // ============================================================
+    // AUTOMATIC PUNCH PROCESSING STATE
+    // ============================================================
+    //
+    // Stores the fingerprint of punches that have already been
+    // processed for each employee/date.
+    //
+    // IMPORTANT:
+    // This does NOT change the database design.
+    // It only prevents unnecessary recalculation while the
+    // application process is running.
+    //
+
+    private static readonly ConcurrentDictionary<string, string>
+        ProcessedPunchFingerprints = new();
+
+    private readonly SemaphoreSlim _autoProcessLock =
+        new(1, 1);
 
     // ============================================================
     // INDIA NOW
@@ -248,6 +266,18 @@
                     .Where(e => !e.IsDeleted)
                     .OrderBy(e => e.Name)
                     .ToListAsync();
+
+            // --------------------------------------------------------
+            // IMPORTANT
+            // Automatically synchronize attendance when the page
+            // opens.
+            //
+            // It will only recalculate employee/date combinations
+            // whose punch fingerprint is new or changed.
+            // --------------------------------------------------------
+
+            await LoadLogs(
+                autoProcessNewPunches: true);
         }
         catch (Exception ex)
         {
@@ -302,7 +332,16 @@
             await InvokeAsync(
                 async () =>
                 {
-                    await LoadLogs();
+                    // ------------------------------------------------
+                    // A new punch notification does NOT automatically
+                    // mean a full re-process.
+                    //
+                    // LoadLogs checks the punch fingerprint and only
+                    // recalculates changed employee/date combinations.
+                    // ------------------------------------------------
+
+                    await LoadLogs(
+                        autoProcessNewPunches: true);
 
                     if (
                         version ==
@@ -350,7 +389,8 @@
     // LOAD LOGS
     // ============================================================
 
-    private async Task LoadLogs()
+    private async Task LoadLogs(
+     bool autoProcessNewPunches = false)
     {
         if (!startDate.HasValue ||
             !endDate.HasValue)
@@ -413,10 +453,10 @@
                     .ToListAsync();
 
             var activeEmployeeIds =
-                activeEmployees
-                    .Select(
-                        e => e.EmployeeID)
-                    .ToHashSet();
+    activeEmployees
+        .Select(
+            e => e.EmployeeID)
+        .ToHashSet();
 
             // ----------------------------------------------------
             // SYNCHRONIZE APPROVED LEAVE
@@ -425,6 +465,51 @@
             if (activeEmployeeIds.Count > 0)
             {
                 await SynchronizeApprovedLeaveSummariesAsync(
+                    dbContext,
+                    activeEmployees,
+                    activeEmployeeIds,
+                    dStart,
+                    dEnd,
+                    queryEndExclusive);
+            }
+
+            // ----------------------------------------------------
+            // AUTOMATIC NEW-PUNCH PROCESSING
+            // ----------------------------------------------------
+            //
+            // IMPORTANT:
+            //
+            // This does NOT replace ReprocessAttendance().
+            //
+            // It only checks whether raw attendance punches have changed.
+            //
+            // Example:
+            //
+            // 11:30
+            // 11:33
+            // 11:34
+            //
+            // already processed
+            //      ↓
+            // NO calculation
+            //
+            // New punch:
+            //
+            // 11:30
+            // 11:33
+            // 11:34
+            // 17:27
+            //
+            // fingerprint changed
+            //      ↓
+            // calculate ONLY that employee/date
+            //
+            // ----------------------------------------------------
+
+            if (autoProcessNewPunches &&
+                activeEmployeeIds.Count > 0)
+            {
+                await AutoProcessChangedPunchesAsync(
                     dbContext,
                     activeEmployees,
                     activeEmployeeIds,
@@ -822,6 +907,447 @@
             await InvokeAsync(
                 StateHasChanged);
         }
+    }
+
+    // ============================================================
+    // AUTOMATIC NEW / CHANGED PUNCH PROCESSING
+    // ============================================================
+
+    private async Task AutoProcessChangedPunchesAsync(
+        AppDbContext dbContext,
+        List<Employee> activeEmployees,
+        HashSet<int> activeEmployeeIds,
+        DateOnly dStart,
+        DateOnly dEnd,
+        DateTime queryEndExclusive)
+    {
+        await _autoProcessLock.WaitAsync();
+
+        try
+        {
+            // --------------------------------------------------------
+            // Load raw punches only.
+            // PunchTime is already business-local.
+            // DO NOT convert timezone here.
+            // --------------------------------------------------------
+
+            var punches =
+                await dbContext.AttendanceLogs
+                    .Where(
+                        p =>
+                            activeEmployeeIds.Contains(
+                                p.EmployeeID ?? 0) &&
+                            p.PunchTime >=
+                                dStart.ToDateTime(
+                                    TimeOnly.MinValue) &&
+                            p.PunchTime <
+                                queryEndExclusive)
+                    .OrderBy(
+                        p => p.PunchTime)
+                    .ToListAsync();
+
+            if (punches.Count == 0)
+            {
+                return;
+            }
+
+            // --------------------------------------------------------
+            // Load settings required by the EXISTING calculator.
+            // --------------------------------------------------------
+
+            var settings =
+                await dbContext.CompanySettings
+                    .FirstOrDefaultAsync(
+                        s => s.SettingID == 1)
+                ?? new CompanySetting();
+
+            var featureSettings =
+                await dbContext.FeatureSettings
+                    .FirstOrDefaultAsync(
+                        f => f.Id == 1)
+                ?? new FeatureSettings();
+
+            var holidays =
+                await dbContext.CompanyHolidays
+                    .ToListAsync();
+
+            // --------------------------------------------------------
+            // Load schedules.
+            // --------------------------------------------------------
+
+            var schedules =
+                await dbContext.ShiftSchedules
+                    .Where(
+                        s =>
+                            activeEmployeeIds.Contains(
+                                s.EmployeeID) &&
+                            s.ShiftDate >= dStart &&
+                            s.ShiftDate <= dEnd)
+                    .ToListAsync();
+
+            // --------------------------------------------------------
+            // Load approved leaves.
+            // --------------------------------------------------------
+
+            var allLeaves =
+                await dbContext.LeaveRequests
+                    .AsNoTracking()
+                    .Where(
+                        l =>
+                            activeEmployeeIds.Contains(
+                                l.EmployeeID) &&
+                            l.LeaveDate.HasValue &&
+                            l.LeaveDate.Value >=
+                                dStart.ToDateTime(
+                                    TimeOnly.MinValue) &&
+                            l.LeaveDate.Value <
+                                queryEndExclusive &&
+                            l.IsApproved)
+                    .OrderBy(
+                        l =>
+                            l.LeaveType ==
+                            "Loss of Pay (Auto)"
+                                ? 1
+                                : 0)
+                    .ThenByDescending(
+                        l => l.LeaveRequestID)
+                    .ToListAsync();
+
+            // --------------------------------------------------------
+            // Group punches by employee + business date.
+            // --------------------------------------------------------
+
+            var groups =
+                punches
+                    .GroupBy(
+                        p =>
+                            new
+                            {
+                                EmployeeId =
+                                    p.EmployeeID!.Value,
+
+                                Date =
+                                    DateOnly.FromDateTime(
+                                        p.PunchTime.Date)
+                            })
+                    .OrderBy(
+                        g => g.Key.Date)
+                    .ThenBy(
+                        g => g.Key.EmployeeId)
+                    .ToList();
+
+            bool changed = false;
+
+            foreach (var group in groups)
+            {
+                var employeeId =
+                    group.Key.EmployeeId;
+
+                var date =
+                    group.Key.Date;
+
+                // ----------------------------------------------------
+                // Create deterministic fingerprint.
+                // ----------------------------------------------------
+
+                var fingerprint =
+                    CreatePunchFingerprint(
+                        group);
+
+                var cacheKey =
+                    $"{employeeId}:{date:yyyy-MM-dd}";
+
+                // ----------------------------------------------------
+                // If this exact punch set was already processed,
+                // DO NOT run the calculator again.
+                // ----------------------------------------------------
+
+                if (
+                    ProcessedPunchFingerprints.TryGetValue(
+                        cacheKey,
+                        out var previousFingerprint) &&
+                    previousFingerprint ==
+                        fingerprint)
+                {
+                    continue;
+                }
+
+                var employee =
+                    activeEmployees.FirstOrDefault(
+                        e =>
+                            e.EmployeeID ==
+                            employeeId);
+
+                if (employee == null)
+                {
+                    continue;
+                }
+
+                // ----------------------------------------------------
+                // Existing daily summary.
+                // ----------------------------------------------------
+
+                var existing =
+                    await dbContext.DailySummaries
+                        .FirstOrDefaultAsync(
+                            s =>
+                                s.EmployeeID ==
+                                    employeeId &&
+                                s.ShiftDate ==
+                                    date);
+
+                // ----------------------------------------------------
+                // Respect manual overrides.
+                //
+                // We still remember the punch fingerprint so that
+                // the same punch doesn't repeatedly attempt to
+                // overwrite the manual record.
+                // ----------------------------------------------------
+
+                if (
+                    existing != null &&
+                    existing.IsManualOverride)
+                {
+                    ProcessedPunchFingerprints[cacheKey] =
+                        fingerprint;
+
+                    continue;
+                }
+
+                // ----------------------------------------------------
+                // Schedule.
+                // ----------------------------------------------------
+
+                var schedule =
+                    schedules.FirstOrDefault(
+                        s =>
+                            s.EmployeeID ==
+                                employeeId &&
+                            s.ShiftDate ==
+                                date);
+
+                // ----------------------------------------------------
+                // Leave.
+                // ----------------------------------------------------
+
+                var leave =
+                    allLeaves
+                        .Where(
+                            l =>
+                                l.EmployeeID ==
+                                    employeeId &&
+                                l.LeaveDate.HasValue &&
+                                DateOnly.FromDateTime(
+                                    l.LeaveDate.Value.Date) ==
+                                    date)
+                        .OrderBy(
+                            l =>
+                                l.LeaveType ==
+                                "Loss of Pay (Auto)"
+                                    ? 1
+                                    : 0)
+                        .ThenByDescending(
+                            l =>
+                                l.LeaveRequestID)
+                        .FirstOrDefault();
+
+                // ----------------------------------------------------
+                // Use the EXISTING calculation engine.
+                //
+                // No calculation rules are changed here.
+                //
+                // Odd punch count is passed as-is.
+                // The calculator decides the current worked time.
+                // ----------------------------------------------------
+
+                var result =
+                    Calculator.CalculateDailyResult(
+                        employee,
+                        date.ToDateTime(
+                            TimeOnly.MinValue),
+                        group.ToList(),
+                        leave,
+                        schedule,
+                        settings,
+                        holidays,
+                        featureSettings);
+
+                // ----------------------------------------------------
+                // Create summary if necessary.
+                // ----------------------------------------------------
+
+                if (existing == null)
+                {
+                    existing =
+                        new DailySummary
+                        {
+                            EmployeeID =
+                                employeeId,
+
+                            ShiftDate =
+                                date
+                        };
+
+                    dbContext.DailySummaries
+                        .Add(existing);
+                }
+
+                // ----------------------------------------------------
+                // Apply EXACTLY the same result mapping used by the
+                // existing manual ReprocessAttendance().
+                // ----------------------------------------------------
+
+                existing.Status =
+                    result.Status;
+
+                existing.EarnedStandardHours =
+                    result
+                        .EarnedStandardDuration
+                        .TotalHours < 0
+                            ? 0
+                            : (decimal)
+                                result
+                                    .EarnedStandardDuration
+                                    .TotalHours;
+
+                existing.TotalOvertimeDuration =
+                    result.TotalOvertimeDuration;
+
+                existing.TotalPenaltyDuration =
+                    result.TotalPenalty;
+
+                existing.TotalLateness =
+                    result.TotalLateness;
+
+                existing.TotalBreakPenalty =
+                    result.TotalBreakPenalty;
+
+                existing.ScheduledShiftDuration =
+                    result.ScheduledShiftDuration;
+
+                existing.ShiftAllowanceEarned =
+                    result.ShiftAllowanceEarned;
+
+                existing.IsManualOverride =
+                    false;
+
+                changed = true;
+
+                // ----------------------------------------------------
+                // Mark this exact punch set as processed.
+                // ----------------------------------------------------
+
+                ProcessedPunchFingerprints[cacheKey] =
+                    fingerprint;
+            }
+
+            if (changed)
+            {
+                await dbContext.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Automatic attendance synchronization failed.");
+        }
+        finally
+        {
+            _autoProcessLock.Release();
+        }
+    }
+
+    // ============================================================
+    // SEED PROCESSED PUNCH FINGERPRINTS
+    // ============================================================
+
+    private async Task SeedProcessedPunchFingerprintsAsync(
+        DateOnly dStart,
+        DateOnly dEnd)
+    {
+        try
+        {
+            await using var dbContext =
+                await DbFactory.CreateDbContextAsync();
+
+            var punches =
+                await dbContext.AttendanceLogs
+                    .AsNoTracking()
+                    .Where(
+                        p =>
+                            p.EmployeeID.HasValue &&
+                            p.PunchTime >=
+                                dStart.ToDateTime(
+                                    TimeOnly.MinValue) &&
+                            p.PunchTime <
+                                dEnd
+                                    .AddDays(1)
+                                    .ToDateTime(
+                                        TimeOnly.MinValue))
+                    .OrderBy(
+                        p => p.PunchTime)
+                    .ToListAsync();
+
+            foreach (
+                var group in
+                punches.GroupBy(
+                    p =>
+                        new
+                        {
+                            EmployeeId =
+                                p.EmployeeID!.Value,
+
+                            Date =
+                                DateOnly.FromDateTime(
+                                    p.PunchTime.Date)
+                        }))
+            {
+                var key =
+                    $"{group.Key.EmployeeId}:{group.Key.Date:yyyy-MM-dd}";
+
+                ProcessedPunchFingerprints[key] =
+                    CreatePunchFingerprint(
+                        group);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Unable to seed attendance punch fingerprints.");
+        }
+    }
+
+    // ============================================================
+    // PUNCH FINGERPRINT
+    // ============================================================
+
+    private static string CreatePunchFingerprint(
+        IEnumerable<AttendanceLog> punches)
+    {
+        var raw =
+            string.Join(
+                "|",
+                punches
+                    .OrderBy(
+                        p => p.PunchTime)
+                    .ThenBy(
+                        p => p.LogID)
+                    .Select(
+                        p =>
+                            $"{p.LogID}|" +
+                            $"{p.PunchTime.Ticks}|" +
+                            $"{p.LogType}|" +
+                            $"{p.BiometricID}|" +
+                            $"{p.DeviceID}"));
+
+        var bytes =
+            SHA256.HashData(
+                Encoding.UTF8.GetBytes(raw));
+
+        return Convert.ToHexString(
+            bytes);
     }
 
     // ============================================================
@@ -1509,9 +2035,20 @@
                 $"Mass attendance re-processed {count} daily summaries.");
 
             toastService.ShowSuccess(
-                $"Successfully re-processed {count} records.");
+    $"Successfully re-processed {count} records.");
 
-            await LoadLogs();
+            // ------------------------------------------------------------
+            // Refresh the fingerprint cache after manual re-processing.
+            // This prevents the next automatic page refresh from
+            // unnecessarily recalculating the same punches.
+            // ------------------------------------------------------------
+
+            await SeedProcessedPunchFingerprintsAsync(
+                dStart,
+                dEnd);
+
+            await LoadLogs(
+                autoProcessNewPunches: false);
         }
         catch (Exception ex)
         {
