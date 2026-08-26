@@ -754,16 +754,15 @@
             // ----------------------------------------------------
 
             decimal totalWorkedHours =
-                data.Sum(
-                    x =>
-                        Math.Max(
-                            0,
-                            x.EarnedStandardHours) +
-                        (decimal)
-                        Math.Max(
-                            TimeSpan.Zero,
-                            x.TotalOvertimeDuration)
-                        .TotalHours);
+    data.Sum(
+        x =>
+            Math.Max(
+                0m,
+                x.EarnedStandardHours)
+            +
+            (decimal)Math.Max(
+                0d,
+                x.TotalOvertimeDuration.TotalHours));
 
             cumulative =
                 new CompanyCumulativeSummary
