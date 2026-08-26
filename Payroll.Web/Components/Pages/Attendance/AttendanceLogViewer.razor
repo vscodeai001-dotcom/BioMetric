@@ -1,6 +1,7 @@
 @page "/attendancelogs"
 @rendermode InteractiveServer
 @implements IAsyncDisposable
+
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
 @using System.Text
@@ -8,93 +9,145 @@
 @using global::Payroll.Shared.Models
 @using global::Payroll.Web.Models
 @using global::Payroll.Web.Services
+@using global::Payroll.Shared.Services
+
 @inject Payroll.Web.Services.AuditService AuditService
 @using global::Payroll.Web.Components.Pages.Attendance
+
 @inject Payroll.Shared.Services.AttendanceCalculatorService Calculator
 @inject IJSRuntime JSRuntime
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject ILogger<AttendanceLogViewer> _logger
 @inject IToastService toastService
-@inject IJSRuntime JSRuntime
 @inject CsvExportService CsvService
+
 @attribute [Authorize(Roles = "Admin, SuperAdmin")]
 
 <PageTitle>Attendance Log Summary</PageTitle>
 
-@* --- HEADER WITH ACTIONS --- *@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-        <h3 class="mb-0">Attendance Log Summary</h3>
-        <small class="text-muted">Daily breakdown of punches and calculated hours.</small>
+        <h3 class="mb-0">
+            Attendance Log Summary
+        </h3>
+
+        <small class="text-muted">
+            Daily breakdown of punches and calculated hours.
+        </small>
     </div>
+
     <div class="d-flex gap-2">
-        <button class="btn btn-outline-secondary" @onclick="ReprocessAttendance" disabled="@isLoading" title="Re-calculate data for the selected date range">
+
+        <button class="btn btn-outline-secondary"
+                @onclick="ReprocessAttendance"
+                disabled="@isLoading">
+
             @if (isLoading)
             {
                 <span class="spinner-border spinner-border-sm"></span>
             }
             else
             {
-                <i class="bi bi-arrow-repeat"></i> <span>Re-Process</span>
+                <i class="bi bi-arrow-repeat"></i>
+                <span>Re-Process</span>
             }
+
         </button>
-        
-        <button class="btn btn-outline-success" @onclick="ExportCsv" disabled="@(logs == null || !logs.Any())">
-            <i class="bi bi-file-earmark-spreadsheet"></i> <span>Export CSV</span>
+
+        <button class="btn btn-outline-success"
+                @onclick="ExportCsv"
+                disabled="@(logs == null || !logs.Any())">
+
+            <i class="bi bi-file-earmark-spreadsheet"></i>
+            <span>Export CSV</span>
+
         </button>
+
     </div>
 </div>
 
+<AttendanceFilterBar
+    Employees="employees"
+    @bind-SelectedEmployeeId="selectedEmployeeId"
+    @bind-StartDate="startDate"
+    @bind-EndDate="endDate"
+    IsLoading="isLoading"
+    OnSearch="LoadLogs" />
 
-@* --- 1. FILTER COMPONENT --- *@
-<AttendanceFilterBar Employees="employees"
-                     @bind-SelectedEmployeeId="selectedEmployeeId"
-                     @bind-StartDate="startDate"
-                     @bind-EndDate="endDate"
-                     IsLoading="isLoading"
-                     OnSearch="LoadLogs" />
-
-@* --- 2. SUMMARY CARD (Restored to Full 6-Item Design) --- *@
 @if (cumulative != null)
 {
     <div class="card mb-3 shadow-sm border-primary">
+
         <div class="card-body py-3">
+
             <div class="row text-center align-items-center">
 
-                @* 1. Scheduled *@
                 <div class="col border-end">
-                    <h6 class="fw-bold text-dark mb-1" style="color:#663399 !important;">Scheduled</h6>
-                    <span class="fs-5" style="color:#663399;">@FormatTime(cumulative.TotalScheduledHours)</span>
+                    <h6 class="fw-bold mb-1"
+                        style="color:#663399 !important;">
+                        Scheduled
+                    </h6>
+
+                    <span class="fs-5"
+                          style="color:#663399;">
+                        @FormatTime(
+                            cumulative.TotalScheduledHours)
+                    </span>
                 </div>
 
-                @* 2. Worked (Green) *@
                 <div class="col border-end">
-                    <h6 class="fw-bold text-success mb-1">Worked</h6>
-                    <span class="fs-5 text-success fw-bold">@FormatDecimalHoursToTime(cumulative.TotalWorkedHours)</span>
+                    <h6 class="fw-bold text-success mb-1">
+                        Worked
+                    </h6>
+
+                    <span class="fs-5 text-success fw-bold">
+                        @FormatDecimalHoursToTime(
+                            cumulative.TotalWorkedHours)
+                    </span>
                 </div>
 
-                @* 3. OT (Blue) *@
                 <div class="col border-end">
-                    <h6 class="fw-bold text-primary mb-1">OT</h6>
-                    <span class="fs-5 text-primary">@FormatTime(cumulative.TotalOvertime)</span>
+                    <h6 class="fw-bold text-primary mb-1">
+                        OT
+                    </h6>
+
+                    <span class="fs-5 text-primary">
+                        @FormatTime(
+                            cumulative.TotalOvertime)
+                    </span>
                 </div>
 
-                @* 4. Penalty (Red) *@
                 <div class="col border-end">
-                    <h6 class="fw-bold text-danger mb-1">Penalty</h6>
-                    <span class="fs-5 text-danger">@FormatTime(cumulative.TotalOverallPenalty)</span>
+                    <h6 class="fw-bold text-danger mb-1">
+                        Penalty
+                    </h6>
+
+                    <span class="fs-5 text-danger">
+                        @FormatTime(
+                            cumulative.TotalOverallPenalty)
+                    </span>
                 </div>
 
-                @* 5. Lateness (Orange - Restored) *@
                 <div class="col border-end">
-                    <h6 class="fw-bold text-warning mb-1">Lateness</h6>
-                    <span class="fs-5 text-warning">@FormatTime(cumulative.TotalLateness)</span>
+                    <h6 class="fw-bold text-warning mb-1">
+                        Lateness
+                    </h6>
+
+                    <span class="fs-5 text-warning">
+                        @FormatTime(
+                            cumulative.TotalLateness)
+                    </span>
                 </div>
 
-                @* 6. Break Penalty (Orange - Restored) *@
                 <div class="col">
-                    <h6 class="fw-bold text-warning mb-1">Break Pen.</h6>
-                    <span class="fs-5 text-warning">@FormatTime(cumulative.TotalBreakPenalty)</span>
+                    <h6 class="fw-bold text-warning mb-1">
+                        Break Pen.
+                    </h6>
+
+                    <span class="fs-5 text-warning">
+                        @FormatTime(
+                            cumulative.TotalBreakPenalty)
+                    </span>
                 </div>
 
             </div>
@@ -102,116 +155,175 @@
     </div>
 }
 
-@* --- 3. DATA TABLE COMPONENT --- *@
-<AttendanceLogTable Logs="logs"
-                    IsLoading="isLoading"
-                    OnCorrect="OpenCorrectionDrawer" />
+<AttendanceLogTable
+    Logs="logs"
+    IsLoading="isLoading"
+    OnCorrect="OpenCorrectionDrawer" />
 
-@* --- 4. CORRECTION DRAWER COMPONENT --- *@
-<AttendanceCorrectionDrawer Show="showDrawer"
-                            Record="selectedRecord"
-                            OnClose="CloseDrawer"
-                            OnSaved="LoadLogs" />
+<AttendanceCorrectionDrawer
+    Show="showDrawer"
+    Record="selectedRecord"
+    OnClose="CloseDrawer"
+    OnSaved="LoadLogs" />
 
-@code {
+@code
+{
+    // ============================================================
+    // INDIA BUSINESS TIMEZONE
+    // ============================================================
+
+    private static readonly TimeZoneInfo IndiaTimeZone =
+        TimeZoneInfo.FindSystemTimeZoneById(
+            "Asia/Kolkata");
+
+    // ============================================================
+    // STATE
+    // ============================================================
+
     private List<Employee>? employees;
-    private List<AttendanceLogDto> logs = new();
+
+    private List<AttendanceLogDto> logs =
+        new();
+
     private CompanyCumulativeSummary? cumulative;
-    private DotNetObjectReference<AttendanceLogViewer>? _dotNetRef;
+
+    private DotNetObjectReference<AttendanceLogViewer>?
+        _dotNetRef;
+
     private int selectedEmployeeId = 0;
-    // Default to 1st of current month
-    private DateTime? startDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
-    private DateTime? endDate = DateTime.Today;
+
+    private DateTime? startDate;
+
+    private DateTime? endDate;
+
     private bool isLoading = false;
 
-    // Drawer State
     private bool showDrawer = false;
+
     private AttendanceLogDto? selectedRecord;
 
+    private int _refreshVersion = 0;
+
+    // ============================================================
+    // INDIA NOW
+    // ============================================================
+
+    private static DateTime IndiaNow()
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(
+            DateTime.UtcNow,
+            IndiaTimeZone);
+    }
+
+    private static DateTime IndiaToday()
+    {
+        return IndiaNow().Date;
+    }
+
+    // ============================================================
+    // INITIALIZATION
+    // ============================================================
+
     protected override async Task OnInitializedAsync()
-{
-    try
     {
-        await using var dbContext = await DbFactory.CreateDbContextAsync();
+        var today =
+            IndiaToday();
 
-        employees = await dbContext.Employees
-            .Where(e => !e.IsDeleted)
-            .OrderBy(e => e.Name)
-            .ToListAsync();
+        startDate =
+            new DateTime(
+                today.Year,
+                today.Month,
+                1);
+
+        endDate =
+            today;
+
+        try
+        {
+            await using var dbContext =
+                await DbFactory.CreateDbContextAsync();
+
+            employees =
+                await dbContext.Employees
+                    .Where(e => !e.IsDeleted)
+                    .OrderBy(e => e.Name)
+                    .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Critical error initializing AttendanceLogViewer");
+
+            toastService.ShowError(
+                "Failed to load page data.");
+        }
     }
-    catch (Exception ex)
-    {
-        _logger.LogError(
-            ex,
-            "Critical error initializing AttendanceLogViewer");
 
-        toastService.ShowError(
-            "Failed to load page data.");
+    // ============================================================
+    // SIGNALR REFRESH
+    // ============================================================
+
+    protected override async Task OnAfterRenderAsync(
+        bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        try
+        {
+            _dotNetRef =
+                DotNetObjectReference.Create(this);
+
+            await JSRuntime.InvokeVoidAsync(
+                "attendanceRefresh.start");
+
+            await JSRuntime.InvokeVoidAsync(
+                "attendanceRefresh.registerViewer",
+                _dotNetRef);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Attendance refresh registration failed.");
+        }
     }
-}
 
-protected override async Task OnAfterRenderAsync(
-    bool firstRender)
-{
-    if (!firstRender)
-        return;
-
-    try
+    [JSInvokable]
+    public async Task RefreshFromNotification()
     {
-        _dotNetRef =
-            DotNetObjectReference.Create(this);
+        var version =
+            Interlocked.Increment(
+                ref _refreshVersion);
 
-        await JSRuntime.InvokeVoidAsync(
-            "attendanceRefresh.start");
-
-        await JSRuntime.InvokeVoidAsync(
-            "attendanceRefresh.registerViewer",
-            _dotNetRef);
-    }
-    catch (Exception ex)
-    {
-        _logger.LogWarning(
-            ex,
-            "Attendance refresh registration failed.");
-    }
-}
-
-private int _refreshVersion = 0;
-
-[JSInvokable]
-public async Task RefreshFromNotification()
-{
-    var version =
-        Interlocked.Increment(
-            ref _refreshVersion);
-
-    try
-    {
-        await InvokeAsync(
-            async () =>
-            {
-                /*
-                 * If several CRUD operations happen rapidly,
-                 * only the latest refresh needs to win.
-                 */
-
-                await LoadLogs();
-
-                if (version ==
-                    Volatile.Read(
-                        ref _refreshVersion))
+        try
+        {
+            await InvokeAsync(
+                async () =>
                 {
-                    StateHasChanged();
-                }
-            });
+                    await LoadLogs();
+
+                    if (
+                        version ==
+                        Volatile.Read(
+                            ref _refreshVersion))
+                    {
+                        StateHasChanged();
+                    }
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Live attendance refresh failed.");
+        }
     }
-    catch (Exception ex)
-    {
-        _logger.LogWarning(
-            ex,
-            "Live attendance refresh failed.");
-    }
-}
+
+    // ============================================================
+    // DISPOSE
+    // ============================================================
 
     public async ValueTask DisposeAsync()
     {
@@ -225,52 +337,90 @@ public async Task RefreshFromNotification()
             }
             catch
             {
-                // The Blazor circuit may already be disconnected.
+                // Circuit may already be disconnected.
             }
 
             _dotNetRef.Dispose();
+
             _dotNetRef = null;
         }
     }
 
+    // ============================================================
+    // LOAD LOGS
+    // ============================================================
+
     private async Task LoadLogs()
     {
-        if (!startDate.HasValue || !endDate.HasValue) return;
+        if (!startDate.HasValue ||
+            !endDate.HasValue)
+        {
+            return;
+        }
 
         isLoading = true;
+
         logs.Clear();
+
         cumulative = null;
 
-        await InvokeAsync(StateHasChanged);
+        await InvokeAsync(
+            StateHasChanged);
 
         try
         {
-            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            await using var dbContext =
+                await DbFactory.CreateDbContextAsync();
 
-            var dStart = DateOnly.FromDateTime(startDate.Value.Date);
-            var dEnd = DateOnly.FromDateTime(endDate.Value.Date);
-            var queryEndExclusive = endDate.Value.Date.AddDays(1);
+            // ----------------------------------------------------
+            // BUSINESS DATES
+            // ----------------------------------------------------
 
-            // Keep Daily Logs synchronized with approved leave.
-            // Approved leave can be created after a DailySummary already exists,
-            // or before a DailySummary has ever been generated.
-            var activeEmployeesQuery = dbContext.Employees
-                .AsNoTracking()
-                .Where(e => !e.IsDeleted);
+            var dStart =
+                DateOnly.FromDateTime(
+                    startDate.Value.Date);
+
+            var dEnd =
+                DateOnly.FromDateTime(
+                    endDate.Value.Date);
+
+            var queryEndExclusive =
+                endDate.Value.Date.AddDays(1);
+
+            // ----------------------------------------------------
+            // EMPLOYEES
+            // ----------------------------------------------------
+
+            var activeEmployeesQuery =
+                dbContext.Employees
+                    .AsNoTracking()
+                    .Where(
+                        e => !e.IsDeleted);
 
             if (selectedEmployeeId > 0)
             {
-                activeEmployeesQuery = activeEmployeesQuery
-                    .Where(e => e.EmployeeID == selectedEmployeeId);
+                activeEmployeesQuery =
+                    activeEmployeesQuery
+                        .Where(
+                            e =>
+                                e.EmployeeID ==
+                                selectedEmployeeId);
             }
 
-            var activeEmployees = await activeEmployeesQuery
-                .OrderBy(e => e.Name)
-                .ToListAsync();
+            var activeEmployees =
+                await activeEmployeesQuery
+                    .OrderBy(e => e.Name)
+                    .ToListAsync();
 
-            var activeEmployeeIds = activeEmployees
-                .Select(e => e.EmployeeID)
-                .ToHashSet();
+            var activeEmployeeIds =
+                activeEmployees
+                    .Select(
+                        e => e.EmployeeID)
+                    .ToHashSet();
+
+            // ----------------------------------------------------
+            // SYNCHRONIZE APPROVED LEAVE
+            // ----------------------------------------------------
 
             if (activeEmployeeIds.Count > 0)
             {
@@ -283,213 +433,437 @@ public async Task RefreshFromNotification()
                     queryEndExclusive);
             }
 
-            // 1. Load summaries AFTER approved-leave synchronization.
-            var query = dbContext.DailySummaries.AsNoTracking()
-                .Where(ds =>
-                    ds.ShiftDate >= dStart &&
-                    ds.ShiftDate <= dEnd);
+            // ----------------------------------------------------
+            // DAILY SUMMARIES
+            // ----------------------------------------------------
+
+            var query =
+                dbContext.DailySummaries
+                    .AsNoTracking()
+                    .Where(
+                        ds =>
+                            ds.ShiftDate >= dStart &&
+                            ds.ShiftDate <= dEnd);
 
             if (selectedEmployeeId > 0)
             {
-                query = query.Where(ds => ds.EmployeeID == selectedEmployeeId);
+                query =
+                    query.Where(
+                        ds =>
+                            ds.EmployeeID ==
+                            selectedEmployeeId);
             }
 
-            var data = await query.ToListAsync();
+            var data =
+                await query.ToListAsync();
 
-            // 2. Load schedules for displayed employees/dates.
-            var employeeIds = data
-                .Select(d => d.EmployeeID)
-                .Distinct()
-                .ToList();
+            // ----------------------------------------------------
+            // EMPLOYEE IDS
+            // ----------------------------------------------------
 
-            var schedules = employeeIds.Count == 0
-                ? new List<ShiftSchedule>()
-                : await dbContext.ShiftSchedules.AsNoTracking()
-                    .Where(s =>
-                        employeeIds.Contains(s.EmployeeID) &&
-                        s.ShiftDate >= dStart &&
-                        s.ShiftDate <= dEnd)
-                    .ToListAsync();
-
-            // 3. Load raw punches for break/lunch details.
-            var relevantLogs = employeeIds.Count == 0
-                ? new List<AttendanceLog>()
-                : await dbContext.AttendanceLogs.AsNoTracking()
-                    .Where(l =>
-                        employeeIds.Contains(l.EmployeeID ?? 0) &&
-                        l.PunchTime >= startDate.Value.Date &&
-                        l.PunchTime < queryEndExclusive)
-                    .ToListAsync();
-
-            // 4. Map to DTO.
-            logs = data.Select(ds =>
-            {
-                var emp = activeEmployees.FirstOrDefault(
-                    e => e.EmployeeID == ds.EmployeeID);
-
-                var scheduleOverride = schedules.FirstOrDefault(
-                    s =>
-                        s.EmployeeID == ds.EmployeeID &&
-                        s.ShiftDate == ds.ShiftDate);
-
-                TimeOnly? sStart =
-                    scheduleOverride?.StartTime ??
-                    emp?.ShiftStartTime;
-
-                TimeOnly? sEnd =
-                    scheduleOverride?.EndTime ??
-                    emp?.ShiftEndTime;
-
-                var dto = new AttendanceLogDto
-                {
-                    EmployeeID = ds.EmployeeID,
-                    EmployeeName = emp?.Name ?? "Unknown",
-                    Date = ds.ShiftDate,
-                    Status = ds.Status,
-
-                    ShiftStart = sStart,
-                    ShiftEnd = sEnd,
-                    ScheduledShiftDuration = ds.ScheduledShiftDuration,
-
-                    TotalPenalty = ds.TotalPenaltyDuration,
-                    LatenessDuration = ds.TotalLateness,
-                    BreakPenalty = ds.TotalBreakPenalty,
-
-                    EarlyLeavePenalty =
-                        ds.TotalPenaltyDuration -
-                        ds.TotalLateness -
-                        ds.TotalBreakPenalty,
-
-                    OvertimeDuration = ds.TotalOvertimeDuration,
-
-                    FinalWorkedHours =
-                        ds.EarnedStandardHours +
-                        (decimal)ds.TotalOvertimeDuration.TotalHours
-                };
-
-                if (dto.EarlyLeavePenalty < TimeSpan.Zero)
-                {
-                    dto.EarlyLeavePenalty = TimeSpan.Zero;
-                }
-
-                var dayPunches = relevantLogs
-                    .Where(l =>
-                        l.EmployeeID == ds.EmployeeID &&
-                        l.PunchTime.Date ==
-                        ds.ShiftDate
-                            .ToDateTime(TimeOnly.MinValue)
-                            .Date)
-                    .OrderBy(l => l.PunchTime)
-                    .Select(l => l.PunchTime)
+            var employeeIds =
+                data
+                    .Select(
+                        d => d.EmployeeID)
+                    .Distinct()
                     .ToList();
 
-                dto.Punches = string.Join(
-                    " / ",
-                    dayPunches.Select(p => p.ToString("HH:mm")));
+            // ----------------------------------------------------
+            // SCHEDULES
+            // ----------------------------------------------------
 
-                if (dayPunches.Count >= 2)
-                {
-                    TimeSpan totalBreak = TimeSpan.Zero;
-                    int gaps = 0;
-                    TimeSpan maxGap = TimeSpan.Zero;
-                    TimeOnly? lunchStart = null;
-                    TimeOnly? lunchEnd = null;
+            var schedules =
+                employeeIds.Count == 0
+                    ? new List<ShiftSchedule>()
+                    : await dbContext.ShiftSchedules
+                        .AsNoTracking()
+                        .Where(
+                            s =>
+                                employeeIds.Contains(
+                                    s.EmployeeID) &&
+                                s.ShiftDate >= dStart &&
+                                s.ShiftDate <= dEnd)
+                        .ToListAsync();
 
-                    for (int i = 1; i < dayPunches.Count - 1; i += 2)
-                    {
-                        var outTime = dayPunches[i];
-                        var inTime = dayPunches[i + 1];
+            // ----------------------------------------------------
+            // RAW PUNCHES
+            //
+            // IMPORTANT:
+            // PunchTime is treated as existing business-local
+            // attendance time.
+            //
+            // Do NOT add/subtract 5:30 here.
+            // ----------------------------------------------------
 
-                        if (inTime > outTime)
+            var relevantLogs =
+                employeeIds.Count == 0
+                    ? new List<AttendanceLog>()
+                    : await dbContext.AttendanceLogs
+                        .AsNoTracking()
+                        .Where(
+                            l =>
+                                employeeIds.Contains(
+                                    l.EmployeeID ?? 0) &&
+                                l.PunchTime >=
+                                    startDate.Value.Date &&
+                                l.PunchTime <
+                                    queryEndExclusive)
+                        .OrderBy(
+                            l => l.PunchTime)
+                        .ToListAsync();
+
+            // ----------------------------------------------------
+            // MAP DTO
+            // ----------------------------------------------------
+
+            logs =
+                data
+                    .Select(
+                        ds =>
                         {
-                            var gap = inTime - outTime;
-                            totalBreak += gap;
-                            gaps++;
+                            var emp =
+                                activeEmployees
+                                    .FirstOrDefault(
+                                        e =>
+                                            e.EmployeeID ==
+                                            ds.EmployeeID);
 
-                            if (gap > maxGap)
+                            var scheduleOverride =
+                                schedules.FirstOrDefault(
+                                    s =>
+                                        s.EmployeeID ==
+                                            ds.EmployeeID &&
+                                        s.ShiftDate ==
+                                            ds.ShiftDate);
+
+                            TimeOnly? sStart =
+                                scheduleOverride?.StartTime ??
+                                emp?.ShiftStartTime;
+
+                            TimeOnly? sEnd =
+                                scheduleOverride?.EndTime ??
+                                emp?.ShiftEndTime;
+
+                            // ------------------------------------------------
+                            // WORKED HOURS
+                            //
+                            // Standard earned hours + OT.
+                            // Clamp negative values to zero.
+                            // ------------------------------------------------
+
+                            decimal standardHours =
+                                ds.EarnedStandardHours;
+
+                            if (standardHours < 0)
                             {
-                                maxGap = gap;
-                                lunchStart =
-                                    TimeOnly.FromDateTime(outTime);
-                                lunchEnd =
-                                    TimeOnly.FromDateTime(inTime);
+                                standardHours = 0;
                             }
-                        }
-                    }
 
-                    dto.TotalBreakTime = totalBreak;
-                    dto.GapsCount = gaps;
-                    dto.LunchOut = lunchStart;
-                    dto.LunchIn = lunchEnd;
-                }
+                            TimeSpan overtime =
+                                ds.TotalOvertimeDuration;
 
-                return dto;
-            })
-            .OrderByDescending(x => x.Date)
-            .ToList();
+                            if (overtime <
+                                TimeSpan.Zero)
+                            {
+                                overtime =
+                                    TimeSpan.Zero;
+                            }
 
-            // 5. Existing cumulative calculation. No business-rule change.
-            cumulative = new CompanyCumulativeSummary
-            {
-                TotalScheduledHours = TimeSpan.FromTicks(
-                    data.Sum(x => x.ScheduledShiftDuration.Ticks)),
+                            decimal finalWorkedHours =
+                                standardHours +
+                                (decimal)
+                                overtime.TotalHours;
 
-                TotalWorkedHours = data.Sum(
+                            // ------------------------------------------------
+                            // PENALTY BREAKDOWN
+                            // ------------------------------------------------
+
+                            TimeSpan earlyLeavePenalty =
+                                ds.TotalPenaltyDuration -
+                                ds.TotalLateness -
+                                ds.TotalBreakPenalty;
+
+                            if (
+                                earlyLeavePenalty <
+                                TimeSpan.Zero)
+                            {
+                                earlyLeavePenalty =
+                                    TimeSpan.Zero;
+                            }
+
+                            var dto =
+                                new AttendanceLogDto
+                                {
+                                    EmployeeID =
+                                        ds.EmployeeID,
+
+                                    EmployeeName =
+                                        emp?.Name ??
+                                        "Unknown",
+
+                                    Date =
+                                        ds.ShiftDate,
+
+                                    Status =
+                                        ds.Status,
+
+                                    ShiftStart =
+                                        sStart,
+
+                                    ShiftEnd =
+                                        sEnd,
+
+                                    ScheduledShiftDuration =
+                                        ds.ScheduledShiftDuration,
+
+                                    TotalPenalty =
+                                        ds.TotalPenaltyDuration,
+
+                                    LatenessDuration =
+                                        ds.TotalLateness,
+
+                                    BreakPenalty =
+                                        ds.TotalBreakPenalty,
+
+                                    EarlyLeavePenalty =
+                                        earlyLeavePenalty,
+
+                                    OvertimeDuration =
+                                        overtime,
+
+                                    FinalWorkedHours =
+                                        finalWorkedHours
+                                };
+
+                            // ------------------------------------------------
+                            // DAILY PUNCHES
+                            // ------------------------------------------------
+
+                            var dayPunches =
+                                relevantLogs
+                                    .Where(
+                                        l =>
+                                            l.EmployeeID ==
+                                                ds.EmployeeID &&
+                                            DateOnly
+                                                .FromDateTime(
+                                                    l.PunchTime.Date) ==
+                                            ds.ShiftDate)
+                                    .OrderBy(
+                                        l =>
+                                            l.PunchTime)
+                                    .Select(
+                                        l =>
+                                            l.PunchTime)
+                                    .ToList();
+
+                            dto.Punches =
+                                string.Join(
+                                    " / ",
+                                    dayPunches.Select(
+                                        p =>
+                                            p.ToString(
+                                                "HH:mm")));
+
+                            // ------------------------------------------------
+                            // BREAKS
+                            // ------------------------------------------------
+
+                            if (dayPunches.Count >= 4)
+                            {
+                                TimeSpan totalBreak =
+                                    TimeSpan.Zero;
+
+                                int gaps = 0;
+
+                                TimeSpan maxGap =
+                                    TimeSpan.Zero;
+
+                                TimeOnly? lunchStart =
+                                    null;
+
+                                TimeOnly? lunchEnd =
+                                    null;
+
+                                for (
+                                    int i = 1;
+                                    i <
+                                        dayPunches.Count - 1;
+                                    i += 2)
+                                {
+                                    var outTime =
+                                        dayPunches[i];
+
+                                    var inTime =
+                                        dayPunches[i + 1];
+
+                                    if (
+                                        inTime >
+                                        outTime)
+                                    {
+                                        var gap =
+                                            inTime -
+                                            outTime;
+
+                                        totalBreak +=
+                                            gap;
+
+                                        gaps++;
+
+                                        if (
+                                            gap >
+                                            maxGap)
+                                        {
+                                            maxGap =
+                                                gap;
+
+                                            lunchStart =
+                                                TimeOnly
+                                                    .FromDateTime(
+                                                        outTime);
+
+                                            lunchEnd =
+                                                TimeOnly
+                                                    .FromDateTime(
+                                                        inTime);
+                                        }
+                                    }
+                                }
+
+                                dto.TotalBreakTime =
+                                    totalBreak;
+
+                                dto.GapsCount =
+                                    gaps;
+
+                                dto.LunchOut =
+                                    lunchStart;
+
+                                dto.LunchIn =
+                                    lunchEnd;
+                            }
+
+                            return dto;
+                        })
+                    .OrderByDescending(
+                        x => x.Date)
+                    .ToList();
+
+            // ----------------------------------------------------
+            // CUMULATIVE
+            // ----------------------------------------------------
+
+            decimal totalWorkedHours =
+                data.Sum(
                     x =>
-                        x.EarnedStandardHours +
-                        (decimal)x.TotalOvertimeDuration.TotalHours),
+                        Math.Max(
+                            0,
+                            x.EarnedStandardHours) +
+                        (decimal)
+                        Math.Max(
+                            TimeSpan.Zero,
+                            x.TotalOvertimeDuration)
+                        .TotalHours);
 
-                TotalOvertime = TimeSpan.FromTicks(
-                    data.Sum(x => x.TotalOvertimeDuration.Ticks)),
+            cumulative =
+                new CompanyCumulativeSummary
+                {
+                    TotalScheduledHours =
+                        TimeSpan.FromTicks(
+                            data.Sum(
+                                x =>
+                                    x.ScheduledShiftDuration
+                                        .Ticks)),
 
-                TotalOverallPenalty = TimeSpan.FromTicks(
-                    data.Sum(x => x.TotalPenaltyDuration.Ticks)),
+                    TotalWorkedHours =
+                        totalWorkedHours,
 
-                TotalLateness = TimeSpan.FromTicks(
-                    data.Sum(x => x.TotalLateness.Ticks)),
+                    TotalOvertime =
+                        TimeSpan.FromTicks(
+                            data.Sum(
+                                x =>
+                                    x.TotalOvertimeDuration
+                                        .Ticks)),
 
-                TotalBreakPenalty = TimeSpan.FromTicks(
-                    data.Sum(x => x.TotalBreakPenalty.Ticks))
-            };
+                    TotalOverallPenalty =
+                        TimeSpan.FromTicks(
+                            data.Sum(
+                                x =>
+                                    x.TotalPenaltyDuration
+                                        .Ticks)),
+
+                    TotalLateness =
+                        TimeSpan.FromTicks(
+                            data.Sum(
+                                x =>
+                                    x.TotalLateness
+                                        .Ticks)),
+
+                    TotalBreakPenalty =
+                        TimeSpan.FromTicks(
+                            data.Sum(
+                                x =>
+                                    x.TotalBreakPenalty
+                                        .Ticks))
+                };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error loading logs");
-            toastService.ShowError("Error loading data.");
+            _logger.LogError(
+                ex,
+                "Error loading attendance logs.");
+
+            toastService.ShowError(
+                "Error loading attendance data.");
         }
         finally
         {
             isLoading = false;
-            await InvokeAsync(StateHasChanged);
+
+            await InvokeAsync(
+                StateHasChanged);
         }
     }
 
-    /// <summary>
-    /// Synchronizes approved leave with the existing DailySummary calculation.
-    /// No database schema or attendance calculation rule is changed.
-    /// Manual attendance overrides are preserved.
-    /// </summary>
-    private async Task SynchronizeApprovedLeaveSummariesAsync(
-        AppDbContext dbContext,
-        List<Employee> activeEmployees,
-        HashSet<int> activeEmployeeIds,
-        DateOnly dStart,
-        DateOnly dEnd,
-        DateTime queryEndExclusive)
+    // ============================================================
+    // APPROVED LEAVE SYNCHRONIZATION
+    // ============================================================
+
+    private async Task
+        SynchronizeApprovedLeaveSummariesAsync(
+            AppDbContext dbContext,
+            List<Employee> activeEmployees,
+            HashSet<int> activeEmployeeIds,
+            DateOnly dStart,
+            DateOnly dEnd,
+            DateTime queryEndExclusive)
     {
-        var approvedLeaves = await dbContext.LeaveRequests
-            .Where(l =>
-                activeEmployeeIds.Contains(l.EmployeeID) &&
-                l.IsApproved &&
-                l.LeaveDate.HasValue &&
-                l.LeaveDate.Value >= dStart.ToDateTime(TimeOnly.MinValue) &&
-                l.LeaveDate.Value < queryEndExclusive)
-            .OrderBy(l => l.LeaveDate)
-            .ThenBy(l => l.EmployeeID)
-            .ThenBy(l =>
-                l.LeaveType == "Loss of Pay (Auto)" ? 1 : 0)
-            .ThenByDescending(l => l.LeaveRequestID)
-            .ToListAsync();
+        var approvedLeaves =
+            await dbContext.LeaveRequests
+                .Where(
+                    l =>
+                        activeEmployeeIds.Contains(
+                            l.EmployeeID) &&
+                        l.IsApproved &&
+                        l.LeaveDate.HasValue &&
+                        l.LeaveDate.Value >=
+                            dStart.ToDateTime(
+                                TimeOnly.MinValue) &&
+                        l.LeaveDate.Value <
+                            queryEndExclusive)
+                .OrderBy(
+                    l => l.LeaveDate)
+                .ThenBy(
+                    l => l.EmployeeID)
+                .ThenBy(
+                    l =>
+                        l.LeaveType ==
+                        "Loss of Pay (Auto)"
+                            ? 1
+                            : 0)
+                .ThenByDescending(
+                    l => l.LeaveRequestID)
+                .ToListAsync();
 
         if (approvedLeaves.Count == 0)
         {
@@ -498,40 +872,55 @@ public async Task RefreshFromNotification()
 
         var settings =
             await dbContext.CompanySettings
-                .FirstOrDefaultAsync(s => s.SettingID == 1)
+                .FirstOrDefaultAsync(
+                    s => s.SettingID == 1)
             ?? new CompanySetting();
 
         var featureSettings =
             await dbContext.FeatureSettings
-                .FirstOrDefaultAsync(f => f.Id == 1)
+                .FirstOrDefaultAsync(
+                    f => f.Id == 1)
             ?? new FeatureSettings();
 
-        var holidays = await dbContext.CompanyHolidays
-            .AsNoTracking()
-            .ToListAsync();
+        var holidays =
+            await dbContext.CompanyHolidays
+                .AsNoTracking()
+                .ToListAsync();
 
-        var schedules = await dbContext.ShiftSchedules
-            .Where(s =>
-                activeEmployeeIds.Contains(s.EmployeeID) &&
-                s.ShiftDate >= dStart &&
-                s.ShiftDate <= dEnd)
-            .ToListAsync();
+        var schedules =
+            await dbContext.ShiftSchedules
+                .Where(
+                    s =>
+                        activeEmployeeIds.Contains(
+                            s.EmployeeID) &&
+                        s.ShiftDate >= dStart &&
+                        s.ShiftDate <= dEnd)
+                .ToListAsync();
 
-        var punches = await dbContext.AttendanceLogs
-            .Where(l =>
-                activeEmployeeIds.Contains(l.EmployeeID ?? 0) &&
-                l.PunchTime >= dStart.ToDateTime(TimeOnly.MinValue) &&
-                l.PunchTime < queryEndExclusive)
-            .ToListAsync();
+        var punches =
+            await dbContext.AttendanceLogs
+                .Where(
+                    l =>
+                        activeEmployeeIds.Contains(
+                            l.EmployeeID ?? 0) &&
+                        l.PunchTime >=
+                            dStart.ToDateTime(
+                                TimeOnly.MinValue) &&
+                        l.PunchTime <
+                            queryEndExclusive)
+                .ToListAsync();
 
-        var summaries = await dbContext.DailySummaries
-            .Where(s =>
-                activeEmployeeIds.Contains(s.EmployeeID) &&
-                s.ShiftDate >= dStart &&
-                s.ShiftDate <= dEnd)
-            .ToListAsync();
+        var summaries =
+            await dbContext.DailySummaries
+                .Where(
+                    s =>
+                        activeEmployeeIds.Contains(
+                            s.EmployeeID) &&
+                        s.ShiftDate >= dStart &&
+                        s.ShiftDate <= dEnd)
+                .ToListAsync();
 
-        var changed = false;
+        bool changed = false;
 
         foreach (var leave in approvedLeaves)
         {
@@ -540,87 +929,126 @@ public async Task RefreshFromNotification()
                 continue;
             }
 
-            var leaveDate = DateOnly.FromDateTime(
-                leave.LeaveDate.Value.Date);
+            var leaveDate =
+                DateOnly.FromDateTime(
+                    leave.LeaveDate.Value.Date);
 
-            var employee = activeEmployees.FirstOrDefault(
-                e => e.EmployeeID == leave.EmployeeID);
+            var employee =
+                activeEmployees.FirstOrDefault(
+                    e =>
+                        e.EmployeeID ==
+                        leave.EmployeeID);
 
             if (employee == null)
             {
                 continue;
             }
 
-            var existing = summaries.FirstOrDefault(
-                s =>
-                    s.EmployeeID == leave.EmployeeID &&
-                    s.ShiftDate == leaveDate);
+            var existing =
+                summaries.FirstOrDefault(
+                    s =>
+                        s.EmployeeID ==
+                            leave.EmployeeID &&
+                        s.ShiftDate ==
+                            leaveDate);
 
-            // Never overwrite a manually corrected attendance record.
-            if (existing != null && existing.IsManualOverride)
+            if (
+                existing != null &&
+                existing.IsManualOverride)
             {
                 continue;
             }
 
-            var empPunches = punches
-                .Where(p => p.EmployeeID == employee.EmployeeID)
-                .Where(p =>
-                    p.PunchTime.Date ==
-                    leaveDate
-                        .ToDateTime(TimeOnly.MinValue)
-                        .Date)
-                .ToList();
+            var empPunches =
+                punches
+                    .Where(
+                        p =>
+                            p.EmployeeID ==
+                            employee.EmployeeID)
+                    .Where(
+                        p =>
+                            p.PunchTime.Date ==
+                            leaveDate
+                                .ToDateTime(
+                                    TimeOnly.MinValue)
+                                .Date)
+                    .ToList();
 
-            var empSchedule = schedules.FirstOrDefault(
-                s =>
-                    s.EmployeeID == employee.EmployeeID &&
-                    s.ShiftDate == leaveDate);
+            var empSchedule =
+                schedules.FirstOrDefault(
+                    s =>
+                        s.EmployeeID ==
+                            employee.EmployeeID &&
+                        s.ShiftDate ==
+                            leaveDate);
 
-            // If multiple approved leave records exist for the same date,
-            // prefer a normal leave over automatic LOP, then latest request.
-            var empLeave = approvedLeaves
-                .Where(l =>
-                    l.EmployeeID == employee.EmployeeID &&
-                    l.LeaveDate.HasValue &&
-                    DateOnly.FromDateTime(l.LeaveDate.Value.Date) ==
-                    leaveDate)
-                .OrderBy(l =>
-                    l.LeaveType == "Loss of Pay (Auto)" ? 1 : 0)
-                .ThenByDescending(l => l.LeaveRequestID)
-                .FirstOrDefault();
+            var empLeave =
+                approvedLeaves
+                    .Where(
+                        l =>
+                            l.EmployeeID ==
+                                employee.EmployeeID &&
+                            l.LeaveDate.HasValue &&
+                            DateOnly.FromDateTime(
+                                l.LeaveDate.Value.Date) ==
+                                leaveDate)
+                    .OrderBy(
+                        l =>
+                            l.LeaveType ==
+                            "Loss of Pay (Auto)"
+                                ? 1
+                                : 0)
+                    .ThenByDescending(
+                        l =>
+                            l.LeaveRequestID)
+                    .FirstOrDefault();
 
             if (empLeave == null)
             {
                 continue;
             }
 
-            var result = Calculator.CalculateDailyResult(
-                employee,
-                leaveDate.ToDateTime(TimeOnly.MinValue),
-                empPunches,
-                empLeave,
-                empSchedule,
-                settings,
-                holidays,
-                featureSettings);
+            var result =
+                Calculator.CalculateDailyResult(
+                    employee,
+                    leaveDate.ToDateTime(
+                        TimeOnly.MinValue),
+                    empPunches,
+                    empLeave,
+                    empSchedule,
+                    settings,
+                    holidays,
+                    featureSettings);
 
             if (existing == null)
             {
-                existing = new DailySummary
-                {
-                    EmployeeID = employee.EmployeeID,
-                    ShiftDate = leaveDate
-                };
+                existing =
+                    new DailySummary
+                    {
+                        EmployeeID =
+                            employee.EmployeeID,
 
-                dbContext.DailySummaries.Add(existing);
+                        ShiftDate =
+                            leaveDate
+                    };
+
+                dbContext.DailySummaries
+                    .Add(existing);
+
                 summaries.Add(existing);
             }
 
-            existing.Status = result.Status;
+            existing.Status =
+                result.Status;
+
             existing.EarnedStandardHours =
-                result.EarnedStandardDuration.TotalHours < 0
-                    ? 0
-                    : (decimal)result.EarnedStandardDuration.TotalHours;
+                result.EarnedStandardDuration
+                    .TotalHours < 0
+                        ? 0
+                        : (decimal)
+                            result
+                                .EarnedStandardDuration
+                                .TotalHours;
 
             existing.TotalOvertimeDuration =
                 result.TotalOvertimeDuration;
@@ -637,7 +1065,8 @@ public async Task RefreshFromNotification()
             existing.ScheduledShiftDuration =
                 result.ScheduledShiftDuration;
 
-            existing.IsManualOverride = false;
+            existing.IsManualOverride =
+                false;
 
             changed = true;
         }
@@ -648,209 +1077,459 @@ public async Task RefreshFromNotification()
         }
     }
 
-    private void OpenCorrectionDrawer(AttendanceLogDto record)
+    // ============================================================
+    // DRAWER
+    // ============================================================
+
+    private void OpenCorrectionDrawer(
+        AttendanceLogDto record)
     {
-        selectedRecord = record;
-        showDrawer = true;
+        selectedRecord =
+            record;
+
+        showDrawer =
+            true;
     }
 
     private void CloseDrawer()
     {
-        showDrawer = false;
-        selectedRecord = null;
+        showDrawer =
+            false;
+
+        selectedRecord =
+            null;
     }
+
+    // ============================================================
+    // EXPORT
+    // ============================================================
 
     private async Task ExportCsv()
     {
-        if (logs == null || !logs.Any())
+        if (logs == null ||
+            !logs.Any())
         {
-            toastService.ShowWarning("No data to export.");
+            toastService.ShowWarning(
+                "No data to export.");
+
             return;
         }
 
         try
         {
-            // Map the AttendanceLogDto (UI model) to the DailyAttendanceRecord (Shared/Service model)
-            var recordsForExport = logs.Select(l => new Payroll.Shared.Services.DailyAttendanceRecord
-            {
-                EmployeeID = l.EmployeeID,
-                // CRITICAL: EmployeeList must be non-null here, ensured by component lifecycle.
-                EmployeeName = l.EmployeeName, 
-                BiometricID = employees?.FirstOrDefault(e => e.EmployeeID == l.EmployeeID)?.BiometricID ?? "N/A", // Fetch Biometric ID
-                Date = l.Date,
-                Status = l.Status,
-                ShiftStartTime = l.ShiftStart,
-                ShiftEndTime = l.ShiftEnd,
-                ScheduledShiftDuration = l.ScheduledShiftDuration,
-                TotalOvertimeDuration = l.OvertimeDuration,
-                TotalPenalty = l.TotalPenalty,
-                TotalLateness = l.LatenessDuration,
-                TotalBreakPenalty = l.BreakPenalty,
-                TotalEarlyLeave = l.EarlyLeavePenalty,
-                WorkedHours = TimeSpan.FromHours((double)l.FinalWorkedHours), // WorkedHours as TimeSpan
-                FinalWorkedHours = l.FinalWorkedHours, // FinalWorkedHours (Decimal)
-                // Reconstruct PunchTimes List
-                PunchTimes = l.Punches.Split(" / ").Where(s => !string.IsNullOrEmpty(s)).Select(s => TimeOnly.Parse(s)).ToList(),
-            }).ToList();
+            var recordsForExport =
+                logs.Select(
+                    l =>
+                        new Payroll.Shared.Services
+                            .DailyAttendanceRecord
+                        {
+                            EmployeeID =
+                                l.EmployeeID,
 
-            var csvData = CsvService.GenerateAttendanceLogCsv(recordsForExport);
-            var fileName = $"AttendanceLog_{startDate:yyyy-MM-dd}_to_{endDate:yyyy-MM-dd}.csv";
+                            EmployeeName =
+                                l.EmployeeName,
 
-            var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(csvData));
-            using var streamRef = new DotNetStreamReference(stream: memoryStream);
+                            BiometricID =
+                                employees?
+                                    .FirstOrDefault(
+                                        e =>
+                                            e.EmployeeID ==
+                                            l.EmployeeID)
+                                    ?.BiometricID ??
+                                "N/A",
 
-            await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
-            toastService.ShowSuccess("Export successful!");
+                            Date =
+                                l.Date,
+
+                            Status =
+                                l.Status,
+
+                            ShiftStartTime =
+                                l.ShiftStart,
+
+                            ShiftEndTime =
+                                l.ShiftEnd,
+
+                            ScheduledShiftDuration =
+                                l.ScheduledShiftDuration,
+
+                            TotalOvertimeDuration =
+                                l.OvertimeDuration,
+
+                            TotalPenalty =
+                                l.TotalPenalty,
+
+                            TotalLateness =
+                                l.LatenessDuration,
+
+                            TotalBreakPenalty =
+                                l.BreakPenalty,
+
+                            TotalEarlyLeave =
+                                l.EarlyLeavePenalty,
+
+                            WorkedHours =
+                                TimeSpan.FromHours(
+                                    (double)
+                                    l.FinalWorkedHours),
+
+                            FinalWorkedHours =
+                                l.FinalWorkedHours,
+
+                            PunchTimes =
+                                l.Punches
+                                    .Split(
+                                        " / ",
+                                        StringSplitOptions
+                                            .RemoveEmptyEntries)
+                                    .Select(
+                                        s =>
+                                            TimeOnly.Parse(s))
+                                    .ToList()
+                        })
+                    .ToList();
+
+            var csvData =
+                CsvService.GenerateAttendanceLogCsv(
+                    recordsForExport);
+
+            var fileName =
+                $"AttendanceLog_{startDate:yyyy-MM-dd}_to_{endDate:yyyy-MM-dd}.csv";
+
+            var memoryStream =
+                new MemoryStream(
+                    Encoding.UTF8.GetBytes(
+                        csvData));
+
+            using var streamRef =
+                new DotNetStreamReference(
+                    stream: memoryStream);
+
+            await JSRuntime.InvokeVoidAsync(
+                "downloadFileFromStream",
+                fileName,
+                streamRef);
+
+            toastService.ShowSuccess(
+                "Export successful!");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error exporting attendance logs to CSV");
-            toastService.ShowError("An error occurred during the export.");
+            _logger.LogError(
+                ex,
+                "Error exporting attendance logs.");
+
+            toastService.ShowError(
+                "An error occurred during export.");
         }
     }
 
-    // Helper to format TimeSpan as HH:MM
-    private string FormatTime(TimeSpan ts)
+    // ============================================================
+    // FORMAT
+    // ============================================================
+
+    private string FormatTime(
+        TimeSpan ts)
     {
-        var totalMinutes = (int)Math.Round(ts.TotalMinutes);
-        int h = totalMinutes / 60;
-        int m = totalMinutes % 60;
-        return $"{h:D2}:{m:D2}";
+        if (ts < TimeSpan.Zero)
+        {
+            ts = TimeSpan.Zero;
+        }
+
+        int totalMinutes =
+            (int)Math.Round(
+                ts.TotalMinutes);
+
+        int hours =
+            totalMinutes / 60;
+
+        int minutes =
+            totalMinutes % 60;
+
+        return
+            $"{hours:D2}:{minutes:D2}";
     }
 
-    // Helper to format Decimal Hours as HH:MM
-    private string FormatDecimalHoursToTime(decimal hours)
+    private string FormatDecimalHoursToTime(
+        decimal hours)
     {
-        var ts = TimeSpan.FromHours((double)hours);
-        return FormatTime(ts);
+        if (hours < 0)
+        {
+            hours = 0;
+        }
+
+        return FormatTime(
+            TimeSpan.FromHours(
+                (double)hours));
     }
+
+    // ============================================================
+    // REPROCESS
+    // ============================================================
 
     private async Task ReprocessAttendance()
     {
-        if (!startDate.HasValue || !endDate.HasValue) return;
+        if (!startDate.HasValue ||
+            !endDate.HasValue)
+        {
+            return;
+        }
 
-        var confirm = await JSRuntime.InvokeAsync<bool>("confirm",
-            $"This will re-calculate attendance for ALL employees from {startDate:dd-MMM} to {endDate:dd-MMM}. This might take a moment. Continue?");
+        var confirm =
+            await JSRuntime.InvokeAsync<bool>(
+                "confirm",
+                $"This will re-calculate attendance for ALL employees from {startDate:dd-MMM} to {endDate:dd-MMM}. Continue?");
 
-        if (!confirm) return;
+        if (!confirm)
+        {
+            return;
+        }
 
-        isLoading = true;
-        await InvokeAsync(StateHasChanged);
+        isLoading =
+            true;
+
+        await InvokeAsync(
+            StateHasChanged);
 
         try
         {
-            await using var dbContext = await DbFactory.CreateDbContextAsync();
-            // Load necessary data for calculation
-            var employees = await dbContext.Employees.ToListAsync();
-            var settings = await dbContext.CompanySettings.FirstOrDefaultAsync(s => s.SettingID == 1) ?? new CompanySetting();
-            // --- NEW: Load Feature Settings ---
-            var featureSettings = await dbContext.FeatureSettings.FirstOrDefaultAsync(f => f.Id == 1) ?? new FeatureSettings();
-            // ----------------------------------
-            var holidays = await dbContext.CompanyHolidays.ToListAsync();
-            var dStart = DateOnly.FromDateTime(startDate.Value);
-            var dEnd = DateOnly.FromDateTime(endDate.Value);
+            await using var dbContext =
+                await DbFactory.CreateDbContextAsync();
+
+            var allEmployees =
+                await dbContext.Employees
+                    .ToListAsync();
+
+            var settings =
+                await dbContext.CompanySettings
+                    .FirstOrDefaultAsync(
+                        s =>
+                            s.SettingID == 1)
+                ?? new CompanySetting();
+
+            var featureSettings =
+                await dbContext.FeatureSettings
+                    .FirstOrDefaultAsync(
+                        f => f.Id == 1)
+                ?? new FeatureSettings();
+
+            var holidays =
+                await dbContext.CompanyHolidays
+                    .ToListAsync();
+
+            var dStart =
+                DateOnly.FromDateTime(
+                    startDate.Value.Date);
+
+            var dEnd =
+                DateOnly.FromDateTime(
+                    endDate.Value.Date);
 
             int count = 0;
-            // Loop through every day in range
-            for (var day = dStart; day <= dEnd; day = day.AddDays(1))
+
+            for (
+                var day = dStart;
+                day <= dEnd;
+                day = day.AddDays(1))
             {
-                var dayDateTime = day.ToDateTime(TimeOnly.MinValue);
-                var nextDayDateTime = dayDateTime.AddDays(1);
+                var dayDateTime =
+                    day.ToDateTime(
+                        TimeOnly.MinValue);
 
-                // Get all punches for this day for ALL employees
-                var allPunches = await dbContext.AttendanceLogs
-                    .Where(l => l.PunchTime >= dayDateTime && l.PunchTime < nextDayDateTime)
-                    .ToListAsync();
-                var allSchedules = await dbContext.ShiftSchedules
-                    .Where(s => s.ShiftDate == day)
-                    .ToListAsync();
-                var allLeaves = await dbContext.LeaveRequests
-                    .AsNoTracking()
-                    .Where(l =>
-                        l.LeaveDate.HasValue &&
-                        l.LeaveDate.Value >= dayDateTime &&
-                        l.LeaveDate.Value < nextDayDateTime &&
-                        l.IsApproved)
-                    .OrderBy(l =>
-                        l.LeaveType == "Loss of Pay (Auto)" ? 1 : 0)
-                    .ThenByDescending(l => l.LeaveRequestID)
-                    .ToListAsync();
-                var newSummaries = new List<DailySummary>();
+                var nextDayDateTime =
+                    dayDateTime.AddDays(1);
 
-                foreach (var emp in employees)
+                var allPunches =
+                    await dbContext.AttendanceLogs
+                        .Where(
+                            l =>
+                                l.PunchTime >=
+                                    dayDateTime &&
+                                l.PunchTime <
+                                    nextDayDateTime)
+                        .ToListAsync();
+
+                var allSchedules =
+                    await dbContext.ShiftSchedules
+                        .Where(
+                            s =>
+                                s.ShiftDate ==
+                                day)
+                        .ToListAsync();
+
+                var allLeaves =
+                    await dbContext.LeaveRequests
+                        .AsNoTracking()
+                        .Where(
+                            l =>
+                                l.LeaveDate.HasValue &&
+                                l.LeaveDate.Value >=
+                                    dayDateTime &&
+                                l.LeaveDate.Value <
+                                    nextDayDateTime &&
+                                l.IsApproved)
+                        .OrderBy(
+                            l =>
+                                l.LeaveType ==
+                                "Loss of Pay (Auto)"
+                                    ? 1
+                                    : 0)
+                        .ThenByDescending(
+                            l =>
+                                l.LeaveRequestID)
+                        .ToListAsync();
+
+                foreach (var emp in allEmployees)
                 {
-                    // Skip if not employed yet
-                    if (emp.HireDate > day) continue;
-                    
-                    // CRITICAL FIX: Load existing summary to check the Manual Override flag
-                    var existing = await dbContext.DailySummaries
-                        .FirstOrDefaultAsync(s => s.EmployeeID == emp.EmployeeID && s.ShiftDate == day);
-
-                    // Skip the entire calculation if this day was manually fixed
-                    if (existing != null && existing.IsManualOverride) 
+                    if (emp.HireDate > day)
                     {
-                        count++; // Still count the record as processed
                         continue;
                     }
-                    
-                    var empPunches = allPunches.Where(p => p.EmployeeID == emp.EmployeeID).ToList();
-                    var empSchedule = allSchedules.FirstOrDefault(s => s.EmployeeID == emp.EmployeeID);
-                    // Only approved leave affects attendance.
-// Prefer a real leave over automatically generated LOP.
-var empLeave = allLeaves
-    .Where(l =>
-        l.EmployeeID == emp.EmployeeID &&
-        l.IsApproved)
-    .OrderBy(l =>
-        l.LeaveType == "Loss of Pay (Auto)" ? 1 : 0)
-    .ThenByDescending(l => l.LeaveRequestID)
-    .FirstOrDefault();
-                    
-                    // Calculate! (Passing new featureSettings parameter)
-                    var result = Calculator.CalculateDailyResult(
-                        emp, dayDateTime, empPunches, empLeave, empSchedule, settings, holidays, featureSettings);
 
-                    // Create or Update Summary
-                    if (existing == null)
+                    var existing =
+                        await dbContext.DailySummaries
+                            .FirstOrDefaultAsync(
+                                s =>
+                                    s.EmployeeID ==
+                                        emp.EmployeeID &&
+                                    s.ShiftDate ==
+                                        day);
+
+                    if (
+                        existing != null &&
+                        existing.IsManualOverride)
                     {
-                        existing = new DailySummary { EmployeeID = emp.EmployeeID, ShiftDate = day };
-                        dbContext.DailySummaries.Add(existing);
+                        count++;
+                        continue;
                     }
 
-                    // Update fields
-                    existing.Status = result.Status;
-                    existing.EarnedStandardHours = result.EarnedStandardDuration.TotalHours < 0 ? 0 : (decimal)result.EarnedStandardDuration.TotalHours;
-                    existing.TotalOvertimeDuration = result.TotalOvertimeDuration;
-                    existing.TotalPenaltyDuration = result.TotalPenalty;
-                    existing.TotalLateness = result.TotalLateness;
-                    existing.TotalBreakPenalty = result.TotalBreakPenalty;
-                    existing.ScheduledShiftDuration = result.ScheduledShiftDuration;
-                    
-                    // CRITICAL: Ensure the flag is FALSE if we calculate it automatically
-                    existing.IsManualOverride = false; 
-                    
+                    var empPunches =
+                        allPunches
+                            .Where(
+                                p =>
+                                    p.EmployeeID ==
+                                    emp.EmployeeID)
+                            .ToList();
+
+                    var empSchedule =
+                        allSchedules
+                            .FirstOrDefault(
+                                s =>
+                                    s.EmployeeID ==
+                                        emp.EmployeeID);
+
+                    var empLeave =
+                        allLeaves
+                            .Where(
+                                l =>
+                                    l.EmployeeID ==
+                                        emp.EmployeeID &&
+                                    l.IsApproved)
+                            .OrderBy(
+                                l =>
+                                    l.LeaveType ==
+                                    "Loss of Pay (Auto)"
+                                        ? 1
+                                        : 0)
+                            .ThenByDescending(
+                                l =>
+                                    l.LeaveRequestID)
+                            .FirstOrDefault();
+
+                    var result =
+                        Calculator.CalculateDailyResult(
+                            emp,
+                            dayDateTime,
+                            empPunches,
+                            empLeave,
+                            empSchedule,
+                            settings,
+                            holidays,
+                            featureSettings);
+
+                    if (existing == null)
+                    {
+                        existing =
+                            new DailySummary
+                            {
+                                EmployeeID =
+                                    emp.EmployeeID,
+
+                                ShiftDate =
+                                    day
+                            };
+
+                        dbContext.DailySummaries
+                            .Add(existing);
+                    }
+
+                    existing.Status =
+                        result.Status;
+
+                    existing.EarnedStandardHours =
+                        result
+                            .EarnedStandardDuration
+                            .TotalHours < 0
+                                ? 0
+                                : (decimal)
+                                    result
+                                        .EarnedStandardDuration
+                                        .TotalHours;
+
+                    existing.TotalOvertimeDuration =
+                        result.TotalOvertimeDuration;
+
+                    existing.TotalPenaltyDuration =
+                        result.TotalPenalty;
+
+                    existing.TotalLateness =
+                        result.TotalLateness;
+
+                    existing.TotalBreakPenalty =
+                        result.TotalBreakPenalty;
+
+                    existing.ScheduledShiftDuration =
+                        result.ScheduledShiftDuration;
+
+                    existing.ShiftAllowanceEarned =
+                        result.ShiftAllowanceEarned;
+
+                    existing.IsManualOverride =
+                        false;
+
                     count++;
                 }
+
                 await dbContext.SaveChangesAsync();
             }
 
-            // --- AUDIT LOG: REPROCESS ---
-            await AuditService.LogAsync("UPDATE", "Attendance", $"Range:{dStart}-{dEnd}", 
+            await AuditService.LogAsync(
+                "UPDATE",
+                "Attendance",
+                $"Range:{dStart}-{dEnd}",
                 $"Mass attendance re-processed {count} daily summaries.");
-            // --------------------------
-            toastService.ShowSuccess($"Successfully re-processed {count} records.");
-            
-            await LoadLogs(); // Refresh the view
+
+            toastService.ShowSuccess(
+                $"Successfully re-processed {count} records.");
+
+            await LoadLogs();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error re-processing attendance.");
-            toastService.ShowError($"Error: {ex.Message}");
+            _logger.LogError(
+                ex,
+                "Error re-processing attendance.");
+
+            toastService.ShowError(
+                $"Error: {ex.Message}");
         }
         finally
         {
-            isLoading = false;
-            await InvokeAsync(StateHasChanged);
+            isLoading =
+                false;
+
+            await InvokeAsync(
+                StateHasChanged);
         }
     }
 }
