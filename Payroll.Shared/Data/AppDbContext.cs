@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+
 using Payroll.Shared;
 using Payroll.Shared.Data;
 
@@ -18,64 +19,144 @@ public class AppDbContext
     // PAYROLL TABLES
     // ============================================================
 
-    public DbSet<Employee> Employees { get; set; }
+    public DbSet<Employee> Employees
+    {
+        get;
+        set;
+    }
 
-    public DbSet<AttendanceLog> AttendanceLogs { get; set; }
+    public DbSet<AttendanceLog> AttendanceLogs
+    {
+        get;
+        set;
+    }
 
-    public DbSet<SalaryAdvance> SalaryAdvances { get; set; }
+    public DbSet<SalaryAdvance> SalaryAdvances
+    {
+        get;
+        set;
+    }
 
-    public DbSet<PayrollHistory> PayrollHistories { get; set; }
+    public DbSet<PayrollHistory> PayrollHistories
+    {
+        get;
+        set;
+    }
 
-    public DbSet<LeaveRequest> LeaveRequests { get; set; }
+    public DbSet<LeaveRequest> LeaveRequests
+    {
+        get;
+        set;
+    }
 
-    public DbSet<ShiftSchedule> ShiftSchedules { get; set; }
+    public DbSet<ShiftSchedule> ShiftSchedules
+    {
+        get;
+        set;
+    }
 
-    public DbSet<CompanyHoliday> CompanyHolidays { get; set; }
+    public DbSet<CompanyHoliday> CompanyHolidays
+    {
+        get;
+        set;
+    }
 
-    public DbSet<CompanySetting> CompanySettings { get; set; }
+    public DbSet<CompanySetting> CompanySettings
+    {
+        get;
+        set;
+    }
 
-    public DbSet<DailySummary> DailySummaries { get; set; }
+    public DbSet<DailySummary> DailySummaries
+    {
+        get;
+        set;
+    }
 
-    public DbSet<FeatureSettings> FeatureSettings { get; set; }
+    public DbSet<FeatureSettings> FeatureSettings
+    {
+        get;
+        set;
+    }
 
     public DbSet<ProfessionalTaxSlab> ProfessionalTaxSlabs
     {
-        get; set;
+        get;
+        set;
     }
 
-    public DbSet<AuditLog> AuditLogs { get; set; }
+    public DbSet<AuditLog> AuditLogs
+    {
+        get;
+        set;
+    }
 
-    public DbSet<BonusRecord> BonusRecords { get; set; }
+    public DbSet<BonusRecord> BonusRecords
+    {
+        get;
+        set;
+    }
 
-    public DbSet<YearEndSummary> YearEndSummaries { get; set; }
+    public DbSet<YearEndSummary> YearEndSummaries
+    {
+        get;
+        set;
+    }
 
-    public DbSet<TaxDeclaration> TaxDeclarations { get; set; }
+    public DbSet<TaxDeclaration> TaxDeclarations
+    {
+        get;
+        set;
+    }
 
     public DbSet<ResignationRequest> ResignationRequests
     {
-        get; set;
+        get;
+        set;
     }
 
-    public DbSet<FnFSettlement> FnFSettlements { get; set; }
+    public DbSet<FnFSettlement> FnFSettlements
+    {
+        get;
+        set;
+    }
 
-    public DbSet<Notification> Notifications { get; set; }
+    public DbSet<Notification> Notifications
+    {
+        get;
+        set;
+    }
 
-    public DbSet<ReportDefinition> ReportDefinitions { get; set; }
+    public DbSet<ReportDefinition> ReportDefinitions
+    {
+        get;
+        set;
+    }
 
     public DbSet<AttendanceRegularization>
         AttendanceRegularizations
     {
-        get; set;
+        get;
+        set;
     }
 
-    public DbSet<FBPComponent> FBPComponents { get; set; }
+    public DbSet<FBPComponent> FBPComponents
+    {
+        get;
+        set;
+    }
 
-    public DbSet<GeoPunchAudit> GeoPunchAudits { get; set; }
+    public DbSet<GeoPunchAudit> GeoPunchAudits
+    {
+        get;
+        set;
+    }
 
     public DbSet<FlexibleBenefitDeclaration>
         FlexibleBenefitDeclarations
     {
-        get; set;
+        get;
+        set;
     }
 
 
@@ -86,13 +167,15 @@ public class AppDbContext
     public DbSet<EmployeeGpsSession>
         EmployeeGpsSessions
     {
-        get; set;
+        get;
+        set;
     }
 
     public DbSet<EmployeeLocationHistory>
         EmployeeLocationHistory
     {
-        get; set;
+        get;
+        set;
     }
 
 
@@ -103,7 +186,8 @@ public class AppDbContext
     public DbSet<EmployeeDeviceLock>
         EmployeeDeviceLocks
     {
-        get; set;
+        get;
+        set;
     }
 
 
@@ -117,9 +201,9 @@ public class AppDbContext
         base.OnModelCreating(builder);
 
 
-        // ============================================================
+        // ========================================================
         // ASP.NET IDENTITY KEYS
-        // ============================================================
+        // ========================================================
 
         builder.Entity<IdentityUser>()
             .HasKey(u => u.Id);
@@ -156,9 +240,23 @@ public class AppDbContext
             });
 
 
-        // ============================================================
+        // ========================================================
         // EMPLOYEE DEVICE LOCK
-        // ============================================================
+        // ========================================================
+        //
+        // IMPORTANT:
+        //
+        // UserId is UNIQUE.
+        //
+        // Therefore PostgreSQL itself guarantees:
+        //
+        // ONE USER
+        //      =
+        // ONE ACTIVE DEVICE LOCK
+        //
+        // Even if two login requests arrive at exactly the same
+        // time, both cannot create a lock.
+        // ========================================================
 
         builder.Entity<EmployeeDeviceLock>(entity =>
         {
@@ -191,24 +289,27 @@ public class AppDbContext
                 .IsRequired();
 
 
-            // ========================================================
-            // CRITICAL
+            // ====================================================
+            // CRITICAL DATABASE RULE
+            // ====================================================
             //
-            // ONE AND ONLY ONE ACTIVE DEVICE PER USER
-            // ========================================================
-
+            // NEVER allow two active devices for one employee.
+            //
             entity.HasIndex(x => x.UserId)
                 .IsUnique();
 
 
-            // Device lookup.
+            // ====================================================
+            // DEVICE LOOKUP
+            // ====================================================
+
             entity.HasIndex(x => x.DeviceId);
         });
 
 
-        // ============================================================
+        // ========================================================
         // EMPLOYEE GPS LOCATION HISTORY
-        // ============================================================
+        // ========================================================
 
         builder.Entity<EmployeeLocationHistory>(entity =>
         {
@@ -276,9 +377,9 @@ public class AppDbContext
         });
 
 
-        // ============================================================
+        // ========================================================
         // EMPLOYEE GPS SESSION
-        // ============================================================
+        // ========================================================
 
         builder.Entity<EmployeeGpsSession>(entity =>
         {
@@ -348,15 +449,37 @@ public class AppDbContext
 
 public class EmployeeDeviceLock
 {
-    public Guid Id { get; set; }
+    public Guid Id
+    {
+        get;
+        set;
+    }
 
-    public string UserId { get; set; }
-        = string.Empty;
 
-    public string DeviceId { get; set; }
-        = string.Empty;
+    public string UserId
+    {
+        get;
+        set;
+    } = string.Empty;
 
-    public DateTime CreatedAtUtc { get; set; }
 
-    public DateTime LastSeenAtUtc { get; set; }
+    public string DeviceId
+    {
+        get;
+        set;
+    } = string.Empty;
+
+
+    public DateTime CreatedAtUtc
+    {
+        get;
+        set;
+    }
+
+
+    public DateTime LastSeenAtUtc
+    {
+        get;
+        set;
+    }
 }
