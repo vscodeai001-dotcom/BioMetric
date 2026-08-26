@@ -8,6 +8,9 @@ namespace Payroll.Shared.Services
     /// <summary>
     /// Normalizes and orders attendance punches.
     ///
+    /// BUSINESS REGION:
+    /// India
+    ///
     /// BUSINESS TIMEZONE:
     /// Asia/Kolkata
     ///
@@ -21,9 +24,10 @@ namespace Payroll.Shared.Services
     ///   3rd punch = IN
     ///   4th punch = OUT
     ///
-    /// An odd number of punches is intentionally preserved.
-    /// The calculation engine can therefore correctly identify
-    /// a Missing Punch instead of receiving a fabricated OUT punch.
+    /// Odd punches are preserved.
+    ///
+    /// The calculation engine decides whether the final open punch
+    /// should be calculated against the current business time.
     /// </summary>
     public sealed class AttendancePunchProcessor
     {
@@ -44,15 +48,14 @@ namespace Payroll.Shared.Services
             }
 
             // --------------------------------------------------------
-            // Keep the original punch timestamps.
-            // Only normalize DateTime Kind and sort.
+            // Attendance timestamps are business-local wall-clock
+            // values. Never convert them to UTC here.
             // --------------------------------------------------------
 
             var ordered = punches
                 .Where(p => p != null)
                 .Select(p =>
                 {
-                    // Attendance timestamps are business-local values.
                     p.PunchTime =
                         DateTime.SpecifyKind(
                             p.PunchTime,
@@ -81,8 +84,11 @@ namespace Payroll.Shared.Services
             // --------------------------------------------------------
             // LAST OUT
             //
-            // Only an even number of punches has a valid OUT.
-            // Do NOT treat the final odd punch as OUT.
+            // Only an EVEN number of punches has a confirmed OUT.
+            //
+            // For an odd number of punches, the last punch remains
+            // an open IN. The calculation engine handles that open
+            // segment separately.
             // --------------------------------------------------------
 
             DateTime? lastOut =

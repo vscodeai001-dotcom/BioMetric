@@ -1024,7 +1024,7 @@
             color: #6c757d
         }
 
-    @@media(max - width:900px) {
+    @@media(max-width:900px) {
         .gps-quality-grid {
             grid-template-columns: repeat(2,1fr)
         }
@@ -1978,11 +1978,11 @@
         PlaybackPoints.Count > 0;
 
     private int PlaybackIndex =>
-        Math.Max(
-            0,
-            Math.Min(
-                playbackIndex,
-                Math.Max(0, selectedHistory.Count - 1)));
+     Math.Max(
+         0,
+         Math.Min(
+             playbackIndex,
+             Math.Max(0, PlaybackPoints.Count - 1)));
 
     private int PlaybackDisplayIndex =>
         PlaybackPoints.Count == 0
@@ -2393,11 +2393,38 @@
         {
             await using var db = await DbFactory.CreateDbContextAsync();
 
-            var startUtc = DateTime.SpecifyKind(
-                punchAuditDate.Date, DateTimeKind.Local).ToUniversalTime();
+            TimeZoneInfo indiaTimeZone;
 
-            var endUtc = DateTime.SpecifyKind(
-                punchAuditDate.Date.AddDays(1), DateTimeKind.Local).ToUniversalTime();
+            try
+            {
+                indiaTimeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                indiaTimeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
+            }
+
+            var indiaStart =
+                DateTime.SpecifyKind(
+                    punchAuditDate.Date,
+                    DateTimeKind.Unspecified);
+
+            var indiaEnd =
+                DateTime.SpecifyKind(
+                    punchAuditDate.Date.AddDays(1),
+                    DateTimeKind.Unspecified);
+
+            var startUtc =
+                TimeZoneInfo.ConvertTimeToUtc(
+                    indiaStart,
+                    indiaTimeZone);
+
+            var endUtc =
+                TimeZoneInfo.ConvertTimeToUtc(
+                    indiaEnd,
+                    indiaTimeZone);
 
             selectedPunchAudits = await db.GeoPunchAudits
                 .AsNoTracking()
@@ -2439,19 +2466,31 @@
                 await DbFactory.CreateDbContextAsync();
 
             var employeeId = selectedEmployeeId;
-            var date = punchAuditDate.Date;
+            
+
+            var indiaTimeZone =
+     TimeZoneInfo.FindSystemTimeZoneById(
+         "Asia/Kolkata");
+
+            var indiaStart =
+                DateTime.SpecifyKind(
+                    punchAuditDate.Date,
+                    DateTimeKind.Unspecified);
+
+            var indiaEnd =
+                DateTime.SpecifyKind(
+                    punchAuditDate.Date.AddDays(1),
+                    DateTimeKind.Unspecified);
 
             var startUtc =
-                DateTime.SpecifyKind(
-                    date,
-                    DateTimeKind.Local)
-                .ToUniversalTime();
+                TimeZoneInfo.ConvertTimeToUtc(
+                    indiaStart,
+                    indiaTimeZone);
 
             var endUtc =
-                DateTime.SpecifyKind(
-                    date.AddDays(1),
-                    DateTimeKind.Local)
-                .ToUniversalTime();
+                TimeZoneInfo.ConvertTimeToUtc(
+                    indiaEnd,
+                    indiaTimeZone);
 
             var latestAudits =
                 await db.GeoPunchAudits
@@ -3178,15 +3217,29 @@
             : $"±{meters / 1000:F2} km";
     }
 
+    private static DateTime ToLocalTime(DateTime utc)
+    {
+        var utcValue = DateTime.SpecifyKind(
+            utc,
+            DateTimeKind.Utc);
 
-    private static DateTime ToLocalTime(
-        DateTime utc) =>
-        utc.Kind == DateTimeKind.Utc
-            ? utc.ToLocalTime()
-            : DateTime.SpecifyKind(
-                utc,
-                DateTimeKind.Utc)
-                .ToLocalTime();
+        TimeZoneInfo indiaTimeZone;
+
+        try
+        {
+            indiaTimeZone =
+                TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            indiaTimeZone =
+                TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
+        }
+
+        return TimeZoneInfo.ConvertTimeFromUtc(
+            utcValue,
+            indiaTimeZone);
+    }
 
 
 

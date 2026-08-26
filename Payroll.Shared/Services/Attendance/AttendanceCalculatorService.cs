@@ -20,7 +20,9 @@ namespace Payroll.Shared.Services
     ///
     /// IMPORTANT:
     /// Existing database PunchTime values are treated as business-local
-    /// attendance timestamps. They are NOT automatically converted to UTC.
+    /// attendance timestamps.
+    ///
+    /// They are NOT automatically converted to UTC.
     ///
     /// This service remains the single source of truth for:
     /// - Worked hours
@@ -30,6 +32,17 @@ namespace Payroll.Shared.Services
     /// - Lateness
     /// - Early leave
     /// - Attendance status
+    ///
+    /// OPEN PUNCH RULE:
+    ///
+    /// When today's attendance contains an odd number of punches,
+    /// the final IN remains open and is calculated up to the current
+    /// India business time.
+    ///
+    /// No fake OUT punch is inserted into the database.
+    ///
+    /// Historical odd-punch dates remain Missing Punch because the
+    /// system cannot know when the employee actually stopped working.
     /// </summary>
     public class AttendanceCalculatorService
     {
@@ -88,9 +101,29 @@ namespace Payroll.Shared.Services
             _dbFactory =
                 dbFactory;
 
-            _indiaTimeZone =
-                TimeZoneInfo.FindSystemTimeZoneById(
-                    IndiaTimeZoneId);
+            // --------------------------------------------------------
+            // Linux / Render uses:
+            // Asia/Kolkata
+            //
+            // Windows uses:
+            // India Standard Time
+            //
+            // This keeps the business timezone stable in both
+            // environments.
+            // --------------------------------------------------------
+
+            try
+            {
+                _indiaTimeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(
+                        IndiaTimeZoneId);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                _indiaTimeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(
+                        "India Standard Time");
+            }
         }
 
         // ============================================================
@@ -100,15 +133,6 @@ namespace Payroll.Shared.Services
         private DateTime NormalizeBusinessDate(
             DateTime value)
         {
-            /*
-             * DateTime values used by payroll attendance are business
-             * wall-clock values.
-             *
-             * We deliberately do NOT call ToLocalTime().
-             *
-             * Render runs in UTC, while payroll runs in India.
-             */
-
             return DateTime.SpecifyKind(
                 value,
                 DateTimeKind.Unspecified);
@@ -123,7 +147,7 @@ namespace Payroll.Shared.Services
         }
 
         // ============================================================
-        // CURRENT INDIA DATE
+        // CURRENT INDIA DATE / TIME
         // ============================================================
 
         public DateTime GetIndiaNow()
@@ -139,17 +163,167 @@ namespace Payroll.Shared.Services
                 GetIndiaNow().Date);
         }
 
-        // ================================================================
-        // CALCULATE ACTUAL WORK OUTSIDE SHIFT
-        // ================================================================
+        // ============================================================
+        // OPEN PUNCH END TIME
+        // ============================================================
+        //
+        // Only today's odd punch is considered an open work segment.
+        //
+        // Example:
+        //
+        // 18:00 IN
+        // 20:51 current India time
+        //
+        // Open segment:
+        //
+        // 18:00 -> 20:51
+        //
+        // We do NOT write 20:51 into AttendanceLogs.
+        //
+        // Historical odd punches return null.
+        // ============================================================
+
+        private DateTime? GetOpenPunchEndTime(
+            DateTime businessDay,
+            List<AttendanceLog> punches)
+        {
+            if (punches == null ||
+                punches.Count == 0 ||
+                punches.Count % 2 == 0)
+            {
+                return null;
+            }
+
+            DateTime today =
+                GetIndiaNow().Date;
+
+            DateTime requestedDay =
+                businessDay.Date;
+
+            // --------------------------------------------------------
+            // Only today's open punch can be calculated live.
+            // --------------------------------------------------------
+
+            if (requestedDay != today)
+            {
+                return null;
+            }
+
+            DateTime now =
+                DateTime.SpecifyKind(
+                    GetIndiaNow(),
+                    DateTimeKind.Unspecified);
+
+            DateTime lastPunch =
+                DateTime.SpecifyKind(
+                    punches[^1].PunchTime,
+                    DateTimeKind.Unspecified);
+
+            // --------------------------------------------------------
+            // Never create a negative open interval.
+            // --------------------------------------------------------
+
+            if (now <= lastPunch)
+            {
+                return null;
+            }
+
+            return now;
+        }
+
+        // ============================================================
+        // GROSS WORK INCLUDING CURRENT OPEN PUNCH
+        // ============================================================
+
+        private TimeSpan CalculateGrossWorkedIncludingOpenPunch(
+            List<AttendanceLog> punches,
+            DateTime? openPunchEnd)
+        {
+            if (punches == null ||
+                punches.Count == 0)
+            {
+                return TimeSpan.Zero;
+            }
+
+            TimeSpan total =
+                TimeSpan.Zero;
+
+            // --------------------------------------------------------
+            // Existing completed IN -> OUT pairs.
+            //
+            // This is the same rule as the existing GrossWorked().
+            // --------------------------------------------------------
+
+            for (int i = 0;
+                 i + 1 < punches.Count;
+                 i += 2)
+            {
+                DateTime inTime =
+                    DateTime.SpecifyKind(
+                        punches[i].PunchTime,
+                        DateTimeKind.Unspecified);
+
+                DateTime outTime =
+                    DateTime.SpecifyKind(
+                        punches[i + 1].PunchTime,
+                        DateTimeKind.Unspecified);
+
+                if (outTime > inTime)
+                {
+                    total +=
+                        outTime - inTime;
+                }
+            }
+
+            // --------------------------------------------------------
+            // CURRENT OPEN IN
+            // --------------------------------------------------------
+            //
+            // Example:
+            //
+            // 17:36 IN
+            // 20:51 NOW
+            //
+            // Add:
+            //
+            // 03:15
+            // --------------------------------------------------------
+
+            if (openPunchEnd.HasValue &&
+                punches.Count % 2 != 0)
+            {
+                DateTime openStart =
+                    DateTime.SpecifyKind(
+                        punches[^1].PunchTime,
+                        DateTimeKind.Unspecified);
+
+                DateTime openEnd =
+                    DateTime.SpecifyKind(
+                        openPunchEnd.Value,
+                        DateTimeKind.Unspecified);
+
+                if (openEnd > openStart)
+                {
+                    total +=
+                        openEnd - openStart;
+                }
+            }
+
+            return total;
+        }
+
+        // ============================================================
+        // OUTSIDE SHIFT OT
+        // ============================================================
 
         private static TimeSpan CalculateOutsideShiftOvertime(
             List<AttendanceLog> punches,
             DateTime shiftStart,
-            DateTime shiftEnd)
+            DateTime shiftEnd,
+            DateTime? openPunchEnd)
         {
             if (punches == null ||
-                punches.Count < 2)
+                punches.Count == 0)
             {
                 return TimeSpan.Zero;
             }
@@ -167,7 +341,10 @@ namespace Payroll.Shared.Services
             TimeSpan totalOt =
                 TimeSpan.Zero;
 
-            // Punches are already ordered by the processor.
+            // --------------------------------------------------------
+            // EXISTING COMPLETED PAIRS
+            // --------------------------------------------------------
+
             for (int i = 0;
                  i + 1 < punches.Count;
                  i += 2)
@@ -187,9 +364,9 @@ namespace Payroll.Shared.Services
                     continue;
                 }
 
-                // --------------------------------------------------------
+                // ----------------------------------------------------
                 // WORK BEFORE SHIFT
-                // --------------------------------------------------------
+                // ----------------------------------------------------
 
                 if (inTime < shiftStart)
                 {
@@ -205,9 +382,9 @@ namespace Payroll.Shared.Services
                     }
                 }
 
-                // --------------------------------------------------------
+                // ----------------------------------------------------
                 // WORK AFTER SHIFT
-                // --------------------------------------------------------
+                // ----------------------------------------------------
 
                 if (outTime > shiftEnd)
                 {
@@ -220,6 +397,83 @@ namespace Payroll.Shared.Services
                     {
                         totalOt +=
                             outTime - postShiftStart;
+                    }
+                }
+            }
+
+            // --------------------------------------------------------
+            // CURRENT OPEN SEGMENT
+            // --------------------------------------------------------
+            //
+            // Example:
+            //
+            // Shift = 18:00 - 22:00
+            //
+            // 17:27 IN
+            // 17:36 OUT
+            // 17:36 IN
+            // 20:51 NOW
+            //
+            // The open segment contributes:
+            //
+            // 17:36 -> 18:00 = pre-shift OT
+            // 18:00 -> 20:51 = normal worked time
+            //
+            // If now passes 22:00:
+            //
+            // 18:00 -> 22:00 = normal worked time
+            // 22:00 -> now    = OT
+            // --------------------------------------------------------
+
+            if (openPunchEnd.HasValue &&
+                punches.Count % 2 != 0)
+            {
+                DateTime inTime =
+                    DateTime.SpecifyKind(
+                        punches[^1].PunchTime,
+                        DateTimeKind.Unspecified);
+
+                DateTime outTime =
+                    DateTime.SpecifyKind(
+                        openPunchEnd.Value,
+                        DateTimeKind.Unspecified);
+
+                if (outTime > inTime)
+                {
+                    // ------------------------------------------------
+                    // BEFORE SHIFT
+                    // ------------------------------------------------
+
+                    if (inTime < shiftStart)
+                    {
+                        DateTime preShiftEnd =
+                            outTime < shiftStart
+                                ? outTime
+                                : shiftStart;
+
+                        if (preShiftEnd > inTime)
+                        {
+                            totalOt +=
+                                preShiftEnd - inTime;
+                        }
+                    }
+
+                    // ------------------------------------------------
+                    // AFTER SHIFT
+                    // ------------------------------------------------
+
+                    if (outTime > shiftEnd)
+                    {
+                        DateTime postShiftStart =
+                            inTime > shiftEnd
+                                ? inTime
+                                : shiftEnd;
+
+                        if (outTime > postShiftStart)
+                        {
+                            totalOt +=
+                                outTime - postShiftStart;
+                        }
                     }
                 }
             }
@@ -239,10 +493,6 @@ namespace Payroll.Shared.Services
             List<ShiftSchedule> schedules,
             List<CompanyHoliday> holidays)
         {
-            // --------------------------------------------------------
-            // DIRECT HOURLY WAGE
-            // --------------------------------------------------------
-
             if (emp.DirectHourlyWage.HasValue &&
                 emp.DirectHourlyWage > 0)
             {
@@ -256,10 +506,6 @@ namespace Payroll.Shared.Services
                             "Pro-Rata Hourly (Direct)"
                     });
             }
-
-            // --------------------------------------------------------
-            // NO MONTHLY SALARY
-            // --------------------------------------------------------
 
             if (emp.MonthlySalary <= 0)
             {
@@ -290,10 +536,6 @@ namespace Payroll.Shared.Services
 
             int workDaysInMonth = 0;
 
-            // --------------------------------------------------------
-            // COUNT WORK DAYS
-            // --------------------------------------------------------
-
             for (int d = 1;
                  d <= daysInMonth;
                  d++)
@@ -314,10 +556,6 @@ namespace Payroll.Shared.Services
                     workDaysInMonth++;
                 }
             }
-
-            // --------------------------------------------------------
-            // MONTH SCHEDULED HOURS
-            // --------------------------------------------------------
 
             TimeSpan totalMonthScheduledNet =
                 TimeSpan.Zero;
@@ -353,10 +591,6 @@ namespace Payroll.Shared.Services
                 totalMonthScheduledNet +=
                     sr.NetScheduled;
             }
-
-            // --------------------------------------------------------
-            // RATE METHOD
-            // --------------------------------------------------------
 
             switch (calcMethod)
             {
@@ -464,20 +698,8 @@ namespace Payroll.Shared.Services
             List<CompanyHoliday> holidays,
             FeatureSettings featureSettings)
         {
-            // --------------------------------------------------------
-            // NORMALIZE BUSINESS DATE
-            // --------------------------------------------------------
-
             day =
                 NormalizeBusinessDate(day);
-
-            // --------------------------------------------------------
-            // NORMALIZE EXISTING PUNCHES
-            //
-            // IMPORTANT:
-            // No timezone conversion.
-            // Existing database punch clock values are preserved.
-            // --------------------------------------------------------
 
             punchesForDay =
                 (punchesForDay ??
@@ -494,10 +716,6 @@ namespace Payroll.Shared.Services
                     p => p.PunchTime)
                 .ToList();
 
-            // --------------------------------------------------------
-            // REMOVE UNAPPROVED CORRECTIONS
-            // --------------------------------------------------------
-
             punchesForDay =
                 punchesForDay
                     .Where(
@@ -507,18 +725,19 @@ namespace Payroll.Shared.Services
                             p.IsApproved)
                     .ToList();
 
-            // --------------------------------------------------------
-            // PROCESS PUNCHES
-            // --------------------------------------------------------
-
             var pr =
                 _punchProcessor.ProcessPunches(
                     punchesForDay,
                     day);
 
             // --------------------------------------------------------
-            // DETERMINE DAY TYPE
+            // CURRENT OPEN PUNCH
             // --------------------------------------------------------
+
+            DateTime? openPunchEnd =
+                GetOpenPunchEndTime(
+                    day,
+                    pr.Ordered);
 
             var dayTypeResult =
                 _dayTypeService.DetectDayType(
@@ -528,10 +747,6 @@ namespace Payroll.Shared.Services
                     leaveRecord,
                     holidays);
 
-            // --------------------------------------------------------
-            // SCHEDULE
-            // --------------------------------------------------------
-
             int paidBreakMin =
                 emp.StandardBreakMinutes;
 
@@ -540,10 +755,6 @@ namespace Payroll.Shared.Services
 
             int endGrace =
                 settings.EndTimeGraceMinutes;
-
-            // --------------------------------------------------------
-            // RECURRING PATTERN
-            // --------------------------------------------------------
 
             if (schedule == null)
             {
@@ -562,10 +773,6 @@ namespace Payroll.Shared.Services
                                     day.DayOfWeek);
             }
 
-            // --------------------------------------------------------
-            // CALCULATE SCHEDULE
-            // --------------------------------------------------------
-
             var scheduleResult =
                 _scheduleService.CalculateSchedule(
                     emp,
@@ -575,10 +782,6 @@ namespace Payroll.Shared.Services
                     paidBreakMin,
                     startGrace,
                     endGrace);
-
-            // --------------------------------------------------------
-            // INITIAL VALUES
-            // --------------------------------------------------------
 
             string status = "ERROR";
 
@@ -600,15 +803,11 @@ namespace Payroll.Shared.Services
             TimeSpan breakPenalty =
                 TimeSpan.Zero;
 
-            // ========================================================
-            // DAY TYPE
-            // ========================================================
-
             switch (dayTypeResult.Type)
             {
-                // ----------------------------------------------------
+                // ====================================================
                 // NOT EMPLOYED
-                // ----------------------------------------------------
+                // ====================================================
 
                 case DayType.NonEmployment:
 
@@ -620,9 +819,9 @@ namespace Payroll.Shared.Services
 
                     break;
 
-                // ----------------------------------------------------
+                // ====================================================
                 // HOLIDAY
-                // ----------------------------------------------------
+                // ====================================================
 
                 case DayType.Holiday:
 
@@ -640,9 +839,9 @@ namespace Payroll.Shared.Services
 
                     break;
 
-                // ----------------------------------------------------
+                // ====================================================
                 // HOLIDAY WORKED
-                // ----------------------------------------------------
+                // ====================================================
 
                 case DayType.HolidayWithWork:
 
@@ -656,9 +855,14 @@ namespace Payroll.Shared.Services
                                 pr.Ordered,
                                 0);
 
-                    overtime =
-                        pr.GrossWorked() -
+                    earnedStandard =
+                        CalculateGrossWorkedIncludingOpenPunch(
+                            pr.Ordered,
+                            openPunchEnd) -
                         totalBreak;
+
+                    overtime =
+                        earnedStandard;
 
                     if (overtime < TimeSpan.Zero)
                     {
@@ -671,9 +875,9 @@ namespace Payroll.Shared.Services
 
                     break;
 
-                // ----------------------------------------------------
+                // ====================================================
                 // WEEKLY OFF NO WORK
-                // ----------------------------------------------------
+                // ====================================================
 
                 case DayType.CompOffNoWork:
 
@@ -685,9 +889,9 @@ namespace Payroll.Shared.Services
 
                     break;
 
-                // ----------------------------------------------------
+                // ====================================================
                 // WEEKLY OFF WORKED
-                // ----------------------------------------------------
+                // ====================================================
 
                 case DayType.CompOffWithWork:
 
@@ -701,9 +905,14 @@ namespace Payroll.Shared.Services
                                 pr.Ordered,
                                 0);
 
-                    overtime =
-                        pr.GrossWorked() -
+                    earnedStandard =
+                        CalculateGrossWorkedIncludingOpenPunch(
+                            pr.Ordered,
+                            openPunchEnd) -
                         totalBreak;
+
+                    overtime =
+                        earnedStandard;
 
                     if (overtime < TimeSpan.Zero)
                     {
@@ -716,9 +925,9 @@ namespace Payroll.Shared.Services
 
                     break;
 
-                // ----------------------------------------------------
+                // ====================================================
                 // ABSENT
-                // ----------------------------------------------------
+                // ====================================================
 
                 case DayType.WorkingAbsent:
 
@@ -748,9 +957,9 @@ namespace Payroll.Shared.Services
 
                     break;
 
-                // ----------------------------------------------------
+                // ====================================================
                 // PRESENT / HALF DAY
-                // ----------------------------------------------------
+                // ====================================================
 
                 case DayType.WorkingPresent:
                 case DayType.HalfDayApproved:
@@ -774,6 +983,8 @@ namespace Payroll.Shared.Services
 
                     // ------------------------------------------------
                     // LATENESS
+                    //
+                    // Existing rule preserved.
                     // ------------------------------------------------
 
                     if (
@@ -792,6 +1003,10 @@ namespace Payroll.Shared.Services
 
                     // ------------------------------------------------
                     // EARLY LEAVE
+                    //
+                    // Only confirmed OUT is used.
+                    //
+                    // An open IN cannot be assumed to be early leave.
                     // ------------------------------------------------
 
                     if (
@@ -810,6 +1025,8 @@ namespace Payroll.Shared.Services
 
                     // ------------------------------------------------
                     // BREAKS
+                    //
+                    // Existing break calculation is untouched.
                     // ------------------------------------------------
 
                     (totalBreak,
@@ -821,10 +1038,18 @@ namespace Payroll.Shared.Services
 
                     // ------------------------------------------------
                     // GROSS WORK
+                    //
+                    // Existing completed pairs are calculated exactly
+                    // as before.
+                    //
+                    // Today's open IN is additionally calculated
+                    // through current India time.
                     // ------------------------------------------------
 
                     TimeSpan grossWorkedInSegments =
-                        pr.GrossWorked();
+                        CalculateGrossWorkedIncludingOpenPunch(
+                            pr.Ordered,
+                            openPunchEnd);
 
                     earnedStandard =
                         grossWorkedInSegments -
@@ -835,9 +1060,6 @@ namespace Payroll.Shared.Services
                     // ------------------------------------------------
 
                     TimeSpan preShiftWork =
-                        TimeSpan.Zero;
-
-                    TimeSpan postShiftWork =
                         TimeSpan.Zero;
 
                     if (
@@ -852,15 +1074,32 @@ namespace Payroll.Shared.Services
 
                     // ------------------------------------------------
                     // POST-SHIFT
+                    //
+                    // For a confirmed OUT use LastOut.
+                    //
+                    // For today's open IN use current India time.
                     // ------------------------------------------------
 
+                    DateTime? effectiveFinalWorkTime =
+                        pr.LastOut;
+
+                    if (!effectiveFinalWorkTime.HasValue &&
+                        openPunchEnd.HasValue)
+                    {
+                        effectiveFinalWorkTime =
+                            openPunchEnd.Value;
+                    }
+
+                    TimeSpan postShiftWork =
+                        TimeSpan.Zero;
+
                     if (
-                        pr.LastOut.HasValue &&
-                        pr.LastOut.Value >
+                        effectiveFinalWorkTime.HasValue &&
+                        effectiveFinalWorkTime.Value >
                             scheduleResult.ShiftEnd)
                     {
                         postShiftWork =
-                            pr.LastOut.Value -
+                            effectiveFinalWorkTime.Value -
                             scheduleResult.ShiftEnd;
                     }
 
@@ -883,40 +1122,13 @@ namespace Payroll.Shared.Services
                     // ------------------------------------------------
                     // OT OUTSIDE ACTUAL SHIFT
                     // ------------------------------------------------
-                    //
-                    // Rule:
-                    //
-                    // Only ACTUAL WORK outside the scheduled shift
-                    // counts as OT.
-                    //
-                    // Example:
-                    //
-                    // Shift: 18:00 - 22:00
-                    //
-                    // 17:00 IN
-                    // 17:03 OUT
-                    //
-                    // OT = 00:03
-                    //
-                    // NOT 01:00.
-                    //
-                    // Likewise:
-                    //
-                    // 18:00 IN
-                    // 22:03 OUT
-                    //
-                    // OT = 00:03.
-                    //
-                    // We calculate OT from actual punch segments,
-                    // not simply FirstIn -> ShiftStart.
-                    //
-                    // ------------------------------------------------
 
                     overtime =
                         CalculateOutsideShiftOvertime(
                             pr.Ordered,
                             scheduleResult.ShiftStart,
-                            scheduleResult.ShiftEnd);
+                            scheduleResult.ShiftEnd,
+                            openPunchEnd);
 
                     if (overtime < TimeSpan.Zero)
                     {
@@ -925,7 +1137,7 @@ namespace Payroll.Shared.Services
                     }
 
                     // ------------------------------------------------
-                    // MISSING PUNCH
+                    // NO PUNCH
                     // ------------------------------------------------
 
                     if (pr.Ordered.Count == 0)
@@ -939,17 +1151,38 @@ namespace Payroll.Shared.Services
                         overtime =
                             TimeSpan.Zero;
                     }
+
+                    // ------------------------------------------------
+                    // ODD PUNCH
+                    //
+                    // IMPORTANT:
+                    //
+                    // Today's odd punch is NOT Missing Punch anymore.
+                    //
+                    // It is a live/open attendance segment.
+                    //
+                    // Historical odd punches remain Missing Punch.
+                    // ------------------------------------------------
+
                     else if (
                         pr.Ordered.Count % 2 != 0)
                     {
-                        status =
-                            "Missing Punch";
+                        if (openPunchEnd.HasValue)
+                        {
+                            status =
+                                "Present";
+                        }
+                        else
+                        {
+                            status =
+                                "Missing Punch";
 
-                        earnedStandard =
-                            TimeSpan.Zero;
+                            earnedStandard =
+                                TimeSpan.Zero;
 
-                        overtime =
-                            TimeSpan.Zero;
+                            overtime =
+                                TimeSpan.Zero;
+                        }
                     }
 
                     break;
@@ -988,6 +1221,17 @@ namespace Payroll.Shared.Services
                         pr.FirstIn.Value);
             }
 
+            // --------------------------------------------------------
+            // IMPORTANT:
+            //
+            // Do NOT put the artificial current time into FinalOut.
+            //
+            // FinalOut represents a real OUT punch.
+            //
+            // The current open time is used internally only for
+            // calculation.
+            // --------------------------------------------------------
+
             if (pr.LastOut.HasValue)
             {
                 summary.FinalOut =
@@ -995,9 +1239,9 @@ namespace Payroll.Shared.Services
                         pr.LastOut.Value);
             }
 
-            // ========================================================
+            // ============================================================
             // NIGHT SHIFT ALLOWANCE
-            // ========================================================
+            // ============================================================
 
             if (
                 featureSettings.EnableShiftAllowance &&
