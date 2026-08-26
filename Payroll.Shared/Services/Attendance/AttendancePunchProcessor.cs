@@ -15,8 +15,15 @@ namespace Payroll.Shared.Services
     /// Asia/Kolkata
     ///
     /// IMPORTANT:
-    /// PunchTime is treated as the attendance/business wall-clock time.
-    /// We do NOT convert existing database PunchTime values to UTC here.
+    /// PunchTime remains a business-local wall-clock value.
+    /// No UTC conversion is performed.
+    ///
+    /// Attendance calculations are MINUTE BASED.
+    /// Seconds and fractional seconds are ignored.
+    ///
+    /// Example:
+    /// 11:30:19 -> 11:30
+    /// 11:33:52 -> 11:33
     ///
     /// Attendance rule:
     ///   1st punch = IN
@@ -25,9 +32,8 @@ namespace Payroll.Shared.Services
     ///   4th punch = OUT
     ///
     /// Odd punches are preserved.
-    ///
-    /// The calculation engine decides whether the final open punch
-    /// should be calculated against the current business time.
+    /// The calculation engine decides how today's open punch
+    /// is handled.
     /// </summary>
     public sealed class AttendancePunchProcessor
     {
@@ -48,22 +54,31 @@ namespace Payroll.Shared.Services
             }
 
             // --------------------------------------------------------
-            // Attendance timestamps are business-local wall-clock
-            // values. Never convert them to UTC here.
+            // Normalize attendance timestamps to MINUTE precision.
+            //
+            // Database values remain untouched.
+            // Only the in-memory calculation copy is normalized.
             // --------------------------------------------------------
 
             var ordered = punches
                 .Where(p => p != null)
                 .Select(p =>
                 {
-                    p.PunchTime =
-                        DateTime.SpecifyKind(
-                            p.PunchTime,
-                            DateTimeKind.Unspecified);
+                    var value = p.PunchTime;
+
+                    p.PunchTime = new DateTime(
+                        value.Year,
+                        value.Month,
+                        value.Day,
+                        value.Hour,
+                        value.Minute,
+                        0,
+                        DateTimeKind.Unspecified);
 
                     return p;
                 })
                 .OrderBy(p => p.PunchTime)
+                .ThenBy(p => p.LogID)
                 .ToList();
 
             if (ordered.Count == 0)
@@ -82,13 +97,12 @@ namespace Payroll.Shared.Services
                 ordered[0].PunchTime;
 
             // --------------------------------------------------------
-            // LAST OUT
+            // LAST CONFIRMED OUT
             //
-            // Only an EVEN number of punches has a confirmed OUT.
+            // Only an even number of punches has a confirmed OUT.
             //
-            // For an odd number of punches, the last punch remains
-            // an open IN. The calculation engine handles that open
-            // segment separately.
+            // Odd punch:
+            // final punch remains an open IN.
             // --------------------------------------------------------
 
             DateTime? lastOut =

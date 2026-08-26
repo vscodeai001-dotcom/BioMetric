@@ -114,8 +114,20 @@ namespace Payroll.Shared.Services
 
         private DateTime NormalizePunchTime(DateTime value)
         {
-            return DateTime.SpecifyKind(
-                value,
+            // Attendance calculations are minute based.
+            // Ignore seconds and fractional seconds.
+            //
+            // Example:
+            // 11:30:19.410272 -> 11:30:00
+            // 11:33:52.531578 -> 11:33:00
+
+            return new DateTime(
+                value.Year,
+                value.Month,
+                value.Day,
+                value.Hour,
+                value.Minute,
+                0,
                 DateTimeKind.Unspecified);
         }
 
@@ -163,9 +175,17 @@ namespace Payroll.Shared.Services
                 return null;
             }
 
+            DateTime currentIndiaTime =
+    GetIndiaNow();
+
             DateTime now =
-                DateTime.SpecifyKind(
-                    GetIndiaNow(),
+                new DateTime(
+                    currentIndiaTime.Year,
+                    currentIndiaTime.Month,
+                    currentIndiaTime.Day,
+                    currentIndiaTime.Hour,
+                    currentIndiaTime.Minute,
+                    0,
                     DateTimeKind.Unspecified);
 
             DateTime lastPunch =
