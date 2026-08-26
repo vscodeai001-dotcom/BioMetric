@@ -1,10 +1,13 @@
 ﻿using Blazored.Toast;
 using Blazored.Toast.Services;
 
+using System.Globalization;
+
 using Hangfire;
 using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
 
+using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -52,6 +55,56 @@ var builder =
 
 
 // ============================================================
+// BUSINESS REGION / TIMEZONE
+// ============================================================
+//
+// BioMetric Payroll business region:
+//     India
+//
+// Business timezone:
+//     Asia/Kolkata
+//
+// Business culture:
+//     en-IN
+//
+// IMPORTANT:
+//
+// Render/Linux servers commonly run in UTC.
+//
+// Therefore payroll calculations must NOT depend on:
+//     DateTime.Now
+//     TimeZoneInfo.Local
+//     DateTime.ToLocalTime()
+//
+// The application explicitly uses India business time.
+//
+
+const string BusinessTimeZoneId =
+    "Asia/Kolkata";
+
+const string BusinessCultureName =
+    "en-IN";
+
+
+var businessTimeZone =
+    TimeZoneInfo.FindSystemTimeZoneById(
+        BusinessTimeZoneId);
+
+
+var businessCulture =
+    CultureInfo.GetCultureInfo(
+        BusinessCultureName);
+
+
+// Default application culture.
+CultureInfo.DefaultThreadCurrentCulture =
+    businessCulture;
+
+CultureInfo.DefaultThreadCurrentUICulture =
+    businessCulture;
+
+
+// ============================================================
 // WINDOWS SERVICE
 // ============================================================
 
@@ -71,6 +124,12 @@ builder.Services.AddSingleton<
 // ============================================================
 // POSTGRESQL DATETIME COMPATIBILITY
 // ============================================================
+//
+// Existing payroll database DateTime behaviour is preserved.
+//
+// IMPORTANT:
+// We are NOT changing existing PunchTime database values.
+//
 
 AppContext.SetSwitch(
     "Npgsql.EnableLegacyTimestampBehavior",
@@ -84,6 +143,7 @@ AppContext.SetSwitch(
 var connectionString =
     builder.Configuration.GetConnectionString(
         "DefaultConnection");
+
 
 if (string.IsNullOrWhiteSpace(connectionString))
 {
@@ -278,19 +338,24 @@ builder.Services.AddIdentity<
 // SECURITY STAMP VALIDATION
 // ============================================================
 //
-// This is important for employee session replacement.
+// Employee single-session behaviour:
 //
-// When a second-device employee login replaces the old session:
+// Employee logs in on Device A
+//         |
+//         v
+// Device A gets active session
 //
-//     UpdateSecurityStampAsync(user)
+// Employee logs in on Device B
+//         |
+//         v
+// Existing Employee session is invalidated
+//         |
+//         v
+// Device B becomes the active session
 //
-// changes the user's security stamp.
-//
-// ValidationInterval = Zero means the old Identity cookie is
-// checked against the current security stamp on every request.
-//
-// Therefore the old browser/device becomes unauthorized
-// immediately instead of waiting for the normal interval.
+// ValidationInterval = Zero means the old Identity cookie
+// is checked against the current security stamp on every
+// request.
 //
 // ============================================================
 
@@ -307,24 +372,22 @@ builder.Services.Configure<
 // EMPLOYEE SINGLE-SESSION SIGN-IN MANAGER
 // ============================================================
 //
-// The application intentionally does NOT create:
+// No custom Login.cshtml is required.
 //
-//     Areas/Identity/Pages/Account/Login.cshtml
+// The built-in ASP.NET Core Identity login UI is used.
 //
-// The built-in ASP.NET Core Identity Login UI is being used.
+// Employee:
+//     One active session.
 //
-// Therefore the custom SignInManager intercepts the real
-// PasswordSignInAsync() pipeline.
+// Admin:
+//     Multiple sessions.
 //
-// Employee-only accounts:
+// SuperAdmin:
+//     Multiple sessions.
 //
-//     ONE active session
+// The custom SignInManager handles employee session
+// replacement during PasswordSignInAsync().
 //
-// Admin / SuperAdmin:
-//
-//     Multiple sessions allowed
-//
-// ============================================================
 
 builder.Services.AddScoped<
     SignInManager<IdentityUser>,
@@ -340,17 +403,20 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(
         "EmployeeOnly",
         p =>
-            p.RequireRole("Employee"))
+            p.RequireRole(
+                "Employee"))
 
     .AddPolicy(
         "AdminOnly",
         p =>
-            p.RequireRole("Admin"))
+            p.RequireRole(
+                "Admin"))
 
     .AddPolicy(
         "SuperOnly",
         p =>
-            p.RequireRole("SuperAdmin"))
+            p.RequireRole(
+                "SuperAdmin"))
 
     .AddPolicy(
         "AdminOrSuper",
@@ -446,6 +512,38 @@ var app =
 
 
 // ============================================================
+// REQUEST LOCALIZATION
+// ============================================================
+//
+// IMPORTANT:
+// This MUST be after builder.Build().
+//
+// The previous file had this middleware before `var app`,
+// which is incorrect.
+//
+
+app.UseRequestLocalization(
+    new RequestLocalizationOptions
+    {
+        DefaultRequestCulture =
+            new RequestCulture(
+                BusinessCultureName),
+
+        SupportedCultures =
+            new[]
+            {
+                businessCulture
+            },
+
+        SupportedUICultures =
+            new[]
+            {
+                businessCulture
+            }
+    });
+
+
+// ============================================================
 // SIGNALR HUB
 // ============================================================
 
@@ -465,7 +563,8 @@ try
 
     var db =
         scope.ServiceProvider
-            .GetRequiredService<AppDbContext>();
+            .GetRequiredService<
+                AppDbContext>();
 
 
     db.Database.Migrate();
@@ -592,75 +691,140 @@ app.UseHangfireDashboard(
 // ============================================================
 // RECURRING JOBS
 // ============================================================
+//
+// ALL JOBS USE INDIA TIME.
+//
+// DO NOT USE:
+//
+//     TimeZoneInfo.Local
+//
+// because Render/Linux may be UTC.
+//
+// ============================================================
+
+
+// ============================================================
+// DAILY ABSENCE
+// ============================================================
 
 recurringJobManager.AddOrUpdate<
     AutomatedJobsService>(
     "mark-daily-absences",
+
     s =>
         s.MarkYesterdayAbsencesAsync(),
+
     "5 9 * * *",
+
     new RecurringJobOptions
     {
         TimeZone =
-            TimeZoneInfo.Local
+            businessTimeZone
     });
 
+
+// ============================================================
+// MONTHLY LEAVE ACCRUAL
+// ============================================================
 
 recurringJobManager.AddOrUpdate<
     LeaveAccrualService>(
     "monthly-leave-accrual",
+
     s =>
         s.RunMonthlyAccrualAsync(),
+
     "0 0 1 * *",
+
     new RecurringJobOptions
     {
         TimeZone =
-            TimeZoneInfo.Local
+            businessTimeZone
     });
 
+
+// ============================================================
+// YEAR-END SUMMARY
+// ============================================================
 
 recurringJobManager.AddOrUpdate<
     YearEndSummaryService>(
     "annual-yearend-summary",
+
     s =>
         s.RunYearEndConsolidationAsync(
-            DateTime.Now.Year - 1),
+            TimeZoneInfo
+                .ConvertTimeFromUtc(
+                    DateTime.UtcNow,
+                    businessTimeZone)
+                .Year - 1),
+
     "0 1 1 1 *",
+
     new RecurringJobOptions
     {
         TimeZone =
-            TimeZoneInfo.Local
+            businessTimeZone
     });
 
+
+// ============================================================
+// MONTHLY ROSTER GENERATION
+// ============================================================
+//
+// IMPORTANT:
+// DateTime.Now has been removed.
+//
+// The dates are explicitly calculated in India timezone.
+//
 
 recurringJobManager.AddOrUpdate<
     RosteringService>(
     "monthly-roster-generation",
+
     s =>
         s.GenerateScheduleFromPatternsAsync(
             DateOnly.FromDateTime(
-                DateTime.Now.Date),
+                TimeZoneInfo
+                    .ConvertTimeFromUtc(
+                        DateTime.UtcNow,
+                        businessTimeZone)
+                    .Date),
 
             DateOnly.FromDateTime(
-                DateTime.Now.Date.AddDays(30))),
+                TimeZoneInfo
+                    .ConvertTimeFromUtc(
+                        DateTime.UtcNow,
+                        businessTimeZone)
+                    .Date
+                    .AddDays(30))),
+
     "15 0 1 * *",
+
     new RecurringJobOptions
     {
         TimeZone =
-            TimeZoneInfo.Local
+            businessTimeZone
     });
 
+
+// ============================================================
+// WEEKLY SHIFT ROTATION
+// ============================================================
 
 recurringJobManager.AddOrUpdate<
     RosteringService>(
     "weekly-shift-rotation",
+
     s =>
         s.RunShiftRotationJobAsync(),
+
     "0 2 * * 0",
+
     new RecurringJobOptions
     {
         TimeZone =
-            TimeZoneInfo.Local
+            businessTimeZone
     });
 
 
@@ -703,7 +867,8 @@ async Task SeedRolesAsync(
 
     foreach (var role in roles)
     {
-        if (!await roleMgr.RoleExistsAsync(role))
+        if (!await roleMgr.RoleExistsAsync(
+                role))
         {
             await roleMgr.CreateAsync(
                 new IdentityRole(role));
@@ -725,7 +890,9 @@ async Task SeedCompanySettingsAsync(
 
 
     if (!await db.CompanySettings
-        .AnyAsync(x => x.SettingID == 1))
+        .AnyAsync(
+            x =>
+                x.SettingID == 1))
     {
         db.CompanySettings.Add(
             new CompanySetting
@@ -757,7 +924,9 @@ async Task SeedCompanySettingsAsync(
 
 
     if (!await db.FeatureSettings
-        .AnyAsync(x => x.Id == 1))
+        .AnyAsync(
+            x =>
+                x.Id == 1))
     {
         db.FeatureSettings.Add(
             new FeatureSettings
@@ -781,7 +950,6 @@ async Task SeedAdminUserAsync(
     var userMgr =
         sp.GetRequiredService<
             UserManager<IdentityUser>>();
-
 
     var roleMgr =
         sp.GetRequiredService<
@@ -808,7 +976,8 @@ async Task SeedAdminUserAsync(
 
     var firstUser =
         await userMgr.Users
-            .OrderBy(u => u.UserName)
+            .OrderBy(
+                u => u.UserName)
             .FirstOrDefaultAsync();
 
 
@@ -831,7 +1000,6 @@ async Task EnsureEmployeeRoleForAllUsers(
     var userMgr =
         sp.GetRequiredService<
             UserManager<IdentityUser>>();
-
 
     var roleMgr =
         sp.GetRequiredService<
