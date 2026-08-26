@@ -756,11 +756,11 @@
                         Math.Max(
                             0,
                             x.EarnedStandardHours) +
-                        (decimal)
-                        Math.Max(
-                            TimeSpan.Zero,
-                            x.TotalOvertimeDuration)
-                        .TotalHours);
+                        (decimal)(
+    x.TotalOvertimeDuration > TimeSpan.Zero
+        ? x.TotalOvertimeDuration
+        : TimeSpan.Zero
+).TotalHours);
 
             cumulative =
                 new CompanyCumulativeSummary
