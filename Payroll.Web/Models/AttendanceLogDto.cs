@@ -15,9 +15,10 @@ namespace Payroll.Web.Models
         public TimeSpan ScheduledShiftDuration { get; set; }
 
         // --- Worked & OT ---
+        public TimeSpan ShiftWorkedDuration { get; set; }
         public decimal FinalWorkedHours { get; set; }
         public TimeSpan OvertimeDuration { get; set; }
-
+       
         // --- Penalties ---
         public TimeSpan TotalPenalty { get; set; }
         public TimeSpan LatenessDuration { get; set; }

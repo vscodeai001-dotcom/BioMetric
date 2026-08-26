@@ -68,12 +68,13 @@
     </div>
 </div>
 
-<AttendanceFilterBar Employees="employees"
-                     @bind-SelectedEmployeeId="selectedEmployeeId"
-                     @bind-StartDate="startDate"
-                     @bind-EndDate="endDate"
-                     IsLoading="isLoading"
-                     OnSearch="@(() => LoadLogs(autoProcessNewPunches: true))" />
+<AttendanceFilterBar
+    Employees="employees"
+    @bind-SelectedEmployeeId="selectedEmployeeId"
+    @bind-StartDate="startDate"
+    @bind-EndDate="endDate"
+    IsLoading="isLoading"
+    OnSearch="@(() => LoadLogs(autoProcessNewPunches: true))" />
 
 @if (cumulative != null)
 {
@@ -92,78 +93,80 @@
                     <span class="fs-5"
                           style="color:#663399;">
                         @FormatTime(
-                        cumulative.TotalScheduledHours)
-                </span>
+                            cumulative.TotalScheduledHours)
+                    </span>
+                </div>
+
+                <div class="col border-end">
+                    <h6 class="fw-bold text-success mb-1">
+                        Worked
+                    </h6>
+
+                    <span class="fs-5 text-success fw-bold">
+                        @FormatDecimalHoursToTime(
+                            cumulative.TotalWorkedHours)
+                    </span>
+                </div>
+
+                <div class="col border-end">
+                    <h6 class="fw-bold text-primary mb-1">
+                        OT
+                    </h6>
+
+                    <span class="fs-5 text-primary">
+                        @FormatTime(
+                            cumulative.TotalOvertime)
+                    </span>
+                </div>
+
+                <div class="col border-end">
+                    <h6 class="fw-bold text-danger mb-1">
+                        Penalty
+                    </h6>
+
+                    <span class="fs-5 text-danger">
+                        @FormatTime(
+                            cumulative.TotalOverallPenalty)
+                    </span>
+                </div>
+
+                <div class="col border-end">
+                    <h6 class="fw-bold text-warning mb-1">
+                        Lateness
+                    </h6>
+
+                    <span class="fs-5 text-warning">
+                        @FormatTime(
+                            cumulative.TotalLateness)
+                    </span>
+                </div>
+
+                <div class="col">
+                    <h6 class="fw-bold text-warning mb-1">
+                        Break Pen.
+                    </h6>
+
+                    <span class="fs-5 text-warning">
+                        @FormatTime(
+                            cumulative.TotalBreakPenalty)
+                    </span>
+                </div>
+
             </div>
-
-            <div class="col border-end">
-                <h6 class="fw-bold text-success mb-1">
-                    Worked
-                </h6>
-
-                <span class="fs-5 text-success fw-bold">
-                    @FormatDecimalHoursToTime(
-                                        cumulative.TotalWorkedHours)
-                </span>
-            </div>
-
-            <div class="col border-end">
-                <h6 class="fw-bold text-primary mb-1">
-                    OT
-                </h6>
-
-                <span class="fs-5 text-primary">
-                    @FormatTime(
-                                        cumulative.TotalOvertime)
-                </span>
-            </div>
-
-            <div class="col border-end">
-                <h6 class="fw-bold text-danger mb-1">
-                    Penalty
-                </h6>
-
-                <span class="fs-5 text-danger">
-                    @FormatTime(
-                                        cumulative.TotalOverallPenalty)
-                </span>
-            </div>
-
-            <div class="col border-end">
-                <h6 class="fw-bold text-warning mb-1">
-                    Lateness
-                </h6>
-
-                <span class="fs-5 text-warning">
-                    @FormatTime(
-                                        cumulative.TotalLateness)
-                </span>
-            </div>
-
-            <div class="col">
-                <h6 class="fw-bold text-warning mb-1">
-                    Break Pen.
-                </h6>
-
-                <span class="fs-5 text-warning">
-                    @FormatTime(
-                                        cumulative.TotalBreakPenalty)
-                </span>
-            </div>
-
         </div>
     </div>
-</div>
 }
 
-<AttendanceLogTable Logs="logs"
-                    IsLoading="isLoading"
-                    OnCorrect="OpenCorrectionDrawer" />
+<AttendanceLogTable
+    Logs="logs"
+    IsLoading="isLoading"
+    OnCorrect="OpenCorrectionDrawer" />
 
-<AttendanceCorrectionDrawer Show="showDrawer"
-                            Record="selectedRecord"
-                            OnClose="CloseDrawer"
-                            OnSaved="@(() => LoadLogs(autoProcessNewPunches: true))" />
+<AttendanceCorrectionDrawer
+    Show="showDrawer"
+    Record="selectedRecord"
+    OnClose="CloseDrawer"
+    OnSaved="@(() => LoadLogs(autoProcessNewPunches: true))" />
 
 @code
 {
@@ -715,6 +718,10 @@
 
                                     OvertimeDuration =
                                         overtime,
+
+                                    ShiftWorkedDuration =
+                                        TimeSpan.FromHours(
+                                              (double)standardHours),
 
                                     FinalWorkedHours =
                                         finalWorkedHours
