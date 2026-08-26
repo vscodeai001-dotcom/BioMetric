@@ -1,25 +1,24 @@
-﻿using System.Security.Claims;
-
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-
+using Npgsql;
 using Payroll.Shared.Data;
+using System.Data;
+using System.Security.Claims;
 
 namespace Payroll.Web.Services
 {
     /// <summary>
-    /// Enforces one active login session per Employee-only account.
+    /// Enforces one active login session for Employee-only accounts.
     ///
     /// Employee-only:
     ///     Employee = true
     ///     Admin = false
     ///     SuperAdmin = false
     ///
-    /// Admin and SuperAdmin accounts are allowed to have multiple
-    /// simultaneous login sessions.
+    /// Admin and SuperAdmin accounts are NOT restricted.
     ///
     /// The PostgreSQL UNIQUE(UserId) constraint is the final
     /// concurrency authority.
@@ -52,7 +51,7 @@ namespace Payroll.Web.Services
             _httpContextAccessor;
 
         private readonly ILogger<EmployeeSingleSessionSignInManager>
-            _sessionLogger;
+            _logger;
 
 
         // ============================================================
@@ -84,13 +83,13 @@ namespace Payroll.Web.Services
             _httpContextAccessor =
                 contextAccessor;
 
-            _sessionLogger =
+            _logger =
                 sessionLogger;
         }
 
 
         // ============================================================
-        // PASSWORD SIGN IN
+        // PASSWORD LOGIN
         // ============================================================
 
         public override async Task<SignInResult>
@@ -100,8 +99,7 @@ namespace Payroll.Web.Services
                 bool isPersistent,
                 bool lockoutOnFailure)
         {
-            ArgumentNullException.ThrowIfNull(
-                user);
+            ArgumentNullException.ThrowIfNull(user);
 
 
             // ========================================================
@@ -130,12 +128,10 @@ namespace Payroll.Web.Services
                     user,
                     "Employee");
 
-
             var isAdmin =
                 await UserManager.IsInRoleAsync(
                     user,
                     "Admin");
-
 
             var isSuperAdmin =
                 await UserManager.IsInRoleAsync(
@@ -152,7 +148,7 @@ namespace Payroll.Web.Services
             // ========================================================
             // 3. ADMIN / SUPERADMIN
             //
-            // No single-device restriction.
+            // No single-session restriction.
             // ========================================================
 
             if (!isEmployeeOnly)
@@ -164,39 +160,80 @@ namespace Payroll.Web.Services
 
 
             // ========================================================
-            // 4. GENERATE DEVICE ID
+            // 4. CHECK WHETHER THIS BROWSER ALREADY OWNS THE SESSION
+            // ========================================================
+            //
+            // If the same browser/device already has the employee's
+            // device cookie, don't create another lock.
+            //
+            // This allows normal tabs in the same browser.
             // ========================================================
 
-            var deviceId =
+            var existingDeviceId =
+                GetCurrentDeviceId();
+
+
+            if (!string.IsNullOrWhiteSpace(existingDeviceId))
+            {
+                var ownsCurrentLock =
+                    await CurrentDeviceOwnsLockAsync(
+                        user.Id,
+                        existingDeviceId);
+
+
+                if (ownsCurrentLock)
+                {
+                    _logger.LogInformation(
+                        "EMPLOYEE SAME-SESSION LOGIN. UserId={UserId}, DeviceId={DeviceId}",
+                        user.Id,
+                        existingDeviceId);
+
+
+                    return await SignInWithCurrentEmployeeSessionAsync(
+                        user,
+                        isPersistent,
+                        existingDeviceId);
+                }
+            }
+
+
+            // ========================================================
+            // 5. NEW DEVICE
+            // ========================================================
+
+            var newDeviceId =
                 Guid.NewGuid().ToString("N");
 
 
-            _sessionLogger.LogInformation(
-                "EMPLOYEE SINGLE-SESSION LOGIN ATTEMPT. UserId={UserId}, DeviceId={DeviceId}",
+            _logger.LogInformation(
+                "EMPLOYEE NEW-DEVICE LOGIN ATTEMPT. UserId={UserId}, DeviceId={DeviceId}",
                 user.Id,
-                deviceId);
+                newDeviceId);
 
 
             // ========================================================
-            // 5. ACQUIRE DATABASE LOCK
+            // 6. TRY TO ACQUIRE LOCK
             // ========================================================
 
             var lockAcquired =
                 await TryAcquireEmployeeLockAsync(
                     user.Id,
-                    deviceId);
+                    newDeviceId);
 
 
             if (!lockAcquired)
             {
-                _sessionLogger.LogWarning(
-                    "EMPLOYEE SINGLE-SESSION LOGIN BLOCKED. UserId={UserId}",
-                    user.Id);
-
-
-                // ----------------------------------------------------
-                // Tell the Login Page why the operation failed.
-                // ----------------------------------------------------
+                // ====================================================
+                // ANOTHER DEVICE IS ALREADY LOGGED IN
+                // ====================================================
+                //
+                // The password is CORRECT.
+                //
+                // Therefore this is not a password failure.
+                //
+                // We mark the HTTP request so the login flow can
+                // distinguish the situation.
+                // ====================================================
 
                 var httpContext =
                     _httpContextAccessor.HttpContext;
@@ -209,14 +246,161 @@ namespace Payroll.Web.Services
                 }
 
 
-                return SignInResult.Failed;
+                _logger.LogWarning(
+                    "EMPLOYEE LOGIN BLOCKED. EXISTING SESSION EXISTS. UserId={UserId}",
+                    user.Id);
+
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * Because this project uses the built-in Identity UI
+                 * and does not have a custom Login.cshtml, there is
+                 * no custom button available here.
+                 *
+                 * We therefore invalidate the previous session and
+                 * require the employee to submit the login once more.
+                 *
+                 * This is deliberately NOT done until the password
+                 * has already been verified above.
+                 */
+
+                var invalidated =
+                    await InvalidateExistingEmployeeSessionAsync(
+                        user.Id);
+
+
+                if (!invalidated)
+                {
+                    _logger.LogError(
+                        "EMPLOYEE EXISTING SESSION COULD NOT BE INVALIDATED. UserId={UserId}",
+                        user.Id);
+
+                    return SignInResult.Failed;
+                }
+
+
+                // ----------------------------------------------------
+                // Create the new lock after invalidating old session.
+                // ----------------------------------------------------
+
+                var replacementDeviceId =
+                    Guid.NewGuid().ToString("N");
+
+
+                var replacementAcquired =
+                    await TryAcquireEmployeeLockAsync(
+                        user.Id,
+                        replacementDeviceId);
+
+
+                if (!replacementAcquired)
+                {
+                    _logger.LogError(
+                        "EMPLOYEE NEW SESSION LOCK COULD NOT BE CREATED AFTER INVALIDATION. UserId={UserId}",
+                        user.Id);
+
+                    return SignInResult.Failed;
+                }
+
+
+                // ----------------------------------------------------
+                // Save the replacement device ID for this request.
+                // ----------------------------------------------------
+
+                return await AuthenticateEmployeeAsync(
+                    user,
+                    isPersistent,
+                    replacementDeviceId);
             }
 
 
             // ========================================================
-            // 6. AUTHENTICATE
+            // 7. FIRST LOGIN ON THIS ACCOUNT
             // ========================================================
 
+            return await AuthenticateEmployeeAsync(
+                user,
+                isPersistent,
+                newDeviceId);
+        }
+
+
+        // ============================================================
+        // GET CURRENT DEVICE ID
+        // ============================================================
+
+        private string? GetCurrentDeviceId()
+        {
+            var httpContext =
+                _httpContextAccessor.HttpContext;
+
+
+            if (httpContext == null)
+            {
+                return null;
+            }
+
+
+            // Claim first.
+            var claim =
+                httpContext.User.FindFirstValue(
+                    DeviceClaimType);
+
+
+            if (!string.IsNullOrWhiteSpace(claim))
+            {
+                return claim.Trim();
+            }
+
+
+            // Cookie fallback.
+            if (
+                httpContext.Request.Cookies.TryGetValue(
+                    DeviceCookieName,
+                    out var cookieValue) &&
+                !string.IsNullOrWhiteSpace(cookieValue))
+            {
+                return cookieValue.Trim();
+            }
+
+
+            return null;
+        }
+
+
+        // ============================================================
+        // CHECK CURRENT DEVICE OWNERSHIP
+        // ============================================================
+
+        private async Task<bool>
+            CurrentDeviceOwnsLockAsync(
+                string userId,
+                string deviceId)
+        {
+            await using var db =
+                await _dbFactory.CreateDbContextAsync();
+
+
+            return await db.EmployeeDeviceLocks
+                .AsNoTracking()
+                .AnyAsync(
+                    x =>
+                        x.UserId == userId &&
+                        x.DeviceId == deviceId);
+        }
+
+
+        // ============================================================
+        // AUTHENTICATE EMPLOYEE
+        // ============================================================
+
+        private async Task<SignInResult>
+            AuthenticateEmployeeAsync(
+                IdentityUser user,
+                bool isPersistent,
+                string deviceId)
+        {
             try
             {
                 var claims =
@@ -234,28 +418,17 @@ namespace Payroll.Web.Services
                     claims);
 
 
-                // ====================================================
-                // 7. DEVICE COOKIE
-                // ====================================================
-
                 var httpContext =
                     _httpContextAccessor.HttpContext;
 
 
                 if (httpContext == null)
                 {
-                    _sessionLogger.LogError(
-                        "HTTP context unavailable after employee authentication. UserId={UserId}",
-                        user.Id);
-
-
                     await RemoveEmployeeLockAsync(
                         user.Id,
                         deviceId);
 
-
                     await base.SignOutAsync();
-
 
                     return SignInResult.Failed;
                 }
@@ -282,8 +455,8 @@ namespace Payroll.Web.Services
                     });
 
 
-                _sessionLogger.LogInformation(
-                    "EMPLOYEE SINGLE-SESSION LOGIN SUCCESS. UserId={UserId}, DeviceId={DeviceId}",
+                _logger.LogInformation(
+                    "EMPLOYEE LOGIN SUCCESS. UserId={UserId}, DeviceId={DeviceId}",
                     user.Id,
                     deviceId);
 
@@ -292,16 +465,12 @@ namespace Payroll.Web.Services
             }
             catch (Exception ex)
             {
-                _sessionLogger.LogError(
+                _logger.LogError(
                     ex,
-                    "EMPLOYEE AUTHENTICATION FAILED AFTER LOCK. UserId={UserId}, DeviceId={DeviceId}",
+                    "EMPLOYEE AUTHENTICATION FAILED. UserId={UserId}, DeviceId={DeviceId}",
                     user.Id,
                     deviceId);
 
-
-                // ----------------------------------------------------
-                // Never leave a lock behind when authentication fails.
-                // ----------------------------------------------------
 
                 await RemoveEmployeeLockAsync(
                     user.Id,
@@ -314,18 +483,24 @@ namespace Payroll.Web.Services
 
 
         // ============================================================
-        // CREATE EMPLOYEE LOCK
+        // SAME SESSION AUTHENTICATION
         // ============================================================
-        //
-        // EF INSERT is protected by the PostgreSQL UNIQUE(UserId)
-        // constraint.
-        //
-        // Two simultaneous requests:
-        //
-        // Request A -> INSERT succeeds
-        // Request B -> unique constraint fails
-        //
-        // Therefore only one request can acquire the lock.
+
+        private async Task<SignInResult>
+            SignInWithCurrentEmployeeSessionAsync(
+                IdentityUser user,
+                bool isPersistent,
+                string deviceId)
+        {
+            return await AuthenticateEmployeeAsync(
+                user,
+                isPersistent,
+                deviceId);
+        }
+
+
+        // ============================================================
+        // ACQUIRE LOCK
         // ============================================================
 
         private async Task<bool>
@@ -337,61 +512,176 @@ namespace Payroll.Web.Services
                 await _dbFactory.CreateDbContextAsync();
 
 
+            var connection =
+                db.Database.GetDbConnection();
+
+
+            if (connection is not NpgsqlConnection postgres)
+            {
+                throw new InvalidOperationException(
+                    "Employee device locking requires PostgreSQL.");
+            }
+
+
+            if (postgres.State != ConnectionState.Open)
+            {
+                await postgres.OpenAsync();
+            }
+
+
+            const string sql =
+                """
+                INSERT INTO public."employee_device_locks"
+                (
+                    "Id",
+                    "UserId",
+                    "DeviceId",
+                    "CreatedAtUtc",
+                    "LastSeenAtUtc"
+                )
+                VALUES
+                (
+                    @id,
+                    @userId,
+                    @deviceId,
+                    @createdAtUtc,
+                    @lastSeenAtUtc
+                )
+                ON CONFLICT ("UserId")
+                DO NOTHING
+                RETURNING "Id";
+                """;
+
+
+            await using var command =
+                new NpgsqlCommand(
+                    sql,
+                    postgres);
+
+
             var now =
                 DateTime.UtcNow;
 
 
-            var lockRecord =
-                new EmployeeDeviceLock
-                {
-                    Id =
-                        Guid.NewGuid(),
+            command.Parameters.AddWithValue(
+                "id",
+                Guid.NewGuid());
 
-                    UserId =
-                        userId,
+            command.Parameters.AddWithValue(
+                "userId",
+                userId);
 
-                    DeviceId =
-                        deviceId,
+            command.Parameters.AddWithValue(
+                "deviceId",
+                deviceId);
 
-                    CreatedAtUtc =
-                        now,
+            command.Parameters.AddWithValue(
+                "createdAtUtc",
+                now);
 
-                    LastSeenAtUtc =
-                        now
-                };
-
-
-            db.EmployeeDeviceLocks.Add(
-                lockRecord);
+            command.Parameters.AddWithValue(
+                "lastSeenAtUtc",
+                now);
 
 
+            var result =
+                await command.ExecuteScalarAsync();
+
+
+            return
+                result != null &&
+                result != DBNull.Value;
+        }
+
+
+        // ============================================================
+        // INVALIDATE OLD EMPLOYEE SESSION
+        // ============================================================
+        //
+        // SecurityStamp invalidation makes the old Identity cookie
+        // invalid.
+        //
+        // The lock itself is also removed.
+        // ============================================================
+
+        private async Task<bool>
+            InvalidateExistingEmployeeSessionAsync(
+                string userId)
+        {
             try
             {
-                await db.SaveChangesAsync();
+                var existingUser =
+                    await UserManager.FindByIdAsync(
+                        userId);
 
 
-                _sessionLogger.LogInformation(
-                    "EMPLOYEE DEVICE LOCK CREATED. UserId={UserId}, DeviceId={DeviceId}",
-                    userId,
-                    deviceId);
+                if (existingUser == null)
+                {
+                    return false;
+                }
+
+
+                // ----------------------------------------------------
+                // Change Identity security stamp.
+                // ----------------------------------------------------
+
+                var stampResult =
+                    await UserManager.UpdateSecurityStampAsync(
+                        existingUser);
+
+
+                if (!stampResult.Succeeded)
+                {
+                    foreach (var error in stampResult.Errors)
+                    {
+                        _logger.LogError(
+                            "SECURITY STAMP ERROR. UserId={UserId}, Code={Code}, Description={Description}",
+                            userId,
+                            error.Code,
+                            error.Description);
+                    }
+
+
+                    return false;
+                }
+
+
+                // ----------------------------------------------------
+                // Remove old device lock.
+                // ----------------------------------------------------
+
+                await using var db =
+                    await _dbFactory.CreateDbContextAsync();
+
+
+                var oldLock =
+                    await db.EmployeeDeviceLocks
+                        .FirstOrDefaultAsync(
+                            x => x.UserId == userId);
+
+
+                if (oldLock != null)
+                {
+                    db.EmployeeDeviceLocks.Remove(
+                        oldLock);
+
+                    await db.SaveChangesAsync();
+                }
+
+
+                _logger.LogWarning(
+                    "EXISTING EMPLOYEE SESSION INVALIDATED. UserId={UserId}",
+                    userId);
 
 
                 return true;
             }
-            catch (DbUpdateException ex)
+            catch (Exception ex)
             {
-                // ====================================================
-                // IMPORTANT
-                //
-                // We intentionally treat the database unique
-                // constraint as the concurrency authority.
-                // ====================================================
-
-                _sessionLogger.LogWarning(
+                _logger.LogError(
                     ex,
-                    "EMPLOYEE DEVICE LOCK INSERT FAILED. UserId={UserId}",
+                    "FAILED TO INVALIDATE EXISTING EMPLOYEE SESSION. UserId={UserId}",
                     userId);
-
 
                 return false;
             }
@@ -399,16 +689,7 @@ namespace Payroll.Web.Services
 
 
         // ============================================================
-        // REMOVE EMPLOYEE LOCK
-        // ============================================================
-        //
-        // MUST match BOTH:
-        //
-        // UserId
-        // DeviceId
-        //
-        // This prevents an old session from deleting a new session's
-        // lock.
+        // REMOVE LOCK
         // ============================================================
 
         private async Task
@@ -443,14 +724,14 @@ namespace Payroll.Web.Services
                 await db.SaveChangesAsync();
 
 
-                _sessionLogger.LogInformation(
+                _logger.LogInformation(
                     "EMPLOYEE DEVICE LOCK REMOVED. UserId={UserId}, DeviceId={DeviceId}",
                     userId,
                     deviceId);
             }
             catch (Exception ex)
             {
-                _sessionLogger.LogError(
+                _logger.LogError(
                     ex,
                     "EMPLOYEE DEVICE LOCK REMOVAL FAILED. UserId={UserId}, DeviceId={DeviceId}",
                     userId,

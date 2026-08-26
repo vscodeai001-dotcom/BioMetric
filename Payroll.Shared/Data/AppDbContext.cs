@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+
 using Payroll.Shared;
 using Payroll.Shared.Data;
 
@@ -97,7 +98,7 @@ public class AppDbContext
 
 
     // ============================================================
-    // EMPLOYEE SINGLE DEVICE LOCK
+    // EMPLOYEE SINGLE SESSION / DEVICE LOCK
     // ============================================================
 
     public DbSet<EmployeeDeviceLock>
@@ -117,9 +118,9 @@ public class AppDbContext
         base.OnModelCreating(builder);
 
 
-        // ============================================================
+        // ========================================================
         // ASP.NET IDENTITY KEYS
-        // ============================================================
+        // ========================================================
 
         builder.Entity<IdentityUser>()
             .HasKey(u => u.Id);
@@ -156,15 +157,19 @@ public class AppDbContext
             });
 
 
-        // ============================================================
-        // EMPLOYEE DEVICE LOCK
-        // ============================================================
+        // ========================================================
+        // EMPLOYEE SINGLE SESSION DEVICE LOCK
+        // ========================================================
 
         builder.Entity<EmployeeDeviceLock>(entity =>
         {
             entity.ToTable(
                 "employee_device_locks");
 
+
+            // ----------------------------------------------------
+            // PRIMARY KEY
+            // ----------------------------------------------------
 
             entity.HasKey(x => x.Id);
 
@@ -173,42 +178,73 @@ public class AppDbContext
                 .ValueGeneratedOnAdd();
 
 
+            // ----------------------------------------------------
+            // USER ID
+            // ----------------------------------------------------
+
             entity.Property(x => x.UserId)
                 .IsRequired()
                 .HasMaxLength(450);
 
+
+            // ----------------------------------------------------
+            // DEVICE ID
+            // ----------------------------------------------------
 
             entity.Property(x => x.DeviceId)
                 .IsRequired()
                 .HasMaxLength(200);
 
 
+            // ----------------------------------------------------
+            // CREATED TIME
+            // ----------------------------------------------------
+
             entity.Property(x => x.CreatedAtUtc)
                 .IsRequired();
 
+
+            // ----------------------------------------------------
+            // LAST SEEN TIME
+            // ----------------------------------------------------
 
             entity.Property(x => x.LastSeenAtUtc)
                 .IsRequired();
 
 
-            // ========================================================
-            // CRITICAL
+            // ====================================================
+            // CRITICAL SINGLE-SESSION RULE
+            // ====================================================
             //
-            // ONE AND ONLY ONE ACTIVE DEVICE PER USER
-            // ========================================================
+            // ONE USER = ONE ACTIVE EMPLOYEE SESSION
+            //
+            // This unique database constraint is the final
+            // concurrency authority.
+            //
+            // If two devices attempt to login simultaneously:
+            //
+            // Device A -> INSERT succeeds
+            // Device B -> ON CONFLICT -> no lock
+            //
+            // Therefore two active employee sessions cannot
+            // exist in this table.
+            // ====================================================
 
             entity.HasIndex(x => x.UserId)
                 .IsUnique();
 
 
-            // Device lookup.
+            // ----------------------------------------------------
+            // DEVICE LOOKUP
+            // ----------------------------------------------------
+
             entity.HasIndex(x => x.DeviceId);
         });
 
 
-        // ============================================================
+        // ========================================================
         // EMPLOYEE GPS LOCATION HISTORY
-        // ============================================================
+        // ========================================================
 
         builder.Entity<EmployeeLocationHistory>(entity =>
         {
@@ -276,9 +312,9 @@ public class AppDbContext
         });
 
 
-        // ============================================================
+        // ========================================================
         // EMPLOYEE GPS SESSION
-        // ============================================================
+        // ========================================================
 
         builder.Entity<EmployeeGpsSession>(entity =>
         {
@@ -321,6 +357,10 @@ public class AppDbContext
                 .HasDefaultValue(0d);
 
 
+            // ----------------------------------------------------
+            // ONE GPS SESSION ID MUST BE UNIQUE
+            // ----------------------------------------------------
+
             entity.HasIndex(x => x.SessionId)
                 .IsUnique();
 
@@ -345,18 +385,33 @@ public class AppDbContext
 // ====================================================================
 // EMPLOYEE DEVICE LOCK ENTITY
 // ====================================================================
+//
+// Represents the ONE currently active employee login session.
+//
+// IMPORTANT:
+// There should be at most one row for a UserId.
+//
+// Database enforcement is provided by:
+//
+//     UNIQUE(UserId)
+//
+// ====================================================================
 
 public class EmployeeDeviceLock
 {
     public Guid Id { get; set; }
 
+
     public string UserId { get; set; }
         = string.Empty;
+
 
     public string DeviceId { get; set; }
         = string.Empty;
 
+
     public DateTime CreatedAtUtc { get; set; }
+
 
     public DateTime LastSeenAtUtc { get; set; }
 }

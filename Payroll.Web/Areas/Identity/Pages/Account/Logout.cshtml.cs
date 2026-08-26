@@ -1,8 +1,11 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using System.Security.Claims;
+
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
+
 using Payroll.Shared.Data;
 
 namespace Payroll.Web.Areas.Identity.Pages.Account
@@ -13,10 +16,22 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         private const string DeviceCookieName =
             "BioMetric-Employee-Device";
 
-        private readonly SignInManager<IdentityUser> _signInManager;
-        private readonly UserManager<IdentityUser> _userManager;
-        private readonly IDbContextFactory<AppDbContext> _dbFactory;
-        private readonly ILogger<LogoutModel> _logger;
+        private const string DeviceClaimType =
+            "BioMetric-Employee-Device";
+
+
+        private readonly SignInManager<IdentityUser>
+            _signInManager;
+
+        private readonly UserManager<IdentityUser>
+            _userManager;
+
+        private readonly IDbContextFactory<AppDbContext>
+            _dbFactory;
+
+        private readonly ILogger<LogoutModel>
+            _logger;
+
 
         public LogoutModel(
             SignInManager<IdentityUser> signInManager,
@@ -30,12 +45,25 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             _logger = logger;
         }
 
+
+        // ============================================================
+        // GET
+        // ============================================================
+
         public IActionResult OnGet()
         {
             return RedirectToPage(
                 "/Account/Login",
-                new { area = "Identity" });
+                new
+                {
+                    area = "Identity"
+                });
         }
+
+
+        // ============================================================
+        // POST LOGOUT
+        // ============================================================
 
         public async Task<IActionResult> OnPostAsync(
             string? returnUrl = null)
@@ -43,20 +71,23 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             var user =
                 await _userManager.GetUserAsync(User);
 
+
             try
             {
                 if (user != null)
                 {
-                    await ReleaseEmployeeDeviceLockAsync(user);
+                    await ReleaseEmployeeDeviceLockAsync(
+                        user);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
-                    "Employee device lock cleanup failed during logout. UserId={UserId}",
+                    "EMPLOYEE DEVICE LOCK CLEANUP FAILED DURING LOGOUT. UserId={UserId}",
                     user?.Id);
             }
+
 
             try
             {
@@ -66,29 +97,43 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             {
                 _logger.LogError(
                     ex,
-                    "Identity sign-out failed. UserId={UserId}",
+                    "IDENTITY SIGN-OUT FAILED. UserId={UserId}",
                     user?.Id);
             }
 
+
             DeleteDeviceCookie();
+
 
             _logger.LogInformation(
                 "LOGOUT COMPLETED. UserId={UserId}",
                 user?.Id);
 
-            if (!string.IsNullOrWhiteSpace(returnUrl) &&
+
+            if (
+                !string.IsNullOrWhiteSpace(returnUrl) &&
                 Url.IsLocalUrl(returnUrl))
             {
                 return LocalRedirect(returnUrl);
             }
 
+
             return RedirectToPage(
                 "/Account/Login",
-                new { area = "Identity" });
+                new
+                {
+                    area = "Identity"
+                });
         }
 
-        private async Task ReleaseEmployeeDeviceLockAsync(
-            IdentityUser user)
+
+        // ============================================================
+        // RELEASE EMPLOYEE LOCK
+        // ============================================================
+
+        private async Task
+            ReleaseEmployeeDeviceLockAsync(
+                IdentityUser user)
         {
             var isEmployee =
                 await _userManager.IsInRoleAsync(
@@ -105,29 +150,60 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     user,
                     "SuperAdmin");
 
-            if (!isEmployee ||
+
+            // Admin / SuperAdmin are unrestricted.
+
+            if (
+                !isEmployee ||
                 isAdmin ||
                 isSuperAdmin)
             {
                 return;
             }
 
-            if (!Request.Cookies.TryGetValue(
+
+            // ========================================================
+            // CLAIM FIRST
+            // ========================================================
+
+            var deviceId =
+                User.FindFirstValue(
+                    DeviceClaimType);
+
+
+            // ========================================================
+            // COOKIE FALLBACK
+            // ========================================================
+
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                Request.Cookies.TryGetValue(
                     DeviceCookieName,
-                    out var deviceId) ||
-                string.IsNullOrWhiteSpace(deviceId))
+                    out deviceId);
+            }
+
+
+            if (string.IsNullOrWhiteSpace(deviceId))
             {
                 _logger.LogWarning(
-                    "LOGOUT: Device cookie missing. UserId={UserId}",
+                    "LOGOUT: Device identity unavailable. UserId={UserId}",
                     user.Id);
 
                 return;
             }
 
-            deviceId = deviceId.Trim();
+
+            deviceId =
+                deviceId.Trim();
+
+
+            // ========================================================
+            // REMOVE ONLY THIS DEVICE'S LOCK
+            // ========================================================
 
             await using var db =
                 await _dbFactory.CreateDbContextAsync();
+
 
             var lockRecord =
                 await db.EmployeeDeviceLocks
@@ -136,24 +212,35 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                             x.UserId == user.Id &&
                             x.DeviceId == deviceId);
 
+
             if (lockRecord == null)
             {
                 _logger.LogInformation(
-                    "LOGOUT: No matching device lock. UserId={UserId}",
-                    user.Id);
+                    "LOGOUT: No matching device lock. UserId={UserId}, DeviceId={DeviceId}",
+                    user.Id,
+                    deviceId);
 
                 return;
             }
 
-            db.EmployeeDeviceLocks.Remove(lockRecord);
+
+            db.EmployeeDeviceLocks.Remove(
+                lockRecord);
+
 
             await db.SaveChangesAsync();
+
 
             _logger.LogInformation(
                 "EMPLOYEE DEVICE LOCK RELEASED. UserId={UserId}, DeviceId={DeviceId}",
                 user.Id,
                 deviceId);
         }
+
+
+        // ============================================================
+        // DELETE DEVICE COOKIE
+        // ============================================================
 
         private void DeleteDeviceCookie()
         {
@@ -162,9 +249,14 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 new CookieOptions
                 {
                     HttpOnly = true,
+
                     Secure = true,
-                    SameSite = SameSiteMode.Lax,
+
+                    SameSite =
+                        SameSiteMode.Lax,
+
                     IsEssential = true,
+
                     Path = "/"
                 });
         }

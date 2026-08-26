@@ -27,11 +27,14 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         public const string DeviceClaimType =
             "BioMetric-Employee-Device";
 
-        private const string AlreadyLoggedInMessage =
-            "This employee account is already logged in on another device or browser. Please log out from the active session before logging in here.";
-
         private const string InvalidLoginMessage =
             "Invalid email or password.";
+
+        private const string AlreadyLoggedInMessage =
+            "This employee is already logged in on another device or browser.";
+
+        private const string ForceLogoutInstruction =
+            "Log out from the existing session before continuing on this device.";
 
 
         // ============================================================
@@ -61,17 +64,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             IDbContextFactory<AppDbContext> dbFactory,
             ILogger<LoginModel> logger)
         {
-            _signInManager =
-                signInManager;
-
-            _userManager =
-                userManager;
-
-            _dbFactory =
-                dbFactory;
-
-            _logger =
-                logger;
+            _signInManager = signInManager;
+            _userManager = userManager;
+            _dbFactory = dbFactory;
+            _logger = logger;
         }
 
 
@@ -80,26 +76,29 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         // ============================================================
 
         [BindProperty]
-        public InputModel Input
-        {
-            get;
-            set;
-        } = new();
+        public InputModel Input { get; set; } = new();
 
 
-        public string ReturnUrl
-        {
-            get;
-            set;
-        } = "/";
+        // ============================================================
+        // FORCE EXISTING SESSION LOGOUT
+        // ============================================================
+
+        [BindProperty]
+        public bool ForceLogoutExisting { get; set; }
 
 
-        [TempData]
-        public string? ErrorMessage
-        {
-            get;
-            set;
-        }
+        // ============================================================
+        // SHOW FORCE LOGOUT OPTION
+        // ============================================================
+
+        public bool ShowForceLogout { get; private set; }
+
+
+        // ============================================================
+        // RETURN URL
+        // ============================================================
+
+        public string ReturnUrl { get; set; } = "/";
 
 
         // ============================================================
@@ -109,37 +108,20 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         public class InputModel
         {
             [Required(
-                ErrorMessage =
-                    "Email is required.")]
+                ErrorMessage = "Email is required.")]
             [EmailAddress(
-                ErrorMessage =
-                    "Enter a valid email address.")]
-            public string Email
-            {
-                get;
-                set;
-            } = string.Empty;
+                ErrorMessage = "Enter a valid email address.")]
+            public string Email { get; set; } = string.Empty;
 
 
             [Required(
-                ErrorMessage =
-                    "Password is required.")]
-            [DataType(
-                DataType.Password)]
-            public string Password
-            {
-                get;
-                set;
-            } = string.Empty;
+                ErrorMessage = "Password is required.")]
+            [DataType(DataType.Password)]
+            public string Password { get; set; } = string.Empty;
 
 
-            [Display(
-                Name = "Remember me?")]
-            public bool RememberMe
-            {
-                get;
-                set;
-            }
+            [Display(Name = "Remember me")]
+            public bool RememberMe { get; set; } = true;
         }
 
 
@@ -147,23 +129,14 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         // GET
         // ============================================================
 
-        public void OnGet(
-            string? returnUrl = null)
+        public void OnGet(string? returnUrl = null)
         {
             ReturnUrl =
-                !string.IsNullOrWhiteSpace(
-                    returnUrl)
+                !string.IsNullOrWhiteSpace(returnUrl)
                     ? returnUrl
                     : "/";
 
-
-            if (!string.IsNullOrWhiteSpace(
-                    ErrorMessage))
-            {
-                ModelState.AddModelError(
-                    string.Empty,
-                    ErrorMessage);
-            }
+            Input.RememberMe = true;
         }
 
 
@@ -175,8 +148,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             string? returnUrl = null)
         {
             ReturnUrl =
-                !string.IsNullOrWhiteSpace(
-                    returnUrl)
+                !string.IsNullOrWhiteSpace(returnUrl)
                     ? returnUrl
                     : "/";
 
@@ -204,9 +176,12 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             // ========================================================
 
             var user =
-                await _userManager.FindByEmailAsync(
-                    email);
+                await _userManager.FindByEmailAsync(email);
 
+
+            // --------------------------------------------------------
+            // Do not reveal whether an account exists.
+            // --------------------------------------------------------
 
             if (user == null)
             {
@@ -217,11 +192,11 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
 
             // ========================================================
-            // ACCOUNT STATUS
+            // CONFIRMED EMAIL CHECK
             // ========================================================
 
-            if (!await _userManager.IsEmailConfirmedAsync(user)
-                &&
+            if (
+                !await _userManager.IsEmailConfirmedAsync(user) &&
                 _userManager.Options.SignIn.RequireConfirmedEmail)
             {
                 ModelState.AddModelError(
@@ -233,7 +208,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
 
             // ========================================================
-            // DETERMINE ROLES
+            // ROLE CHECK
             // ========================================================
 
             var isEmployee =
@@ -241,12 +216,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     user,
                     "Employee");
 
-
             var isAdmin =
                 await _userManager.IsInRoleAsync(
                     user,
                     "Admin");
-
 
             var isSuperAdmin =
                 await _userManager.IsInRoleAsync(
@@ -254,34 +227,20 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     "SuperAdmin");
 
 
-            // ========================================================
-            // EMPLOYEE-ONLY ACCOUNT
-            //
-            // Only an account that is:
-            //
-            // Employee
-            // AND NOT Admin
-            // AND NOT SuperAdmin
-            //
-            // is restricted to one active device.
-            // ========================================================
-
             var isEmployeeOnly =
                 isEmployee &&
                 !isAdmin &&
                 !isSuperAdmin;
 
 
-            string? deviceId = null;
-
-
             // ========================================================
             // VERIFY PASSWORD FIRST
+            // ========================================================
             //
-            // IMPORTANT:
+            // We NEVER allow a person to force logout an existing
+            // session without first proving the correct password.
             //
-            // We NEVER create the device lock before the password
-            // has been successfully verified.
+            // This is important.
             // ========================================================
 
             var passwordResult =
@@ -293,8 +252,11 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             if (passwordResult.IsLockedOut)
             {
-                return RedirectToPage(
-                    "./Lockout");
+                ModelState.AddModelError(
+                    string.Empty,
+                    "This account is temporarily locked. Please try again later.");
+
+                return Page();
             }
 
 
@@ -317,153 +279,226 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
 
             _logger.LogInformation(
-                "LOGIN PASSWORD VERIFIED. UserId={UserId}, Email={Email}, EmployeeOnly={EmployeeOnly}",
+                "LOGIN PASSWORD VERIFIED. UserId={UserId}, EmployeeOnly={EmployeeOnly}",
                 user.Id,
-                user.Email,
                 isEmployeeOnly);
 
 
             // ========================================================
-            // EMPLOYEE SINGLE-SESSION LOCK
+            // ADMIN / SUPERADMIN
+            //
+            // No single-session restriction.
             // ========================================================
 
-            if (isEmployeeOnly)
+            if (!isEmployeeOnly)
             {
-                deviceId =
-                    Guid.NewGuid().ToString("N");
-
-
-                _logger.LogInformation(
-                    "EMPLOYEE LOGIN LOCK ATTEMPT. UserId={UserId}, DeviceId={DeviceId}",
-                    user.Id,
-                    deviceId);
-
-
-                EmployeeLockResult lockResult;
-
                 try
-                {
-                    lockResult =
-                        await TryAcquireEmployeeLockAsync(
-                            user.Id,
-                            deviceId);
-                }
-                catch (Exception ex)
-                {
-                    // ------------------------------------------------
-                    // DATABASE FAILURE
-                    //
-                    // Do NOT tell the employee that another device
-                    // is logged in when the actual problem is the
-                    // database.
-                    // ------------------------------------------------
-
-                    _logger.LogError(
-                        ex,
-                        "EMPLOYEE LOGIN LOCK DATABASE ERROR. UserId={UserId}",
-                        user.Id);
-
-                    ModelState.AddModelError(
-                        string.Empty,
-                        "We could not verify your active login session. Please try again.");
-
-                    return Page();
-                }
-
-
-                // ----------------------------------------------------
-                // ANOTHER DEVICE ALREADY OWNS THE LOCK
-                // ----------------------------------------------------
-
-                if (lockResult ==
-                    EmployeeLockResult.AlreadyActive)
-                {
-                    _logger.LogWarning(
-                        "EMPLOYEE LOGIN BLOCKED. ANOTHER ACTIVE DEVICE EXISTS. UserId={UserId}",
-                        user.Id);
-
-
-                    ModelState.AddModelError(
-                        string.Empty,
-                        AlreadyLoggedInMessage);
-
-
-                    return Page();
-                }
-
-
-                // ----------------------------------------------------
-                // LOCK SUCCESSFULLY CREATED
-                // ----------------------------------------------------
-
-                _logger.LogInformation(
-                    "EMPLOYEE DEVICE LOCK ACQUIRED. UserId={UserId}, DeviceId={DeviceId}",
-                    user.Id,
-                    deviceId);
-            }
-
-
-            // ========================================================
-            // SIGN IN
-            // ========================================================
-
-            try
-            {
-                // ----------------------------------------------------
-                // EMPLOYEE
-                // ----------------------------------------------------
-
-                if (isEmployeeOnly &&
-                    !string.IsNullOrWhiteSpace(deviceId))
-                {
-                    var claims =
-                        new[]
-                        {
-                            new Claim(
-                                DeviceClaimType,
-                                deviceId)
-                        };
-
-
-                    await _signInManager.SignInWithClaimsAsync(
-                        user,
-                        Input.RememberMe,
-                        claims);
-                }
-
-                // ----------------------------------------------------
-                // ADMIN / SUPERADMIN
-                // ----------------------------------------------------
-
-                else
                 {
                     await _signInManager.SignInAsync(
                         user,
                         Input.RememberMe);
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "ADMIN/SUPERADMIN SIGN-IN FAILED. UserId={UserId}",
+                        user.Id);
+
+                    ModelState.AddModelError(
+                        string.Empty,
+                        "Unable to sign in. Please try again.");
+
+                    return Page();
+                }
+
+
+                _logger.LogInformation(
+                    "ADMIN/SUPERADMIN LOGIN SUCCESS. UserId={UserId}",
+                    user.Id);
+
+
+                if (
+                    !string.IsNullOrWhiteSpace(ReturnUrl) &&
+                    ReturnUrl != "/" &&
+                    Url.IsLocalUrl(ReturnUrl))
+                {
+                    return LocalRedirect(ReturnUrl);
+                }
+
+                return LocalRedirect("/");
+            }
+
+
+            // ========================================================
+            // EMPLOYEE LOGIN
+            // ========================================================
+
+            var deviceId =
+                Guid.NewGuid().ToString("N");
+
+
+            _logger.LogInformation(
+                "EMPLOYEE LOGIN ATTEMPT. UserId={UserId}, ForceLogout={ForceLogout}",
+                user.Id,
+                ForceLogoutExisting);
+
+
+            // ========================================================
+            // NORMAL LOGIN
+            // ========================================================
+
+            if (!ForceLogoutExisting)
+            {
+                var lockResult =
+                    await TryAcquireEmployeeLockAsync(
+                        user.Id,
+                        deviceId);
+
+
+                if (lockResult ==
+                    EmployeeLockResult.AlreadyActive)
+                {
+                    // ------------------------------------------------
+                    // IMPORTANT:
+                    //
+                    // Password is correct.
+                    //
+                    // This is NOT an invalid login.
+                    // Tell the employee exactly what is happening.
+                    // ------------------------------------------------
+
+                    ShowForceLogout = true;
+
+                    ModelState.AddModelError(
+                        string.Empty,
+                        AlreadyLoggedInMessage);
+
+                    ModelState.AddModelError(
+                        string.Empty,
+                        ForceLogoutInstruction);
+
+
+                    _logger.LogWarning(
+                        "EMPLOYEE LOGIN BLOCKED. EXISTING SESSION EXISTS. UserId={UserId}",
+                        user.Id);
+
+
+                    return Page();
+                }
+
+
+                if (lockResult !=
+                    EmployeeLockResult.Acquired)
+                {
+                    ModelState.AddModelError(
+                        string.Empty,
+                        "We could not start your employee session. Please try again.");
+
+                    return Page();
+                }
+            }
+
+
+            // ========================================================
+            // FORCE LOGOUT EXISTING SESSION
+            // ========================================================
+
+            else
+            {
+                _logger.LogWarning(
+                    "EMPLOYEE FORCE LOGIN REQUEST. UserId={UserId}",
+                    user.Id);
+
+
+                var replaced =
+                    await ForceReplaceEmployeeLockAsync(
+                        user.Id,
+                        deviceId);
+
+
+                if (!replaced)
+                {
+                    ModelState.AddModelError(
+                        string.Empty,
+                        "The existing session could not be replaced. Please try again.");
+
+                    return Page();
+                }
+
+
+                // ----------------------------------------------------
+                // CRITICAL:
+                //
+                // Change SecurityStamp so existing Identity cookies
+                // become invalid.
+                //
+                // Program.cs below sets validation interval to zero,
+                // so Identity checks the stamp on every request.
+                // ----------------------------------------------------
+
+                var stampResult =
+                    await _userManager.UpdateSecurityStampAsync(
+                        user);
+
+
+                if (!stampResult.Succeeded)
+                {
+                    _logger.LogError(
+                        "SECURITY STAMP UPDATE FAILED DURING FORCE LOGIN. UserId={UserId}",
+                        user.Id);
+
+
+                    await RemoveEmployeeLockAsync(
+                        user.Id,
+                        deviceId);
+
+
+                    ModelState.AddModelError(
+                        string.Empty,
+                        "The existing session could not be logged out safely. Please try again.");
+
+                    return Page();
+                }
+
+
+                _logger.LogWarning(
+                    "EXISTING EMPLOYEE SESSION INVALIDATED. UserId={UserId}",
+                    user.Id);
+            }
+
+
+            // ========================================================
+            // CREATE NEW AUTHENTICATION COOKIE
+            // ========================================================
+
+            try
+            {
+                var claims =
+                    new[]
+                    {
+                        new Claim(
+                            DeviceClaimType,
+                            deviceId)
+                    };
+
+
+                await _signInManager.SignInWithClaimsAsync(
+                    user,
+                    Input.RememberMe,
+                    claims);
             }
             catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
-                    "IDENTITY SIGN-IN FAILED. UserId={UserId}",
+                    "EMPLOYEE IDENTITY SIGN-IN FAILED. UserId={UserId}",
                     user.Id);
 
 
-                // ----------------------------------------------------
-                // CRITICAL CLEANUP
-                //
-                // If the database lock was acquired but Identity
-                // authentication failed, release the lock.
-                // ----------------------------------------------------
-
-                if (isEmployeeOnly &&
-                    !string.IsNullOrWhiteSpace(deviceId))
-                {
-                    await RemoveEmployeeLockAsync(
-                        user.Id,
-                        deviceId);
-                }
+                await RemoveEmployeeLockAsync(
+                    user.Id,
+                    deviceId);
 
 
                 ModelState.AddModelError(
@@ -478,69 +513,40 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             // DEVICE COOKIE
             // ========================================================
 
-            if (isEmployeeOnly &&
-                !string.IsNullOrWhiteSpace(deviceId))
-            {
-                Response.Cookies.Append(
-                    DeviceCookieName,
-                    deviceId,
-                    new CookieOptions
-                    {
-                        HttpOnly = true,
+            Response.Cookies.Append(
+                DeviceCookieName,
+                deviceId,
+                new CookieOptions
+                {
+                    HttpOnly = true,
 
-                        Secure = true,
+                    Secure = true,
 
-                        SameSite =
-                            SameSiteMode.Lax,
+                    SameSite =
+                        SameSiteMode.Lax,
 
-                        IsEssential = true,
+                    IsEssential = true,
 
-                        MaxAge =
-                            TimeSpan.FromDays(365),
+                    MaxAge =
+                        TimeSpan.FromDays(365),
 
-                        Path = "/"
-                    });
-            }
+                    Path = "/"
+                });
 
 
             // ========================================================
-            // SUCCESS LOG
+            // SUCCESS
             // ========================================================
 
             _logger.LogInformation(
-                "LOGIN SUCCESS. UserId={UserId}, Email={Email}, EmployeeOnly={EmployeeOnly}, DeviceId={DeviceId}",
+                "EMPLOYEE LOGIN SUCCESS. UserId={UserId}, DeviceId={DeviceId}, Forced={Forced}",
                 user.Id,
-                user.Email,
-                isEmployeeOnly,
-                deviceId);
+                deviceId,
+                ForceLogoutExisting);
 
 
-            // ========================================================
-            // EMPLOYEE
-            // ========================================================
-
-            if (isEmployeeOnly)
-            {
-                return LocalRedirect(
-                    "/employee-home");
-            }
-
-
-            // ========================================================
-            // ADMIN / SUPERADMIN
-            // ========================================================
-
-            if (!string.IsNullOrWhiteSpace(
-                    ReturnUrl) &&
-                ReturnUrl != "/" &&
-                Url.IsLocalUrl(ReturnUrl))
-            {
-                return LocalRedirect(
-                    ReturnUrl);
-            }
-
-
-            return LocalRedirect("/");
+            return LocalRedirect(
+                "/employee-home");
         }
 
 
@@ -551,32 +557,12 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         private enum EmployeeLockResult
         {
             Acquired,
-
             AlreadyActive
         }
 
 
         // ============================================================
-        // ATOMIC EMPLOYEE LOCK
-        // ============================================================
-        //
-        // PostgreSQL is the authority.
-        //
-        // The database MUST have:
-        //
-        // UNIQUE("UserId")
-        //
-        // We deliberately do NOT:
-        //
-        // SELECT -> check -> INSERT
-        //
-        // because that has a race condition.
-        //
-        // Instead:
-        //
-        // INSERT ... ON CONFLICT DO NOTHING
-        //
-        // means two simultaneous requests cannot both win.
+        // NORMAL LOCK ACQUISITION
         // ============================================================
 
         private async Task<EmployeeLockResult>
@@ -636,29 +622,25 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     postgres);
 
 
-            command.Parameters.AddWithValue(
-                "id",
-                Guid.NewGuid());
-
-
-            command.Parameters.AddWithValue(
-                "userId",
-                userId);
-
-
-            command.Parameters.AddWithValue(
-                "deviceId",
-                deviceId);
-
-
             var now =
                 DateTime.UtcNow;
 
 
             command.Parameters.AddWithValue(
+                "id",
+                Guid.NewGuid());
+
+            command.Parameters.AddWithValue(
+                "userId",
+                userId);
+
+            command.Parameters.AddWithValue(
+                "deviceId",
+                deviceId);
+
+            command.Parameters.AddWithValue(
                 "createdAtUtc",
                 now);
-
 
             command.Parameters.AddWithValue(
                 "lastSeenAtUtc",
@@ -669,31 +651,12 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 await command.ExecuteScalarAsync();
 
 
-            // ========================================================
-            // NULL
-            //
-            // PostgreSQL found an existing UserId.
-            // ========================================================
-
-            if (result == null ||
+            if (
+                result == null ||
                 result == DBNull.Value)
             {
-                _logger.LogWarning(
-                    "EMPLOYEE LOCK DENIED. UserId={UserId} already has an active device.",
-                    userId);
-
                 return EmployeeLockResult.AlreadyActive;
             }
-
-
-            // ========================================================
-            // LOCK CREATED
-            // ========================================================
-
-            _logger.LogInformation(
-                "EMPLOYEE LOCK CREATED. UserId={UserId}, DeviceId={DeviceId}",
-                userId,
-                deviceId);
 
 
             return EmployeeLockResult.Acquired;
@@ -701,25 +664,197 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
 
         // ============================================================
-        // REMOVE EMPLOYEE LOCK
+        // FORCE REPLACE LOCK
         // ============================================================
         //
-        // Both UserId AND DeviceId are required.
+        // This is ONLY called after:
         //
-        // This is important.
+        // 1. Correct password was supplied.
+        // 2. User explicitly clicked Force Logout.
         //
-        // An old browser/circuit must NEVER be able to delete a
-        // newer device's lock.
+        // It removes the old lock and creates the new one.
+        // ============================================================
+
+        private async Task<bool>
+            ForceReplaceEmployeeLockAsync(
+                string userId,
+                string newDeviceId)
+        {
+            await using var db =
+                await _dbFactory.CreateDbContextAsync();
+
+
+            var connection =
+                db.Database.GetDbConnection();
+
+
+            if (connection is not NpgsqlConnection postgres)
+            {
+                throw new InvalidOperationException(
+                    "Employee device locking requires PostgreSQL.");
+            }
+
+
+            if (postgres.State !=
+                ConnectionState.Open)
+            {
+                await postgres.OpenAsync();
+            }
+
+
+            await using var transaction =
+                await postgres.BeginTransactionAsync(
+                    IsolationLevel.Serializable);
+
+
+            try
+            {
+                // ----------------------------------------------------
+                // Remove current active session.
+                // ----------------------------------------------------
+
+                const string deleteSql =
+                    """
+                    DELETE FROM public."employee_device_locks"
+                    WHERE "UserId" = @userId;
+                    """;
+
+
+                await using (
+                    var deleteCommand =
+                        new NpgsqlCommand(
+                            deleteSql,
+                            postgres,
+                            transaction))
+                {
+                    deleteCommand.Parameters.AddWithValue(
+                        "userId",
+                        userId);
+
+                    await deleteCommand.ExecuteNonQueryAsync();
+                }
+
+
+                // ----------------------------------------------------
+                // Create new active session.
+                // ----------------------------------------------------
+
+                const string insertSql =
+                    """
+                    INSERT INTO public."employee_device_locks"
+                    (
+                        "Id",
+                        "UserId",
+                        "DeviceId",
+                        "CreatedAtUtc",
+                        "LastSeenAtUtc"
+                    )
+                    VALUES
+                    (
+                        @id,
+                        @userId,
+                        @deviceId,
+                        @createdAtUtc,
+                        @lastSeenAtUtc
+                    )
+                    ON CONFLICT ("UserId")
+                    DO NOTHING
+                    RETURNING "Id";
+                    """;
+
+
+                await using (
+                    var insertCommand =
+                        new NpgsqlCommand(
+                            insertSql,
+                            postgres,
+                            transaction))
+                {
+                    var now =
+                        DateTime.UtcNow;
+
+
+                    insertCommand.Parameters.AddWithValue(
+                        "id",
+                        Guid.NewGuid());
+
+                    insertCommand.Parameters.AddWithValue(
+                        "userId",
+                        userId);
+
+                    insertCommand.Parameters.AddWithValue(
+                        "deviceId",
+                        newDeviceId);
+
+                    insertCommand.Parameters.AddWithValue(
+                        "createdAtUtc",
+                        now);
+
+                    insertCommand.Parameters.AddWithValue(
+                        "lastSeenAtUtc",
+                        now);
+
+
+                    var result =
+                        await insertCommand.ExecuteScalarAsync();
+
+
+                    if (
+                        result == null ||
+                        result == DBNull.Value)
+                    {
+                        await transaction.RollbackAsync();
+
+                        return false;
+                    }
+                }
+
+
+                await transaction.CommitAsync();
+
+
+                _logger.LogWarning(
+                    "EMPLOYEE ACTIVE SESSION REPLACED. UserId={UserId}, NewDeviceId={DeviceId}",
+                    userId,
+                    newDeviceId);
+
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    await transaction.RollbackAsync();
+                }
+                catch
+                {
+                    // Ignore rollback failure.
+                }
+
+
+                _logger.LogError(
+                    ex,
+                    "EMPLOYEE FORCE SESSION REPLACEMENT FAILED. UserId={UserId}",
+                    userId);
+
+
+                return false;
+            }
+        }
+
+
+        // ============================================================
+        // REMOVE LOCK
         // ============================================================
 
         private async Task RemoveEmployeeLockAsync(
             string userId,
             string deviceId)
         {
-            if (string.IsNullOrWhiteSpace(
-                    userId) ||
-                string.IsNullOrWhiteSpace(
-                    deviceId))
+            if (
+                string.IsNullOrWhiteSpace(userId) ||
+                string.IsNullOrWhiteSpace(deviceId))
             {
                 return;
             }
@@ -731,56 +866,31 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     await _dbFactory.CreateDbContextAsync();
 
 
-                var connection =
-                    db.Database.GetDbConnection();
+                var lockRecord =
+                    await db.EmployeeDeviceLocks
+                        .FirstOrDefaultAsync(
+                            x =>
+                                x.UserId == userId &&
+                                x.DeviceId == deviceId);
 
 
-                if (connection is not NpgsqlConnection postgres)
+                if (lockRecord == null)
                 {
                     return;
                 }
 
 
-                if (postgres.State !=
-                    ConnectionState.Open)
-                {
-                    await postgres.OpenAsync();
-                }
+                db.EmployeeDeviceLocks.Remove(
+                    lockRecord);
 
 
-                const string sql =
-                    """
-                    DELETE FROM public."employee_device_locks"
-                    WHERE "UserId" = @userId
-                      AND "DeviceId" = @deviceId;
-                    """;
-
-
-                await using var command =
-                    new NpgsqlCommand(
-                        sql,
-                        postgres);
-
-
-                command.Parameters.AddWithValue(
-                    "userId",
-                    userId);
-
-
-                command.Parameters.AddWithValue(
-                    "deviceId",
-                    deviceId);
-
-
-                var deleted =
-                    await command.ExecuteNonQueryAsync();
+                await db.SaveChangesAsync();
 
 
                 _logger.LogInformation(
-                    "EMPLOYEE LOCK CLEANUP. UserId={UserId}, DeviceId={DeviceId}, Deleted={Deleted}",
+                    "EMPLOYEE LOCK REMOVED AFTER LOGIN FAILURE. UserId={UserId}, DeviceId={DeviceId}",
                     userId,
-                    deviceId,
-                    deleted);
+                    deviceId);
             }
             catch (Exception ex)
             {
