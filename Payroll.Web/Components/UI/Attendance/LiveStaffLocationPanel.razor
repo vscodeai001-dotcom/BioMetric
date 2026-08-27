@@ -2,11 +2,20 @@
 @using global::Payroll.Shared.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.JSInterop
+
 @implements IAsyncDisposable
 
 @inject IJSRuntime JSRuntime
 @inject LocationHistoryService LocationHistoryService
 @inject IDbContextFactory<AppDbContext> DbFactory
+
+
+<!-- ================================================================
+     REAL-TIME LOCATION SIGNALR LISTENER
+     ================================================================ -->
+
+<AttendanceRefreshListener OnLocationChanged="HandleLocationChanged" />
+
 
 <div class="live-staff-card card border-0 shadow-sm mb-4">
 
@@ -67,9 +76,17 @@
             @if (liveCount == 0)
             {
                 <div class="map-empty-overlay">
+
                     <i class="bi bi-geo-alt display-6 text-muted"></i>
-                    <span>No live staff locations</span>
-                    <small>Staff location will appear when live tracking is active.</small>
+
+                    <span>
+                        No live staff locations
+                    </span>
+
+                    <small>
+                        Staff location will appear when live tracking is active.
+                    </small>
+
                 </div>
             }
 
@@ -141,7 +158,8 @@
                                     <span>
                                         <i class="bi bi-play-circle me-1"></i>
                                         Started
-                                        @ToLocalTime(location.SessionStartedUtc).ToString("HH:mm:ss")
+                                        @ToLocalTime(location.SessionStartedUtc)
+                                        .ToString("HH:mm:ss")
                                     </span>
 
                                     <span>
@@ -156,16 +174,19 @@
                                     <i class="bi bi-clock me-1"></i>
 
                                     Updated
-                                    @ToLocalTime(location.LastUpdatedUtc).ToString("HH:mm:ss")
+                                    @ToLocalTime(location.LastUpdatedUtc)
+                                    .ToString("HH:mm:ss")
 
                                 </small>
                                         }
                             else
                             {
                                 <div class="staff-location-details text-muted">
+
                                     <span>
                                         No live location
                                     </span>
+
                                 </div>
                             }
 
@@ -208,7 +229,8 @@
 @if (selectedEmployeeId > 0)
 {
     var selectedEmployee =
-        employees.FirstOrDefault(e => e.EmployeeID == selectedEmployeeId);
+        employees.FirstOrDefault(
+            e => e.EmployeeID == selectedEmployeeId);
 
     var selectedLocation =
         GetLocation(selectedEmployeeId);
@@ -264,74 +286,111 @@
 
                     <div class="live-detail-box">
                         <span>Tracking started</span>
+
                         <strong>
-                            @(ToLocalTime(selectedLocation.SessionStartedUtc)
+                            @(ToLocalTime(
+                                            selectedLocation.SessionStartedUtc)
                                             .ToString("dd MMM yyyy HH:mm:ss"))
-                                                                          </strong>
-                                                                      </div>
+            </strong>
+        </div>
+
 
                     <div class="live-detail-box">
+
                         <span>Tracking duration</span>
-                        <strong>
-                            @FormatDuration(GetSessionDuration(selectedLocation))
-                        </strong>
-                    </div>
 
-                    <div class="live-detail-box">
-                        <span>Last GPS update</span>
                         <strong>
-                            @(ToLocalTime(selectedLocation.LastUpdatedUtc)
-                                            .ToString("HH:mm:ss"))
+                            @FormatDuration(
+                                GetSessionDuration(selectedLocation))
             </strong>
+
         </div>
 
+
+        <div class="live-detail-box">
+
+            <span>Last GPS update</span>
+
+            <strong>
+                @(ToLocalTime(
+                                selectedLocation.LastUpdatedUtc)
+                                .ToString("HH:mm:ss"))
+            </strong>
+
+                    </div>
+
+
                     <div class="live-detail-box">
+
                         <span>Distance from office</span>
+
                         <strong>
-                            @FormatDistance(selectedLocation.DistanceMeters)
-                        </strong>
-                    </div>
-                    <div class="live-detail-box">
-                        <span>GPS accuracy</span>
-                        <strong>
-                            @FormatAccuracy(selectedLocation.AccuracyMeters)
-                        </strong>
-                    </div>
-                    <div class="live-detail-box">
-                        <span>Allowed radius</span>
-                        <strong>
-                            @selectedLocation.AllowedRadiusMeters m
-                        </strong>
-                    </div>
-
-                    <div class="live-detail-box">
-                        <span>Geofence status</span>
-
-                        <strong class="@(selectedLocation.IsWithinAllowedRadius
-                                                                                                                                                                                            ? "text-success"
-                                                                                                                                                                                            : "text-danger")">
-
-                            @(selectedLocation.IsWithinAllowedRadius
-                                            ? "Within allowed range"
-                                            : "Outside allowed range")
-
+                            @FormatDistance(
+                                selectedLocation.DistanceMeters)
             </strong>
+
         </div>
 
+
+        <div class="live-detail-box">
+
+            <span>GPS accuracy</span>
+
+            <strong>
+                @FormatAccuracy(
+                                selectedLocation.AccuracyMeters)
+            </strong>
+
+        </div>
+
+
+        <div class="live-detail-box">
+
+            <span>Allowed radius</span>
+
+            <strong>
+                @selectedLocation.AllowedRadiusMeters m
+            </strong>
+
+        </div>
+
+
+        <div class="live-detail-box">
+
+            <span>Geofence status</span>
+
+            <strong class="@(selectedLocation.IsWithinAllowedRadius
+                                                ? "text-success"
+                                                : "text-danger")">
+
+                @(selectedLocation.IsWithinAllowedRadius
+                                ? "Within allowed range"
+                                : "Outside allowed range")
+
+            </strong>
+
+                    </div>
+
+
                     <div class="live-detail-box">
+
                         <span>Latitude</span>
 
                         <strong>
                             @selectedLocation.Latitude.ToString("F6")
                         </strong>
+
                     </div>
 
+
                     <div class="live-detail-box">
+
                         <span>Longitude</span>
 
                         <strong>
                             @selectedLocation.Longitude.ToString("F6")
                         </strong>
+
                     </div>
 
                 </div>
@@ -355,134 +414,459 @@
         <!-- ============================================================
              GEO PUNCH AUDIT
              ============================================================ -->
+
         <div class="geo-punch-audit-card card border-0 shadow-sm mb-4">
+
             <div class="geo-punch-audit-header d-flex justify-content-between align-items-center">
+
                 <div>
+
                     <h5 class="fw-bold mb-1">
+
                         <i class="bi bi-shield-check text-primary me-2"></i>
+
                         @selectedEmployee.Name Punch Audit
+
                     </h5>
-                    <small class="text-muted">GPS validation and attendance punch audit</small>
+
+                    <small class="text-muted">
+                        GPS validation and attendance punch audit
+                    </small>
+
                 </div>
+
+
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <input type="date" class="form-control form-control-sm history-date-input"
+
+                    <input type="date"
+                           class="form-control form-control-sm history-date-input"
                            value="@punchAuditDate.ToString("yyyy-MM-dd")"
                            @onchange="ChangePunchAuditDate" />
-                    <button type="button" class="btn btn-outline-primary btn-sm"
+
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm"
                             @onclick="LoadSelectedEmployeePunchAudits"
                             disabled="@punchAuditLoading">
+
                         <i class="bi bi-arrow-clockwise @(punchAuditLoading ? "spin" : "")"></i>
-                        <span class="d-none d-md-inline ms-1">Refresh</span>
+
+                        <span class="d-none d-md-inline ms-1">
+                            Refresh
+                        </span>
+
                     </button>
+
                 </div>
+
             </div>
+
+
             @if (punchAuditLoading)
             {
                 <div class="history-loading">
+
                     <span class="spinner-border spinner-border-sm me-2"></span>
+
                     Loading punch audit...
+
                 </div>
             }
             else if (selectedPunchAudits.Count == 0)
             {
                 <div class="history-empty">
+
                     <i class="bi bi-shield-x"></i>
-                    <strong>No GPS punch audit records</strong>
-                    <span>No punch audit records were found for @punchAuditDate.ToString("dd MMM yyyy").</span>
+
+                    <strong>
+                        No GPS punch audit records
+                    </strong>
+
+                    <span>
+                        No punch audit records were found for
+                        @punchAuditDate.ToString("dd MMM yyyy").
+                    </span>
+
                 </div>
             }
             else
             {
                 <div class="geo-punch-audit-summary">
-                    <div><small>TOTAL</small><strong>@selectedPunchAudits.Count</strong></div>
-                    <div><small>SUCCESS</small><strong class="text-success">@selectedPunchAudits.Count(x => x.Success)</strong></div>
-                    <div><small>FAILED</small><strong class="text-danger">@selectedPunchAudits.Count(x => !x.Success)</strong></div>
-                    <div><small>OUTSIDE RANGE</small><strong class="text-danger">@selectedPunchAudits.Count(x => !x.IsWithinAllowedRadius)</strong></div>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover geo-punch-audit-table mb-0">
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Result</th>
-                                <th>Accuracy</th>
-                                <th>Distance</th>
-                                <th>Allowed</th>
-                                <th>Geofence</th>
-                                <th>Message</th>
-                                <th>Session</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var audit in selectedPunchAudits)
+
+                    <div>
+                        <small>TOTAL</small>
+                        <strong>@selectedPunchAudits.Count</strong>
+                    </div>
+
+                    <div>
+                        <small>SUCCESS</small>
+                        <strong class="text-success">
+                            @selectedPunchAudits.Count(x => x.Success)
+                        </strong>
+                    </div>
+
+                    <div>
+                        <small>FAILED</small>
+                        <strong class="text-danger">
+                            @selectedPunchAudits.Count(x => !x.Success)
+                        </strong>
+                    </div>
+
+                    <div>
+                        <small>OUTSIDE RANGE</small>
+                        <strong class="text-danger">
+                            @selectedPunchAudits.Count(
+                            x => !x.IsWithinAllowedRadius)
+            </strong>
+        </div>
+
+    </div>
+
+
+    <div class="table-responsive">
+
+        <table class="table table-sm table-hover geo-punch-audit-table mb-0">
+
+            <thead>
+
+                <tr>
+                    <th>Time</th>
+                    <th>Result</th>
+                    <th>Accuracy</th>
+                    <th>Distance</th>
+                    <th>Allowed</th>
+                    <th>Geofence</th>
+                    <th>Message</th>
+                    <th>Session</th>
+                </tr>
+
+            </thead>
+
+
+            <tbody>
+
+                @foreach (var audit in selectedPunchAudits)
                             {
-                                <tr class="geo-punch-audit-row" @onclick="() => OpenPunchAudit(audit)" title="Click to view punch details">
-                                    <td class="fw-semibold">@ToLocalTime(audit.PunchTimeUtc).ToString("HH:mm:ss")</td>
-                                    <td>
-                                        @if (audit.Success)
+                                <tr class="geo-punch-audit-row"
+                                    @onclick="() => OpenPunchAudit(audit)"
+                                    title="Click to view punch details">
+
+                                    <td class="fw-semibold">
+                                        @ToLocalTime(
+                                        audit.PunchTimeUtc)
+                        .ToString("HH:mm:ss")
+                    </td>
+
+                    <td>
+
+                        @if (audit.Success)
                                         {
-                                            <span class="geo-audit-success"><i class="bi bi-check-circle-fill me-1"></i>Success</span>
+                                            <span class="geo-audit-success">
+
+                                                <i class="bi bi-check-circle-fill me-1"></i>
+
+                                                Success
+
+                                            </span>
                                         }
                                         else
                                         {
-                                            <span class="geo-audit-failed"><i class="bi bi-x-circle-fill me-1"></i>Failed</span>
+                                            <span class="geo-audit-failed">
+
+                                                <i class="bi bi-x-circle-fill me-1"></i>
+
+                                                Failed
+
+                                            </span>
                                         }
+
                                     </td>
-                                    <td><span class="gps-accuracy-badge @GetAccuracyClass(audit.AccuracyMeters)">@GetAccuracyLabel(audit.AccuracyMeters) <small>@FormatAccuracy(audit.AccuracyMeters)</small></span></td>
-                                    <td>@FormatDistance(audit.DistanceFromOfficeMeters)</td>
-                                    <td>@audit.AllowedRadiusMeters m</td>
+
                                     <td>
-                                        @if (audit.IsWithinAllowedRadius)
+
+                                        <span class="gps-accuracy-badge @GetAccuracyClass(audit.AccuracyMeters)">
+
+                                            @GetAccuracyLabel(
+                                            audit.AccuracyMeters)
+
+                            <small>
+                                @FormatAccuracy(
+                                                                audit.AccuracyMeters)
+                            </small>
+
+                        </span>
+
+                    </td>
+
+                    <td>
+                        @FormatDistance(
+                                                audit.DistanceFromOfficeMeters)
+                    </td>
+
+                    <td>
+                        @audit.AllowedRadiusMeters m
+                    </td>
+
+                    <td>
+
+                        @if (audit.IsWithinAllowedRadius)
                                         {
-                                            <span class="geo-audit-within"><i class="bi bi-geo-alt-fill me-1"></i>Within</span>
+                                            <span class="geo-audit-within">
+
+                                                <i class="bi bi-geo-alt-fill me-1"></i>
+
+                                                Within
+
+                                            </span>
                                         }
                                         else
                                         {
-                                            <span class="geo-audit-outside"><i class="bi bi-geo-alt-fill me-1"></i>Outside</span>
+                                            <span class="geo-audit-outside">
+
+                                                <i class="bi bi-geo-alt-fill me-1"></i>
+
+                                                Outside
+
+                                            </span>
                                         }
+
                                     </td>
-                                    <td class="geo-audit-message" title="@audit.ResultMessage">@audit.ResultMessage</td>
+
+                                    <td class="geo-audit-message"
+                                        title="@audit.ResultMessage">
+
+                                        @audit.ResultMessage
+
+                                    </td>
+
                                     <td>
+
                                         @if (audit.SessionId.HasValue)
                                         {
-                                            <span title="@audit.SessionId.Value">@audit.SessionId.Value.ToString("N").Substring(0, 8)</span>
+                                            <span title="@audit.SessionId.Value">
+
+                                                @audit.SessionId.Value
+                                                .ToString("N")
+                                                .Substring(0, 8)
+
+                                            </span>
                                         }
                                         else
                                         {
-                                            <span class="text-muted">-</span>
+                                            <span class="text-muted">
+                                                -
+                                            </span>
                                         }
+
                                     </td>
+
                                 </tr>
                             }
+
                         </tbody>
+
                     </table>
+
                 </div>
             }
+
         </div>
+
 
         @if (selectedPunchAudit != null)
         {
-            <div class="geo-audit-modal-backdrop" @onclick="ClosePunchAudit">
-                <div class="geo-audit-modal card border-0 shadow-lg" @onclick:stopPropagation="true">
+            <div class="geo-audit-modal-backdrop"
+                 @onclick="ClosePunchAudit">
+
+                <div class="geo-audit-modal card border-0 shadow-lg"
+                     @onclick:stopPropagation="true">
+
                     <div class="geo-audit-modal-header d-flex justify-content-between align-items-center">
-                        <div><h5 class="fw-bold mb-1"><i class="bi bi-shield-check text-primary me-2"></i>Punch Audit Details</h5><small class="text-muted">@selectedEmployee.Name · @ToLocalTime(selectedPunchAudit.PunchTimeUtc).ToString("dd MMM yyyy HH:mm:ss")</small></div>
-                        <button type="button" class="btn btn-sm btn-light" @onclick="ClosePunchAudit"><i class="bi bi-x-lg"></i></button>
-                    </div>
-                    <div class="geo-audit-modal-body">
-                        <div class="geo-audit-result-banner @(selectedPunchAudit.Success ? "success" : "failed")"><i class="bi @(selectedPunchAudit.Success ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i><div><strong>@(selectedPunchAudit.Success ? "Punch Accepted" : "Punch Rejected")</strong><span>@selectedPunchAudit.ResultMessage</span></div></div>
-                        <div class="geo-audit-detail-grid">
-                            <div><small>GPS ACCURACY</small><strong class="@GetAccuracyClass(selectedPunchAudit.AccuracyMeters)">@GetAccuracyLabel(selectedPunchAudit.AccuracyMeters)</strong><span>@FormatAccuracy(selectedPunchAudit.AccuracyMeters)</span></div>
-                            <div><small>DISTANCE FROM OFFICE</small><strong>@FormatDistance(selectedPunchAudit.DistanceFromOfficeMeters)</strong><span>Allowed @selectedPunchAudit.AllowedRadiusMeters m</span></div>
-                            <div><small>GEOFENCE</small><strong class="@(selectedPunchAudit.IsWithinAllowedRadius ? "text-success" : "text-danger")">@(selectedPunchAudit.IsWithinAllowedRadius ? "Within range" : "Outside range")</strong><span>@FormatDistance(selectedPunchAudit.DistanceFromOfficeMeters) / @selectedPunchAudit.AllowedRadiusMeters m</span></div>
-                            <div><small>SOURCE</small><strong>@selectedPunchAudit.Source</strong><span>Attendance ID: @(selectedPunchAudit.AttendanceLogId?.ToString() ?? "-")</span></div>
-                            <div><small>LATITUDE</small><strong>@selectedPunchAudit.Latitude.ToString("F6")</strong><span>GPS coordinate</span></div>
-                            <div><small>LONGITUDE</small><strong>@selectedPunchAudit.Longitude.ToString("F6")</strong><span>GPS coordinate</span></div>
-                            <div class="geo-audit-detail-wide"><small>SESSION ID</small><strong>@(selectedPunchAudit.SessionId?.ToString() ?? "-")</strong></div>
-                        </div>
-                    </div>
+
+                        <div>
+
+                            <h5 class="fw-bold mb-1">
+
+                                <i class="bi bi-shield-check text-primary me-2"></i>
+
+                                Punch Audit Details
+
+                            </h5>
+
+                            <small class="text-muted">
+
+                                @selectedEmployee.Name ·
+                                @ToLocalTime(
+                                selectedPunchAudit.PunchTimeUtc)
+                    .ToString("dd MMM yyyy HH:mm:ss")
+
+                </small>
+
+            </div>
+
+            <button type="button"
+                    class="btn btn-sm btn-light"
+                    @onclick="ClosePunchAudit">
+
+                <i class="bi bi-x-lg"></i>
+
+            </button>
+
+        </div>
+
+
+        <div class="geo-audit-modal-body">
+
+            <div class="geo-audit-result-banner @(selectedPunchAudit.Success ? "success" : "failed")">
+
+                <i class="bi @(selectedPunchAudit.Success
+                                                   ? "bi-check-circle-fill"
+                                                   : "bi-x-circle-fill")"></i>
+
+                <div>
+
+                    <strong>
+                        @(selectedPunchAudit.Success
+                                                ? "Punch Accepted"
+                                                : "Punch Rejected")
+                    </strong>
+
+                    <span>
+                        @selectedPunchAudit.ResultMessage
+                    </span>
+
                 </div>
+
+            </div>
+
+
+            <div class="geo-audit-detail-grid">
+
+                <div>
+
+                    <small>GPS ACCURACY</small>
+
+                    <strong class="@GetAccuracyClass(
+                                                                selectedPunchAudit.AccuracyMeters)">
+
+                        @GetAccuracyLabel(
+                                                selectedPunchAudit.AccuracyMeters)
+
+                    </strong>
+
+                                <span>
+                                    @FormatAccuracy(
+                                                selectedPunchAudit.AccuracyMeters)
+                    </span>
+
+                </div>
+
+
+                <div>
+
+                    <small>DISTANCE FROM OFFICE</small>
+
+                    <strong>
+                        @FormatDistance(
+                                                selectedPunchAudit.DistanceFromOfficeMeters)
+                    </strong>
+
+                    <span>
+                        Allowed
+                        @selectedPunchAudit.AllowedRadiusMeters m
+                    </span>
+
+                </div>
+
+
+                <div>
+
+                    <small>GEOFENCE</small>
+
+                    <strong class="@(selectedPunchAudit.IsWithinAllowedRadius
+                                                                ? "text-success"
+                                                                : "text-danger")">
+
+                        @(selectedPunchAudit.IsWithinAllowedRadius
+                                                ? "Within range"
+                                                : "Outside range")
+
+                    </strong>
+
+                                            <span>
+                                                @FormatDistance(
+                                                selectedPunchAudit.DistanceFromOfficeMeters)
+                        /
+                        @selectedPunchAudit.AllowedRadiusMeters m
+                    </span>
+
+                            </div>
+
+
+                            <div>
+
+                                <small>SOURCE</small>
+
+                                <strong>
+                                    @selectedPunchAudit.Source
+                                </strong>
+
+                                <span>
+                                    Attendance ID:
+                                    @(selectedPunchAudit.AttendanceLogId?.ToString() ?? "-")
+                                </span>
+
+                            </div>
+
+
+                            <div>
+
+                                <small>LATITUDE</small>
+
+                                <strong>
+                                    @selectedPunchAudit.Latitude.ToString("F6")
+                                </strong>
+
+                                <span>
+                                    GPS coordinate
+                                </span>
+
+                            </div>
+
+
+                            <div>
+
+                                <small>LONGITUDE</small>
+
+                                <strong>
+                                    @selectedPunchAudit.Longitude.ToString("F6")
+                                </strong>
+
+                                <span>
+                                    GPS coordinate
+                                </span>
+
+                            </div>
+
+
+                            <div class="geo-audit-detail-wide">
+
+                                <small>SESSION ID</small>
+
+                                <strong>
+                                    @(selectedPunchAudit.SessionId?.ToString() ?? "-")
+                                </strong>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
             </div>
         }
+
 
         <!-- ============================================================
              LOCATION HISTORY
@@ -507,6 +891,7 @@
                     </small>
 
                 </div>
+
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
 
@@ -562,10 +947,6 @@
             }
             else
             {
-                <!-- ====================================================
-                     HISTORY SUMMARY
-                     ==================================================== -->
-
                 <div class="location-history-summary">
 
                     <div>
@@ -585,80 +966,244 @@
 
                     <div>
                         <small>MAX DISTANCE</small>
-                        <strong>@FormatDistance(HistoryMaxDistance)</strong>
+                        <strong>
+                            @FormatDistance(HistoryMaxDistance)
+                        </strong>
                     </div>
 
                     <div>
                         <small>TRAVEL</small>
-                        <strong>@FormatDistance(HistoryTravelDistance)</strong>
+                        <strong>
+                            @FormatDistance(HistoryTravelDistance)
+                        </strong>
                     </div>
 
                 </div>
 
 
-
-                <!-- ====================================================
-                     GPS QUALITY + SESSION SUMMARY
-                     ==================================================== -->
-
                 <div class="gps-session-summary">
+
                     <div class="gps-quality-grid">
-                        <div><small>AVG ACCURACY</small><strong class="@GetAccuracyClass(HistoryAverageAccuracy)">@GetAccuracyLabel(HistoryAverageAccuracy)</strong><span>@FormatAccuracy(HistoryAverageAccuracy)</span></div>
-                        <div><small>WORST ACCURACY</small><strong class="@GetAccuracyClass(HistoryWorstAccuracy)">@GetAccuracyLabel(HistoryWorstAccuracy)</strong><span>@FormatAccuracy(HistoryWorstAccuracy)</span></div>
-                        <div><small>POOR GPS POINTS</small><strong>@HistoryPoorAccuracyCount</strong><span>Accuracy &gt; 100 m</span></div>
-                        <div><small>OUTSIDE RANGE</small><strong class="@(HistoryOutsideRangeCount > 0 ? "text-danger" : "text-success")">@HistoryOutsideRangeCount</strong><span>GPS points</span></div>
-                        <div><small>SESSIONS</small><strong>@HistorySessionCount</strong><span>Tracking sessions</span></div>
+
+                        <div>
+                            <small>AVG ACCURACY</small>
+
+                            <strong class="@GetAccuracyClass(
+                                                                    HistoryAverageAccuracy)">
+
+                    @GetAccuracyLabel(
+                                        HistoryAverageAccuracy)
+
+                </strong>
+
+                <span>
+                    @FormatAccuracy(
+                                        HistoryAverageAccuracy)
+                </span>
+            </div>
+
+
+            <div>
+                <small>WORST ACCURACY</small>
+
+                <strong class="@GetAccuracyClass(
+                                                        HistoryWorstAccuracy)">
+
+                    @GetAccuracyLabel(
+                                        HistoryWorstAccuracy)
+
+                </strong>
+
+                <span>
+                    @FormatAccuracy(
+                                        HistoryWorstAccuracy)
+                </span>
+            </div>
+
+
+            <div>
+                <small>POOR GPS POINTS</small>
+
+                <strong>
+                    @HistoryPoorAccuracyCount
+                </strong>
+
+                <span>
+                    Accuracy &gt; 100 m
+                </span>
+            </div>
+
+
+            <div>
+                <small>OUTSIDE RANGE</small>
+
+                <strong class="@(HistoryOutsideRangeCount > 0
+                                                        ? "text-danger"
+                                                        : "text-success")">
+
+                    @HistoryOutsideRangeCount
+
+                            </strong>
+
+                            <span>
+                                GPS points
+                            </span>
+                        </div>
+
+
+                        <div>
+                            <small>SESSIONS</small>
+
+                            <strong>
+                                @HistorySessionCount
+                            </strong>
+
+                            <span>
+                                Tracking sessions
+                            </span>
+                        </div>
+
                     </div>
 
-                    @if (HistorySessions.Count > 0)
+
+        @if (HistorySessions.Count > 0)
                     {
                         <div class="gps-session-timeline">
-                            <div class="gps-session-title"><i class="bi bi-diagram-3 me-1"></i>GPS Session Timeline</div>
+
+                            <div class="gps-session-title">
+
+                                <i class="bi bi-diagram-3 me-1"></i>
+
+                                GPS Session Timeline
+
+                            </div>
+
+
                             <div class="table-responsive">
+
                                 <table class="table table-sm mb-0 gps-session-table">
-                                    <thead><tr><th>Session</th><th>Started</th><th>Last Update</th><th>Duration</th><th>Points</th><th>Travel</th><th>Avg Accuracy</th><th>Status</th></tr></thead>
+
+                                    <thead>
+
+                                        <tr>
+                                            <th>Session</th>
+                                            <th>Started</th>
+                                            <th>Last Update</th>
+                                            <th>Duration</th>
+                                            <th>Points</th>
+                                            <th>Travel</th>
+                                            <th>Avg Accuracy</th>
+                                            <th>Status</th>
+                                        </tr>
+
+                                    </thead>
+
+
                                     <tbody>
+
                                         @foreach (var session in HistorySessions)
                                         {
-                                            <tr class="@(selectedPlaybackSessionId == session.SessionId ? "gps-session-row-selected" : "")"
-                                                @onclick="() => SelectPlaybackSession(session.SessionId)"
-                                                title="Play this session route only">
-                                                <td><code>@ShortSessionId(session.SessionId)</code></td>
-                                                <td>@ToLocalTime(session.StartUtc).ToString("HH:mm:ss")</td>
-                                                <td>@ToLocalTime(session.EndUtc).ToString("HH:mm:ss")</td>
-                                                <td>@FormatDuration(session.EndUtc - session.StartUtc)</td>
-                                                <td>@session.PointCount</td>
-                                                <td>@FormatDistance(session.TravelMeters)</td>
-                                                <td><span class="gps-accuracy-badge @GetAccuracyClass(session.AverageAccuracy)">@GetAccuracyLabel(session.AverageAccuracy) <small>@FormatAccuracy(session.AverageAccuracy)</small></span></td>
+                                            <tr class="@(selectedPlaybackSessionId == session.SessionId
+                                                                                                ? "gps-session-row-selected"
+                                                                                                : "")"
+                            @onclick="() => SelectPlaybackSession(session.SessionId)"
+                            title="Play this session route only">
+
                                                 <td>
-                                                    @{
+                                                    <code>
+                                                        @ShortSessionId(
+                                                                        session.SessionId)
+                                </code>
+                            </td>
+
+                            <td>
+                                @ToLocalTime(
+                                                                session.StartUtc)
+                                .ToString("HH:mm:ss")
+                            </td>
+
+                            <td>
+                                @ToLocalTime(
+                                                                session.EndUtc)
+                                .ToString("HH:mm:ss")
+                            </td>
+
+                            <td>
+                                @FormatDuration(
+                                                                session.EndUtc -
+                                                                session.StartUtc)
+                            </td>
+
+                            <td>
+                                @session.PointCount
+                            </td>
+
+                            <td>
+                                @FormatDistance(
+                                                                session.TravelMeters)
+                            </td>
+
+                            <td>
+
+                                <span class="gps-accuracy-badge @GetAccuracyClass(session.AverageAccuracy)">
+
+                                    @GetAccuracyLabel(
+                                                                        session.AverageAccuracy)
+
+                                    <small>
+                                        @FormatAccuracy(
+                                                                                session.AverageAccuracy)
+                                    </small>
+
+                                </span>
+
+                            </td>
+
+                            <td>
+
+                                @{
                                                         var sessionStatus =
-                                                        GetHistorySessionStatus(session.SessionId);
+                                                        GetHistorySessionStatus(
+                                                        session.SessionId);
                                                     }
 
                                                     @if (sessionStatus == "Active")
                                                     {
                                                         <span class="badge bg-success-subtle text-success">
+
                                                             <i class="bi bi-broadcast me-1"></i>
+
                                                             Active
+
                                                         </span>
                                                     }
                                                     else
                                                     {
                                                         <span class="badge bg-secondary-subtle text-secondary">
+
                                                             <i class="bi bi-check-circle me-1"></i>
+
                                                             Ended
+
                                                         </span>
                                                     }
+
                                                 </td>
+
                                             </tr>
                                         }
+
                                     </tbody>
+
                                 </table>
+
                             </div>
+
                         </div>
                     }
+
                 </div>
+
 
                 <!-- ====================================================
                      PLAYBACK TOOLBAR
@@ -675,8 +1220,12 @@
                         @if (selectedPlaybackSessionId.HasValue)
                         {
                             <span class="badge bg-primary-subtle text-primary ms-2">
-                                Session @ShortSessionId(selectedPlaybackSessionId.Value)
-                            </span>
+
+                                Session
+                                @ShortSessionId(
+                                selectedPlaybackSessionId.Value)
+
+            </span>
                         }
                         else
                         {
@@ -687,49 +1236,70 @@
 
                     </div>
 
+
                     <div class="history-playback-actions">
 
                         <button type="button"
-                                class="btn btn-sm @(selectedPlaybackSessionId.HasValue ? "btn-outline-secondary" : "btn-secondary")"
-                                @onclick="SelectFullDayPlayback"
-                                disabled="@(!selectedPlaybackSessionId.HasValue)">
+                                class="btn btn-sm @(selectedPlaybackSessionId.HasValue
+                                                                    ? "btn-outline-secondary"
+                                                                    : "btn-secondary")"
+                    @onclick="SelectFullDayPlayback"
+                    disabled="@(!selectedPlaybackSessionId.HasValue)">
+
                             <i class="bi bi-calendar3 me-1"></i>
+
                             Full Day
+
                         </button>
+
 
                         <button type="button"
                                 class="btn btn-sm btn-primary"
                                 @onclick="PlayHistory"
                                 disabled="@(!CanPlayback)">
+
                             <i class="bi bi-play-fill me-1"></i>
+
                             Play
+
                         </button>
+
 
                         <button type="button"
                                 class="btn btn-sm btn-outline-secondary"
                                 @onclick="PauseHistory"
                                 disabled="@(!CanPlayback)">
+
                             <i class="bi bi-pause-fill me-1"></i>
+
                             Pause
+
                         </button>
+
 
                         <button type="button"
                                 class="btn btn-sm btn-outline-secondary"
                                 @onclick="ResetHistory"
                                 disabled="@(!CanPlayback)">
+
                             <i class="bi bi-arrow-counterclockwise me-1"></i>
+
                             Reset
+
                         </button>
+
 
                         <select class="form-select form-select-sm history-speed"
                                 value="@playbackSpeed"
                                 @onchange="ChangePlaybackSpeed">
+
                             <option value="0.25">0.25×</option>
                             <option value="0.5">0.5×</option>
                             <option value="1">1×</option>
                             <option value="2">2×</option>
                             <option value="4">4×</option>
                             <option value="8">8×</option>
+
                         </select>
 
                     </div>
@@ -747,15 +1317,16 @@
 
                         <span>
                             <i class="bi bi-clock me-1"></i>
-
                             @playbackStatus
                         </span>
 
                         <strong>
-                            GPS @PlaybackDisplayIndex / @PlaybackPoints.Count
+                            GPS @PlaybackDisplayIndex /
+                            @PlaybackPoints.Count
                         </strong>
 
                     </div>
+
 
                     <input type="range"
                            class="form-range playback-range"
@@ -763,6 +1334,7 @@
                            max="@(Math.Max(0, PlaybackPoints.Count - 1))"
                            value="@PlaybackIndex"
                            @oninput="SeekHistoryFromSlider" />
+
 
                     <div class="playback-progress-bottom">
 
@@ -778,10 +1350,6 @@
 
                 </div>
 
-
-                <!-- ====================================================
-                     PLAYBACK STATUS
-                     ==================================================== -->
 
                 <div class="history-playback-status">
 
@@ -828,88 +1396,104 @@
 
                         </thead>
 
+
                         <tbody>
 
-                            @for (int i = 0; i < selectedHistory.Count; i++)
+                @for (int i = 0; i < selectedHistory.Count; i++)
                             {
                                 var point = selectedHistory[i];
 
-                                <tr class="@(PlaybackIndex == i ? "history-row-active" : "")"
-                                    @onclick="() => SelectHistoryPoint(i)">
+                                <tr class="@(PlaybackIndex == i
+                                                                        ? "history-row-active"
+                                                                        : "")"
+                    @onclick="() => SelectHistoryPoint(i)">
 
                                     <td>
+
                                         <span class="history-point-number">
                                             @(i + 1)
                                         </span>
+
                                     </td>
 
                                     <td class="fw-semibold">
-                                        @(ToLocalTime(point.RecordedAtUtc).ToString("HH:mm:ss"))
-                                    </td>
 
-                                    <td>
-                                        @FormatAccuracy(point.AccuracyMeters)
-                                    </td>
+                                        @ToLocalTime(
+                                                point.RecordedAtUtc)
+                        .ToString("HH:mm:ss")
 
-                                    <td>
-                                        @FormatDistance(point.DistanceFromOfficeMeters)
-                                    </td>
+                    </td>
 
-                                    <td>
-                                        @point.AllowedRadiusMeters m
-                                    </td>
+                    <td>
+                        @FormatAccuracy(
+                                                point.AccuracyMeters)
+                    </td>
 
-                                    <td>
+                    <td>
+                        @FormatDistance(
+                                                point.DistanceFromOfficeMeters)
+                    </td>
 
-                                        @if (point.IsWithinAllowedRadius)
-                                        {
-                                            <span class="history-status within">
+                    <td>
+                        @point.AllowedRadiusMeters m
+                    </td>
 
-                                                <i class="bi bi-check-circle me-1"></i>
+                    <td>
 
-                                                Within range
+                        @if (point.IsWithinAllowedRadius)
+                                    {
+                                        <span class="history-status within">
 
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="history-status outside">
+                                            <i class="bi bi-check-circle me-1"></i>
 
-                                                <i class="bi bi-exclamation-circle me-1"></i>
+                                            Within range
 
-                                                Outside range
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="history-status outside">
 
-                                            </span>
-                                        }
+                                            <i class="bi bi-exclamation-circle me-1"></i>
 
-                                    </td>
+                                            Outside range
 
-                                    <td>
-                                        @point.Latitude.ToString("F6")
-                                    </td>
+                                        </span>
+                                    }
 
-                                    <td>
-                                        @point.Longitude.ToString("F6")
-                                    </td>
+                                </td>
 
-                                </tr>
-                            }
+                                <td>
+                                    @point.Latitude.ToString("F6")
+                                </td>
 
-                        </tbody>
+                                <td>
+                                    @point.Longitude.ToString("F6")
+                                </td>
 
-                    </table>
+                            </tr>
+                        }
 
-                </div>
+                    </tbody>
 
-            }
+                </table>
 
-        </div>
-    }
+            </div>
+
+        }
+
+    </div>
+}
 }
 
 
 
+<!-- ================================================================
+     STYLES
+     ================================================================ -->
+
 <style>
+
     .gps-session-summary {
         border-top: 1px solid #e9ecef;
         background: #fbfcfe
@@ -1004,7 +1588,8 @@
             margin-left: 3px
         }
 
-        .gps-accuracy-badge.excellent, .gps-accuracy-badge.good {
+        .gps-accuracy-badge.excellent,
+        .gps-accuracy-badge.good {
             color: #198754
         }
 
@@ -1025,6 +1610,7 @@
         }
 
     @@media(max-width:900px) {
+
         .gps-quality-grid {
             grid-template-columns: repeat(2,1fr)
         }
@@ -1033,7 +1619,9 @@
                 border-right: 0
             }
     }
+
 </style>
+
 
 <style>
 
@@ -1380,23 +1968,28 @@
             color: #6c757d;
         }
 
-        .gps-accuracy-badge.excellent, .geo-audit-detail-grid strong.excellent {
+        .gps-accuracy-badge.excellent,
+        .geo-audit-detail-grid strong.excellent {
             color: #198754;
         }
 
-        .gps-accuracy-badge.good, .geo-audit-detail-grid strong.good {
+        .gps-accuracy-badge.good,
+        .geo-audit-detail-grid strong.good {
             color: #20a060;
         }
 
-        .gps-accuracy-badge.fair, .geo-audit-detail-grid strong.fair {
+        .gps-accuracy-badge.fair,
+        .geo-audit-detail-grid strong.fair {
             color: #997404;
         }
 
-        .gps-accuracy-badge.poor, .geo-audit-detail-grid strong.poor {
+        .gps-accuracy-badge.poor,
+        .geo-audit-detail-grid strong.poor {
             color: #fd7e14;
         }
 
-        .gps-accuracy-badge.very-poor, .geo-audit-detail-grid strong.very-poor {
+        .gps-accuracy-badge.very-poor,
+        .geo-audit-detail-grid strong.very-poor {
             color: #dc3545;
         }
 
@@ -1454,7 +2047,8 @@
             font-size: 1.35rem;
         }
 
-        .geo-audit-result-banner strong, .geo-audit-result-banner span {
+        .geo-audit-result-banner strong,
+        .geo-audit-result-banner span {
             display: block;
         }
 
@@ -1477,7 +2071,9 @@
             min-width: 0;
         }
 
-        .geo-audit-detail-grid small, .geo-audit-detail-grid strong, .geo-audit-detail-grid span {
+        .geo-audit-detail-grid small,
+        .geo-audit-detail-grid strong,
+        .geo-audit-detail-grid span {
             display: block;
         }
 
@@ -1831,6 +2427,7 @@
     }
 
     @@media(max-width:575px) {
+
         .geo-audit-modal-backdrop {
             padding: 8px;
         }
@@ -1914,15 +2511,34 @@
 
 @code {
 
+    // ============================================================
+    // MAP
+    // ============================================================
+
     private readonly string mapId =
         $"admin-live-map-{Guid.NewGuid():N}";
+
+
+    // ============================================================
+    // DATA
+    // ============================================================
 
     private readonly List<Employee> employees = new();
 
     private readonly List<LiveEmployeeLocation> locations = new();
 
-    private CancellationTokenSource? refreshCts;
-    private DotNetObjectReference<LiveStaffLocationPanel>? liveLocationSignalRReference;
+
+    // ============================================================
+    // REAL-TIME / LIFETIME STATE
+    // ============================================================
+
+   
+
+    private CancellationTokenSource?
+        statusCts;
+
+    private CancellationTokenSource?
+        playbackStateCts;
 
     private bool disposed;
 
@@ -1932,65 +2548,110 @@
 
     private int selectedEmployeeId;
 
-    private List<EmployeeLocationHistory> selectedHistory = new();
-    private List<GeoPunchAudit> selectedPunchAudits = new();
-    private GeoPunchAudit? selectedPunchAudit;
-    private Dictionary<Guid, EmployeeGpsSession> gpsSessionLookup = new();
-    private bool historyLoading;
-    private bool punchAuditLoading;
-    private DateTime punchAuditDate = DateTime.Today;
 
-    private DateTime historyDate = DateTime.Today;
+    // ============================================================
+    // HISTORY
+    // ============================================================
+
+    private List<EmployeeLocationHistory>
+        selectedHistory = new();
+
+    private List<GeoPunchAudit>
+        selectedPunchAudits = new();
+
+    private GeoPunchAudit?
+        selectedPunchAudit;
+
+    private Dictionary<Guid, EmployeeGpsSession>
+        gpsSessionLookup = new();
+
+    private bool historyLoading;
+
+    private bool punchAuditLoading;
+
+    private DateTime punchAuditDate =
+        DateTime.Today;
+
+    private DateTime historyDate =
+        DateTime.Today;
 
     private DateTime? lastRefresh;
 
+
+    // ============================================================
+    // PLAYBACK
+    // ============================================================
+
     private double playbackSpeed = 1;
 
-    // Null = full-day playback. A value = playback for one GPS session only.
     private Guid? selectedPlaybackSessionId;
 
-    private string playbackStatus = "Ready";
+    private string playbackStatus =
+        "Ready";
 
     private int playbackIndex;
 
-    private CancellationTokenSource? playbackStateCts;
 
+    // ============================================================
+    // LIVE COUNTS
+    // ============================================================
 
     private int liveCount =>
         locations.Count(
-            x => GetLocationStatus(x) == LocationStatus.Live);
+            x => GetLocationStatus(x) ==
+                 LocationStatus.Live);
+
 
     private int staleCount =>
         locations.Count(
-            x => GetLocationStatus(x) == LocationStatus.Stale);
+            x => GetLocationStatus(x) ==
+                 LocationStatus.Stale);
+
 
     private int offlineCount =>
         Math.Max(
             0,
-            employees.Count - liveCount - staleCount);
+            employees.Count -
+            liveCount -
+            staleCount);
 
-    private IReadOnlyList<EmployeeLocationHistory> PlaybackPoints =>
+
+    // ============================================================
+    // PLAYBACK POINTS
+    // ============================================================
+
+    private IReadOnlyList<EmployeeLocationHistory>
+        PlaybackPoints =>
         selectedPlaybackSessionId.HasValue
             ? selectedHistory
-                .Where(x => x.SessionId == selectedPlaybackSessionId.Value)
-                .OrderBy(x => x.RecordedAtUtc)
+                .Where(x =>
+                    x.SessionId ==
+                    selectedPlaybackSessionId.Value)
+                .OrderBy(x =>
+                    x.RecordedAtUtc)
                 .ToList()
             : selectedHistory;
+
 
     private bool CanPlayback =>
         PlaybackPoints.Count > 0;
 
+
     private int PlaybackIndex =>
-     Math.Max(
-         0,
-         Math.Min(
-             playbackIndex,
-             Math.Max(0, PlaybackPoints.Count - 1)));
+        Math.Max(
+            0,
+            Math.Min(
+                playbackIndex,
+                Math.Max(
+                    0,
+                    PlaybackPoints.Count - 1)));
+
 
     private int PlaybackDisplayIndex =>
         PlaybackPoints.Count == 0
             ? 0
             : PlaybackIndex + 1;
+
 
     private string PlaybackTimeText
     {
@@ -2008,30 +2669,6 @@
         }
     }
 
-    [JSInvokable]
-    public async Task LocationChanged(
-    object? data)
-    {
-        if (disposed)
-            return;
-
-        try
-        {
-            /*
-             * The server has already updated LiveLocationStore.
-             *
-             * Therefore get the latest in-memory snapshot.
-             *
-             * This is NOT a database query.
-             */
-            await RefreshLocations();
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"Admin SignalR location update failed: {ex}");
-        }
-    }
 
     private string PlaybackDistanceText
     {
@@ -2046,73 +2683,145 @@
         }
     }
 
-    private string GetHistorySessionStatus(Guid sessionId)
+
+    // ============================================================
+    // REAL-TIME LOCATION EVENT
+    // ============================================================
+
+    private async Task HandleLocationChanged()
     {
-        if (sessionId == Guid.Empty)
-            return "Ended";
-
-        if (!gpsSessionLookup.TryGetValue(
-                sessionId,
-                out var session))
-        {
-            return "Ended";
-        }
-
-        /*
-         * EndedAtUtc == null means the GPS session
-         * has not been explicitly closed yet.
-         */
-        return session.EndedAtUtc.HasValue
-            ? "Ended"
-            : "Active";
-    }
-
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadEmployees();
-
-        /*
-         * Initial snapshot only.
-         *
-         * After this, GPS updates arrive through SignalR.
-         */
-        await RefreshLocations();
-
-        /*
-         * Register this admin component with the existing
-         * AttendanceRefresh SignalR connection.
-         */
-        liveLocationSignalRReference =
-            DotNetObjectReference.Create(this);
+        if (disposed)
+            return;
 
         try
         {
-            await JSRuntime.InvokeVoidAsync(
-                "attendanceRefresh.register",
-                liveLocationSignalRReference);
+            /*
+             * SignalR tells us that LiveLocationStore changed.
+             *
+             * RefreshLocations() reads the latest in-memory
+             * snapshot and does NOT query the database.
+             */
+
+            await RefreshLocations();
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine(
-                $"Unable to register admin live location SignalR listener: {ex}");
+                $"Real-time admin location update failed: {ex}");
         }
+    }
+
+
+    // ============================================================
+    // DIRECT JSINVOCABLE LOCATION EVENT
+    //
+    // Kept for compatibility with pages/components that may
+    // directly call this component.
+    // ============================================================
+
+    [JSInvokable]
+    public async Task LocationChanged(
+        object? data)
+    {
+        await HandleLocationChanged();
+    }
+
+
+    // ============================================================
+    // INITIALIZATION
+    // ============================================================
+
+    protected override async Task OnInitializedAsync()
+    {
+        /*
+         * Load employee list once.
+         */
+        await LoadEmployees();
 
         /*
-         * Keep the existing timer only for:
-         *
-         * 1. Playback state
-         * 2. LIVE → STALE → OFFLINE UI aging
-         *
-         * It MUST NOT call RefreshLocations().
+         * Initial live location snapshot.
          */
-        refreshCts =
+        await RefreshLocations();
+
+        /*
+         * Register this component with the existing
+         * application-wide SignalR connection.
+         *
+         * AttendanceRefreshListener is also present in the
+         * component tree, so this direct registration is kept
+         * for compatibility with the existing implementation.
+         */
+       
+
+        /*
+         * Lightweight status clock.
+         *
+         * IMPORTANT:
+         *
+         * This does NOT load locations.
+         *
+         * It only causes the UI to re-evaluate:
+         *
+         * LIVE
+         *   ↓ 30 seconds
+         * STALE
+         *   ↓ 120 seconds
+         * OFFLINE
+         *
+         * This is required because no SignalR message is generated
+         * merely because time passes.
+         */
+        statusCts =
             new CancellationTokenSource();
 
         _ =
-            AutoRefresh(
-                refreshCts.Token);
+            RunStatusClock(
+                statusCts.Token);
     }
 
+
+    // ============================================================
+    // STATUS CLOCK
+    // ============================================================
+
+    private async Task RunStatusClock(
+        CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(
+                    TimeSpan.FromSeconds(1),
+                    token);
+
+                if (token.IsCancellationRequested ||
+                    disposed)
+                    break;
+
+                await InvokeAsync(
+                    StateHasChanged);
+
+                /*
+                 * Playback status is independent from live GPS.
+                 */
+                await PollPlaybackState();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Live staff status clock failed: {ex}");
+        }
+    }
+
+
+    // ============================================================
+    // EMPLOYEES
+    // ============================================================
 
     private async Task LoadEmployees()
     {
@@ -2141,8 +2850,15 @@
     }
 
 
+    // ============================================================
+    // LIVE LOCATION SNAPSHOT
+    // ============================================================
+
     private async Task RefreshLocations()
     {
+        if (disposed)
+            return;
+
         if (isRefreshing)
             return;
 
@@ -2150,10 +2866,24 @@
 
         try
         {
+            /*
+             * IMPORTANT:
+             *
+             * LiveLocationStore is the real-time in-memory
+             * source of truth.
+             *
+             * No database query is made here.
+             */
+
+            var latest =
+                LiveLocationStore
+                    .GetAll()
+                    .ToList();
+
             locations.Clear();
 
             locations.AddRange(
-                LiveLocationStore.GetAll());
+                latest);
 
             lastRefresh =
                 DateTime.Now;
@@ -2175,63 +2905,16 @@
     }
 
 
-    private async Task AutoRefresh(
-    CancellationToken token)
+    // ============================================================
+    // MAP UPDATE
+    // ============================================================
+
+    protected override async Task OnAfterRenderAsync(
+        bool firstRender)
     {
-        try
-        {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(
-                    TimeSpan.FromSeconds(5),
-                    token);
+        if (disposed)
+            return;
 
-                if (token.IsCancellationRequested)
-                    break;
-
-                /*
-                 * IMPORTANT:
-                 *
-                 * Do NOT call RefreshLocations() here.
-                 *
-                 * Location data arrives through SignalR.
-                 *
-                 * This timer exists only so the UI can age:
-                 *
-                 * LIVE
-                 *   ↓ 30 sec
-                 * STALE
-                 *   ↓ 120 sec
-                 * OFFLINE
-                 *
-                 * No database query.
-                 * No LiveLocationStore polling.
-                 */
-
-                mapNeedsUpdate = true;
-
-                await InvokeAsync(
-                    StateHasChanged);
-
-                /*
-                 * Existing history playback functionality.
-                 */
-                await PollPlaybackState();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"Live staff UI timer failed: {ex}");
-        }
-    }
-
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
         if (!mapNeedsUpdate)
             return;
 
@@ -2239,23 +2922,44 @@
 
         try
         {
-            var office = await GetOfficeLocation();
+            var office =
+                await GetOfficeLocation();
 
-            var staff = locations
-                .Select(x => new AdminMapLocation
-                {
-                    EmployeeId = x.EmployeeId,
-                    Name = employees
-                        .FirstOrDefault(e => e.EmployeeID == x.EmployeeId)
-                        ?.Name ?? "Employee",
-                    Latitude = x.Latitude,
-                    Longitude = x.Longitude,
-                    DistanceMeters = x.DistanceMeters,
-                    AllowedRadiusMeters = x.AllowedRadiusMeters,
-                    IsWithinAllowedRadius = x.IsWithinAllowedRadius,
-                    Status = GetLocationStatus(x).ToString()
-                })
-                .ToList();
+            var staff =
+                locations
+                    .Select(x => new AdminMapLocation
+                    {
+                        EmployeeId =
+                            x.EmployeeId,
+
+                        Name =
+                            employees
+                                .FirstOrDefault(
+                                    e => e.EmployeeID ==
+                                         x.EmployeeId)
+                                ?.Name ??
+                            "Employee",
+
+                        Latitude =
+                            x.Latitude,
+
+                        Longitude =
+                            x.Longitude,
+
+                        DistanceMeters =
+                            x.DistanceMeters,
+
+                        AllowedRadiusMeters =
+                            x.AllowedRadiusMeters,
+
+                        IsWithinAllowedRadius =
+                            x.IsWithinAllowedRadius,
+
+                        Status =
+                            GetLocationStatus(x)
+                                .ToString()
+                    })
+                    .ToList();
 
             await JSRuntime.InvokeVoidAsync(
                 "updateAdminLiveStaffMap",
@@ -2272,6 +2976,10 @@
         }
     }
 
+
+    // ============================================================
+    // OFFICE LOCATION
+    // ============================================================
 
     private async Task<(double Latitude, double Longitude)>
         GetOfficeLocation()
@@ -2291,22 +2999,16 @@
     }
 
 
-    private async Task SelectEmployee(int employeeId)
+    // ============================================================
+    // SELECT EMPLOYEE
+    // ============================================================
+
+    private async Task SelectEmployee(
+        int employeeId)
     {
         if (employeeId <= 0)
             return;
 
-        /*
-         * ============================================================
-         * TOGGLE BEHAVIOUR
-         *
-         * Clicking the currently selected employee again collapses
-         * ALL employee details.
-         *
-         * Clicking another employee switches the expanded details
-         * to that employee.
-         * ============================================================
-         */
         if (selectedEmployeeId == employeeId)
         {
             await StopPlayback();
@@ -2327,40 +3029,50 @@
 
             mapNeedsUpdate = true;
 
-            await InvokeAsync(StateHasChanged);
+            await InvokeAsync(
+                StateHasChanged);
 
             return;
         }
 
-        /*
-         * ============================================================
-         * SELECT NEW EMPLOYEE
-         * ============================================================
-         */
-
         await StopPlayback();
 
-        selectedEmployeeId = employeeId;
+        selectedEmployeeId =
+            employeeId;
 
-        historyDate = DateTime.Today;
-        punchAuditDate = historyDate;
+        historyDate =
+            DateTime.Today;
 
-        selectedPunchAudit = null;
+        punchAuditDate =
+            historyDate;
 
-        playbackIndex = 0;
-        playbackStatus = "Ready";
+        selectedPunchAudit =
+            null;
+
+        playbackIndex =
+            0;
+
+        playbackStatus =
+            "Ready";
 
         await LoadSelectedEmployeeHistory();
 
-        punchAuditDate = historyDate;
+        punchAuditDate =
+            historyDate;
 
         await LoadSelectedEmployeePunchAudits();
 
-        mapNeedsUpdate = true;
+        mapNeedsUpdate =
+            true;
 
-        await InvokeAsync(StateHasChanged);
+        await InvokeAsync(
+            StateHasChanged);
     }
 
+
+    // ============================================================
+    // HISTORY
+    // ============================================================
 
     private async Task LoadSelectedEmployeeHistory()
     {
@@ -2368,39 +3080,36 @@
         {
             selectedHistory.Clear();
 
-            selectedPlaybackSessionId = null;
+            selectedPlaybackSessionId =
+                null;
 
             gpsSessionLookup.Clear();
 
-            playbackIndex = 0;
+            playbackIndex =
+                0;
 
             return;
         }
 
-        historyLoading = true;
+        historyLoading =
+            true;
 
         try
         {
             await StopPlayback();
 
             selectedHistory =
-    await LocationHistoryService
-        .GetDateAsync(
-            selectedEmployeeId,
-            historyDate);
+                await LocationHistoryService
+                    .GetDateAsync(
+                        selectedEmployeeId,
+                        historyDate);
 
-            /*
-             * Load the real GPS session records corresponding
-             * to the history points.
-             *
-             * This allows the session timeline to distinguish
-             * an active session from an ended session instead
-             * of showing every session as "Recorded".
-             */
             var sessionIds =
                 selectedHistory
-                    .Where(x => x.SessionId != Guid.Empty)
-                    .Select(x => x.SessionId)
+                    .Where(x =>
+                        x.SessionId != Guid.Empty)
+                    .Select(x =>
+                        x.SessionId)
                     .Distinct()
                     .ToList();
 
@@ -2410,13 +3119,17 @@
                         selectedEmployeeId,
                         sessionIds);
 
-            playbackIndex = 0;
-            selectedPlaybackSessionId = null;
+            playbackIndex =
+                0;
+
+            selectedPlaybackSessionId =
+                null;
 
             playbackStatus =
                 "Ready";
 
-            mapNeedsUpdate = true;
+            mapNeedsUpdate =
+                true;
         }
         catch (Exception ex)
         {
@@ -2426,22 +3139,30 @@
             selectedHistory.Clear();
 
             gpsSessionLookup.Clear();
-            selectedPlaybackSessionId = null;
 
-            playbackIndex = 0;
+            selectedPlaybackSessionId =
+                null;
+
+            playbackIndex =
+                0;
 
             playbackStatus =
                 "Ready";
         }
         finally
         {
-            historyLoading = false;
+            historyLoading =
+                false;
 
             await InvokeAsync(
                 StateHasChanged);
         }
     }
 
+
+    // ============================================================
+    // PUNCH AUDIT
+    // ============================================================
 
     private async Task LoadSelectedEmployeePunchAudits()
     {
@@ -2451,90 +3172,28 @@
             return;
         }
 
-        punchAuditLoading = true;
-
-        try
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-
-            TimeZoneInfo indiaTimeZone;
-
-            try
-            {
-                indiaTimeZone =
-                    TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
-            }
-            catch (TimeZoneNotFoundException)
-            {
-                indiaTimeZone =
-                    TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
-            }
-
-            var indiaStart =
-                DateTime.SpecifyKind(
-                    punchAuditDate.Date,
-                    DateTimeKind.Unspecified);
-
-            var indiaEnd =
-                DateTime.SpecifyKind(
-                    punchAuditDate.Date.AddDays(1),
-                    DateTimeKind.Unspecified);
-
-            var startUtc =
-                TimeZoneInfo.ConvertTimeToUtc(
-                    indiaStart,
-                    indiaTimeZone);
-
-            var endUtc =
-                TimeZoneInfo.ConvertTimeToUtc(
-                    indiaEnd,
-                    indiaTimeZone);
-
-            selectedPunchAudits = await db.GeoPunchAudits
-                .AsNoTracking()
-                .Where(x => x.EmployeeId == selectedEmployeeId &&
-                            x.PunchTimeUtc >= startUtc &&
-                            x.PunchTimeUtc < endUtc)
-                .OrderByDescending(x => x.PunchTimeUtc)
-                .ToListAsync();
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Geo punch audit load failed: {ex}");
-            selectedPunchAudits.Clear();
-        }
-        finally
-        {
-            punchAuditLoading = false;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async Task RefreshSelectedEmployeePunchAuditsSilently()
-    {
-        /*
-         * No employee selected = nothing to refresh.
-         */
-        if (selectedEmployeeId <= 0)
-            return;
-
-        /*
-         * Do not compete with a manual/date-change audit load.
-         */
-        if (punchAuditLoading)
-            return;
+        punchAuditLoading =
+            true;
 
         try
         {
             await using var db =
                 await DbFactory.CreateDbContextAsync();
 
-            var employeeId = selectedEmployeeId;
-            
+            TimeZoneInfo indiaTimeZone;
 
-            var indiaTimeZone =
-     TimeZoneInfo.FindSystemTimeZoneById(
-         "Asia/Kolkata");
+            try
+            {
+                indiaTimeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(
+                        "Asia/Kolkata");
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                indiaTimeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(
+                        "India Standard Time");
+            }
 
             var indiaStart =
                 DateTime.SpecifyKind(
@@ -2556,155 +3215,347 @@
                     indiaEnd,
                     indiaTimeZone);
 
-            var latestAudits =
+            selectedPunchAudits =
                 await db.GeoPunchAudits
                     .AsNoTracking()
                     .Where(x =>
-                        x.EmployeeId == employeeId &&
+                        x.EmployeeId ==
+                            selectedEmployeeId &&
                         x.PunchTimeUtc >= startUtc &&
                         x.PunchTimeUtc < endUtc)
-                    .OrderByDescending(x => x.PunchTimeUtc)
+                    .OrderByDescending(
+                        x => x.PunchTimeUtc)
                     .ToListAsync();
-
-            /*
-             * Replace the displayed snapshot atomically.
-             * This makes a newly inserted mobile punch appear in
-             * the existing audit card without leaving the page.
-             */
-            selectedPunchAudits = latestAudits;
-
-            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
-            /*
-             * Background refresh must never break the page/circuit.
-             */
             Console.Error.WriteLine(
-                $"Real-time geo punch audit refresh failed: {ex}");
+                $"Geo punch audit load failed: {ex}");
+
+            selectedPunchAudits.Clear();
+        }
+        finally
+        {
+            punchAuditLoading =
+                false;
+
+            await InvokeAsync(
+                StateHasChanged);
         }
     }
 
 
-    private async Task ChangePunchAuditDate(ChangeEventArgs e)
+    // ============================================================
+    // PUNCH AUDIT DATE
+    // ============================================================
+
+    private async Task ChangePunchAuditDate(
+        ChangeEventArgs e)
     {
-        if (!DateTime.TryParse(e.Value?.ToString(), out var date)) return;
+        if (!DateTime.TryParse(
+                e.Value?.ToString(),
+                out var date))
+            return;
+
         await StopPlayback();
-        historyDate = date.Date;
-        punchAuditDate = date.Date;
-        selectedPlaybackSessionId = null;
-        playbackIndex = 0;
-        playbackStatus = "Ready";
-        selectedPunchAudit = null;
+
+        historyDate =
+            date.Date;
+
+        punchAuditDate =
+            date.Date;
+
+        selectedPlaybackSessionId =
+            null;
+
+        playbackIndex =
+            0;
+
+        playbackStatus =
+            "Ready";
+
+        selectedPunchAudit =
+            null;
+
         await LoadSelectedEmployeeHistory();
+
         await LoadSelectedEmployeePunchAudits();
-        mapNeedsUpdate = true;
-        await InvokeAsync(StateHasChanged);
+
+        mapNeedsUpdate =
+            true;
+
+        await InvokeAsync(
+            StateHasChanged);
     }
 
-    private async Task ChangeHistoryDate(ChangeEventArgs e)
+
+    // ============================================================
+    // HISTORY DATE
+    // ============================================================
+
+    private async Task ChangeHistoryDate(
+        ChangeEventArgs e)
     {
-        if (!DateTime.TryParse(e.Value?.ToString(), out var date)) return;
+        if (!DateTime.TryParse(
+                e.Value?.ToString(),
+                out var date))
+            return;
+
         await StopPlayback();
-        historyDate = date.Date;
-        punchAuditDate = date.Date;
-        playbackIndex = 0;
-        playbackStatus = "Ready";
-        selectedPunchAudit = null;
+
+        historyDate =
+            date.Date;
+
+        punchAuditDate =
+            date.Date;
+
+        playbackIndex =
+            0;
+
+        playbackStatus =
+            "Ready";
+
+        selectedPunchAudit =
+            null;
+
         await LoadSelectedEmployeeHistory();
+
         await LoadSelectedEmployeePunchAudits();
-        mapNeedsUpdate = true;
-        await InvokeAsync(StateHasChanged);
+
+        mapNeedsUpdate =
+            true;
+
+        await InvokeAsync(
+            StateHasChanged);
     }
 
-    private void OpenPunchAudit(GeoPunchAudit audit) => selectedPunchAudit = audit;
-    private void ClosePunchAudit() => selectedPunchAudit = null;
 
-    private static string GetAccuracyLabel(double meters)
+    // ============================================================
+    // AUDIT MODAL
+    // ============================================================
+
+    private void OpenPunchAudit(
+        GeoPunchAudit audit)
     {
-        if (meters <= 0) return "Unknown";
-        if (meters <= 20) return "Excellent";
-        if (meters <= 50) return "Good";
-        if (meters <= 100) return "Fair";
-        if (meters <= 200) return "Poor";
+        selectedPunchAudit =
+            audit;
+    }
+
+
+    private void ClosePunchAudit()
+    {
+        selectedPunchAudit =
+            null;
+    }
+
+
+    // ============================================================
+    // GPS ACCURACY
+    // ============================================================
+
+    private static string GetAccuracyLabel(
+        double meters)
+    {
+        if (meters <= 0)
+            return "Unknown";
+
+        if (meters <= 20)
+            return "Excellent";
+
+        if (meters <= 50)
+            return "Good";
+
+        if (meters <= 100)
+            return "Fair";
+
+        if (meters <= 200)
+            return "Poor";
+
         return "Very Poor";
     }
 
-    private static string GetAccuracyClass(double meters)
+
+    private static string GetAccuracyClass(
+        double meters)
     {
-        if (meters <= 0) return "unknown";
-        if (meters <= 20) return "excellent";
-        if (meters <= 50) return "good";
-        if (meters <= 100) return "fair";
-        if (meters <= 200) return "poor";
+        if (meters <= 0)
+            return "unknown";
+
+        if (meters <= 20)
+            return "excellent";
+
+        if (meters <= 50)
+            return "good";
+
+        if (meters <= 100)
+            return "fair";
+
+        if (meters <= 200)
+            return "poor";
+
         return "very-poor";
     }
 
 
+    // ============================================================
+    // HISTORY STATISTICS
+    // ============================================================
 
     private double HistoryAverageAccuracy =>
         selectedHistory.Count == 0
             ? 0
-            : selectedHistory.Where(x => x.AccuracyMeters > 0).Select(x => x.AccuracyMeters).DefaultIfEmpty().Average();
+            : selectedHistory
+                .Where(x =>
+                    x.AccuracyMeters > 0)
+                .Select(x =>
+                    x.AccuracyMeters)
+                .DefaultIfEmpty()
+                .Average();
+
 
     private double HistoryWorstAccuracy =>
         selectedHistory.Count == 0
             ? 0
-            : selectedHistory.Max(x => x.AccuracyMeters);
+            : selectedHistory.Max(
+                x => x.AccuracyMeters);
+
 
     private int HistoryPoorAccuracyCount =>
-        selectedHistory.Count(x => x.AccuracyMeters > 100);
+        selectedHistory.Count(
+            x => x.AccuracyMeters > 100);
+
 
     private int HistoryOutsideRangeCount =>
-        selectedHistory.Count(x => !x.IsWithinAllowedRadius);
+        selectedHistory.Count(
+            x => !x.IsWithinAllowedRadius);
+
 
     private int HistorySessionCount =>
         HistorySessions.Count;
 
-    private List<SessionSummary> HistorySessions =>
+
+    // ============================================================
+    // HISTORY SESSIONS
+    // ============================================================
+
+    private List<SessionSummary>
+        HistorySessions =>
         selectedHistory
             .GroupBy(x => x.SessionId)
             .Select(g =>
             {
-                var points = g.OrderBy(x => x.RecordedAtUtc).ToList();
+                var points =
+                    g.OrderBy(
+                        x => x.RecordedAtUtc)
+                    .ToList();
+
                 double travel = 0;
-                for (int i = 1; i < points.Count; i++)
-                    travel += CalculateDistance(points[i - 1].Latitude, points[i - 1].Longitude, points[i].Latitude, points[i].Longitude);
-                var accuracies = points.Where(x => x.AccuracyMeters > 0).Select(x => x.AccuracyMeters).ToList();
+
+                for (int i = 1;
+                     i < points.Count;
+                     i++)
+                {
+                    travel += CalculateDistance(
+                        points[i - 1].Latitude,
+                        points[i - 1].Longitude,
+                        points[i].Latitude,
+                        points[i].Longitude);
+                }
+
+                var accuracies =
+                    points
+                        .Where(x =>
+                            x.AccuracyMeters > 0)
+                        .Select(x =>
+                            x.AccuracyMeters)
+                        .ToList();
+
                 return new SessionSummary
                 {
-                    SessionId = g.Key,
-                    StartUtc = points.First().RecordedAtUtc,
-                    EndUtc = points.Last().RecordedAtUtc,
-                    PointCount = points.Count,
-                    TravelMeters = travel,
-                    AverageAccuracy = accuracies.Count == 0 ? 0 : accuracies.Average()
+                    SessionId =
+                        g.Key,
+
+                    StartUtc =
+                        points.First()
+                            .RecordedAtUtc,
+
+                    EndUtc =
+                        points.Last()
+                            .RecordedAtUtc,
+
+                    PointCount =
+                        points.Count,
+
+                    TravelMeters =
+                        travel,
+
+                    AverageAccuracy =
+                        accuracies.Count == 0
+                            ? 0
+                            : accuracies.Average()
                 };
             })
-            .OrderByDescending(x => x.StartUtc)
+            .OrderByDescending(
+                x => x.StartUtc)
             .ToList();
 
-    private static string ShortSessionId(Guid sessionId)
+
+    private static string ShortSessionId(
+        Guid sessionId)
     {
-        var value = sessionId.ToString("N");
-        return value.Length <= 8 ? value : value[..8];
+        var value =
+            sessionId.ToString("N");
+
+        return value.Length <= 8
+            ? value
+            : value[..8];
     }
 
-    private async Task SelectPlaybackSession(Guid sessionId)
+
+    private string GetHistorySessionStatus(
+        Guid sessionId)
+    {
+        if (sessionId == Guid.Empty)
+            return "Ended";
+
+        if (!gpsSessionLookup.TryGetValue(
+                sessionId,
+                out var session))
+        {
+            return "Ended";
+        }
+
+        return session.EndedAtUtc.HasValue
+            ? "Ended"
+            : "Active";
+    }
+
+
+    // ============================================================
+    // PLAYBACK SESSION
+    // ============================================================
+
+    private async Task SelectPlaybackSession(
+        Guid sessionId)
     {
         if (sessionId == Guid.Empty)
             return;
 
-        if (!selectedHistory.Any(x => x.SessionId == sessionId))
+        if (!selectedHistory.Any(
+                x => x.SessionId == sessionId))
             return;
 
         await StopPlayback();
 
-        selectedPlaybackSessionId = sessionId;
-        playbackIndex = 0;
-        playbackStatus = "Ready";
+        selectedPlaybackSessionId =
+            sessionId;
 
-        // Load the selected session route on the map without starting playback.
+        playbackIndex =
+            0;
+
+        playbackStatus =
+            "Ready";
+
         try
         {
             await JSRuntime.InvokeVoidAsync(
@@ -2719,10 +3570,18 @@
                 "pauseAdminHistoryPlayback",
                 mapId);
         }
-        catch { }
+        catch
+        {
+        }
 
-        await InvokeAsync(StateHasChanged);
+        await InvokeAsync(
+            StateHasChanged);
     }
+
+
+    // ============================================================
+    // FULL DAY PLAYBACK
+    // ============================================================
 
     private async Task SelectFullDayPlayback()
     {
@@ -2731,11 +3590,15 @@
 
         await StopPlayback();
 
-        selectedPlaybackSessionId = null;
-        playbackIndex = 0;
-        playbackStatus = "Ready";
+        selectedPlaybackSessionId =
+            null;
 
-        // Restore the complete day's route on the map without playing it.
+        playbackIndex =
+            0;
+
+        playbackStatus =
+            "Ready";
+
         if (PlaybackPoints.Count > 0)
         {
             try
@@ -2752,21 +3615,35 @@
                     "pauseAdminHistoryPlayback",
                     mapId);
             }
-            catch { }
+            catch
+            {
+            }
         }
 
-        await InvokeAsync(StateHasChanged);
+        await InvokeAsync(
+            StateHasChanged);
     }
+
+
+    // ============================================================
+    // PLAY
+    // ============================================================
 
     private async Task PlayHistory()
     {
-        if (!CanPlayback || selectedEmployeeId <= 0)
+        if (!CanPlayback ||
+            selectedEmployeeId <= 0)
             return;
 
-        if (PlaybackIndex >= PlaybackPoints.Count - 1)
-            playbackIndex = 0;
+        if (PlaybackIndex >=
+            PlaybackPoints.Count - 1)
+        {
+            playbackIndex =
+                0;
+        }
 
-        playbackStatus = "Playing";
+        playbackStatus =
+            "Playing";
 
         await JSRuntime.InvokeVoidAsync(
             "startAdminHistoryPlayback",
@@ -2778,9 +3655,14 @@
 
         StartPlaybackPolling();
 
-        await InvokeAsync(StateHasChanged);
+        await InvokeAsync(
+            StateHasChanged);
     }
 
+
+    // ============================================================
+    // PAUSE
+    // ============================================================
 
     private async Task PauseHistory()
     {
@@ -2799,6 +3681,10 @@
     }
 
 
+    // ============================================================
+    // RESET
+    // ============================================================
+
     private async Task ResetHistory()
     {
         if (!CanPlayback)
@@ -2808,7 +3694,8 @@
             "resetAdminHistoryPlayback",
             mapId);
 
-        playbackIndex = 0;
+        playbackIndex =
+            0;
 
         playbackStatus =
             "Ready";
@@ -2818,70 +3705,98 @@
     }
 
 
-    private bool IsHistoryPointActive(int historyIndex)
+    // ============================================================
+    // HISTORY POINT
+    // ============================================================
+
+    private async Task SelectHistoryPoint(
+        int index)
     {
-        if (historyIndex < 0 || historyIndex >= selectedHistory.Count || !CanPlayback)
-            return false;
-
-        var point = selectedHistory[historyIndex];
-
-        if (selectedPlaybackSessionId.HasValue &&
-            point.SessionId != selectedPlaybackSessionId.Value)
-            return false;
-
-        var playbackPoint = PlaybackPoints[PlaybackIndex];
-        return playbackPoint.Id == point.Id;
-    }
-
-    private async Task SelectHistoryPoint(int index)
-    {
-        if (index < 0 || index >= selectedHistory.Count)
+        if (index < 0 ||
+            index >= selectedHistory.Count)
             return;
 
-        var point = selectedHistory[index];
+        var point =
+            selectedHistory[index];
 
-        // If a session is selected, clicking a point from another session
-        // automatically switches playback to that session.
         if (selectedPlaybackSessionId.HasValue &&
-            point.SessionId != selectedPlaybackSessionId.Value)
+            point.SessionId !=
+                selectedPlaybackSessionId.Value)
         {
-            await SelectPlaybackSession(point.SessionId);
+            await SelectPlaybackSession(
+                point.SessionId);
+
             return;
         }
 
-        var playbackIndexForPoint = selectedPlaybackSessionId.HasValue
-            ? PlaybackPoints
-                .Select((x, i) => new { x, i })
-                .FirstOrDefault(x => x.x.Id == point.Id)?.i ?? -1
-            : index;
+        var playbackIndexForPoint =
+            selectedPlaybackSessionId.HasValue
+                ? PlaybackPoints
+                    .Select((x, i) =>
+                        new
+                        {
+                            x,
+                            i
+                        })
+                    .FirstOrDefault(
+                        x => x.x.Id ==
+                             point.Id)
+                    ?.i ?? -1
+                : index;
 
         if (playbackIndexForPoint < 0)
             return;
 
-        playbackIndex = playbackIndexForPoint;
-        playbackStatus = "Paused";
+        playbackIndex =
+            playbackIndexForPoint;
+
+        playbackStatus =
+            "Paused";
 
         try
         {
-            await JSRuntime.InvokeVoidAsync("pauseAdminHistoryPlayback", mapId);
-            await JSRuntime.InvokeVoidAsync("seekAdminHistoryPlayback", mapId, playbackIndex);
-        }
-        catch { }
+            await JSRuntime.InvokeVoidAsync(
+                "pauseAdminHistoryPlayback",
+                mapId);
 
-        await InvokeAsync(StateHasChanged);
+            await JSRuntime.InvokeVoidAsync(
+                "seekAdminHistoryPlayback",
+                mapId,
+                playbackIndex);
+        }
+        catch
+        {
+        }
+
+        await InvokeAsync(
+            StateHasChanged);
     }
 
 
-    private async Task SeekHistoryFromSlider(ChangeEventArgs e)
+    // ============================================================
+    // SLIDER
+    // ============================================================
+
+    private async Task SeekHistoryFromSlider(
+        ChangeEventArgs e)
     {
         if (!CanPlayback)
             return;
 
-        if (!int.TryParse(e.Value?.ToString(), out var index))
+        if (!int.TryParse(
+                e.Value?.ToString(),
+                out var index))
             return;
 
-        index = Math.Max(0, Math.Min(PlaybackPoints.Count - 1, index));
-        playbackIndex = index;
+        index =
+            Math.Max(
+                0,
+                Math.Min(
+                    PlaybackPoints.Count - 1,
+                    index));
+
+        playbackIndex =
+            index;
 
         await JSRuntime.InvokeVoidAsync(
             "seekAdminHistoryPlayback",
@@ -2896,16 +3811,22 @@
     }
 
 
+    // ============================================================
+    // PLAYBACK SPEED
+    // ============================================================
+
     private async Task ChangePlaybackSpeed(
         ChangeEventArgs e)
     {
         if (!double.TryParse(
-            e.Value?.ToString(),
-            out var speed))
+                e.Value?.ToString(),
+                out var speed))
             return;
 
         playbackSpeed =
-            Math.Max(.25, speed);
+            Math.Max(
+                .25,
+                speed);
 
         if (CanPlayback)
         {
@@ -2916,6 +3837,10 @@
         }
     }
 
+
+    // ============================================================
+    // PLAYBACK POLLING
+    // ============================================================
 
     private void StartPlaybackPolling()
     {
@@ -2961,7 +3886,8 @@
 
     private async Task PollPlaybackState()
     {
-        if (!CanPlayback)
+        if (!CanPlayback ||
+            disposed)
             return;
 
         try
@@ -2982,7 +3908,8 @@
                         state.Index));
 
             var changed =
-                playbackIndex != newIndex;
+                playbackIndex !=
+                newIndex;
 
             playbackIndex =
                 newIndex;
@@ -3008,7 +3935,6 @@
         }
         catch
         {
-            // Browser circuit may be closing.
         }
     }
 
@@ -3025,7 +3951,8 @@
 
         playbackStateCts?.Dispose();
 
-        playbackStateCts = null;
+        playbackStateCts =
+            null;
     }
 
 
@@ -3043,26 +3970,33 @@
         {
         }
 
-        playbackIndex = 0;
+        playbackIndex =
+            0;
 
         playbackStatus =
             "Ready";
     }
 
 
+    // ============================================================
+    // HISTORY DISPLAY
+    // ============================================================
+
     private string SelectedEmployeeName =>
-        employees.FirstOrDefault(
-            x => x.EmployeeID ==
-                 selectedEmployeeId)
-        ?.Name
-        ?? "Employee";
+        employees
+            .FirstOrDefault(
+                x => x.EmployeeID ==
+                     selectedEmployeeId)
+            ?.Name
+            ?? "Employee";
 
 
     private string HistoryStartText =>
         selectedHistory.Count == 0
             ? "-"
             : ToLocalTime(
-                selectedHistory.First()
+                selectedHistory
+                    .First()
                     .RecordedAtUtc)
                 .ToString("HH:mm:ss");
 
@@ -3071,7 +4005,8 @@
         selectedHistory.Count == 0
             ? "-"
             : ToLocalTime(
-                selectedHistory.Last()
+                selectedHistory
+                    .Last()
                     .RecordedAtUtc)
                 .ToString("HH:mm:ss");
 
@@ -3107,6 +4042,10 @@
         }
     }
 
+
+    // ============================================================
+    // HAVERSINE
+    // ============================================================
 
     private static double CalculateDistance(
         double lat1,
@@ -3149,11 +4088,20 @@
     }
 
 
+    // ============================================================
+    // LOCATION LOOKUP
+    // ============================================================
+
     private LiveEmployeeLocation? GetLocation(
         int employeeId) =>
         locations.FirstOrDefault(
-            x => x.EmployeeId == employeeId);
+            x => x.EmployeeId ==
+                 employeeId);
 
+
+    // ============================================================
+    // LIVE / STALE / OFFLINE
+    // ============================================================
 
     private LocationStatus GetLocationStatus(
         LiveEmployeeLocation? location)
@@ -3167,11 +4115,15 @@
 
         if (age <=
             TimeSpan.FromSeconds(30))
+        {
             return LocationStatus.Live;
+        }
 
         if (age <=
             TimeSpan.FromMinutes(2))
+        {
             return LocationStatus.Stale;
+        }
 
         return LocationStatus.Offline;
     }
@@ -3222,6 +4174,10 @@
         };
 
 
+    // ============================================================
+    // SESSION DURATION
+    // ============================================================
+
     private static TimeSpan GetSessionDuration(
         LiveEmployeeLocation location)
     {
@@ -3259,11 +4215,19 @@
     }
 
 
+    // ============================================================
+    // FOOTER
+    // ============================================================
+
     private string GetFooterText() =>
         lastRefresh.HasValue
             ? $"Last updated {lastRefresh.Value:HH:mm:ss}"
             : "Waiting for location updates";
 
+
+    // ============================================================
+    // FORMATTERS
+    // ============================================================
 
     private static string FormatDistance(
         double meters) =>
@@ -3271,7 +4235,9 @@
             ? $"{meters:F0} m"
             : $"{meters / 1000:F2} km";
 
-    private static string FormatAccuracy(double meters)
+
+    private static string FormatAccuracy(
+        double meters)
     {
         if (meters <= 0)
             return "Unknown";
@@ -3281,23 +4247,32 @@
             : $"±{meters / 1000:F2} km";
     }
 
-    private static DateTime ToLocalTime(DateTime utc)
+
+    // ============================================================
+    // INDIA TIME
+    // ============================================================
+
+    private static DateTime ToLocalTime(
+        DateTime utc)
     {
-        var utcValue = DateTime.SpecifyKind(
-            utc,
-            DateTimeKind.Utc);
+        var utcValue =
+            DateTime.SpecifyKind(
+                utc,
+                DateTimeKind.Utc);
 
         TimeZoneInfo indiaTimeZone;
 
         try
         {
             indiaTimeZone =
-                TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
+                TimeZoneInfo.FindSystemTimeZoneById(
+                    "Asia/Kolkata");
         }
         catch (TimeZoneNotFoundException)
         {
             indiaTimeZone =
-                TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
+                TimeZoneInfo.FindSystemTimeZoneById(
+                    "India Standard Time");
         }
 
         return TimeZoneInfo.ConvertTimeFromUtc(
@@ -3306,20 +4281,26 @@
     }
 
 
+    // ============================================================
+    // DISPOSE
+    // ============================================================
 
     public async ValueTask DisposeAsync()
     {
         if (disposed)
             return;
 
-        disposed = true;
+        disposed =
+            true;
 
-        /*
-         * Stop UI timer.
-         */
+
+        // --------------------------------------------------------
+        // STOP STATUS CLOCK
+        // --------------------------------------------------------
+
         try
         {
-            refreshCts?.Cancel();
+            statusCts?.Cancel();
         }
         catch
         {
@@ -3327,17 +4308,20 @@
 
         try
         {
-            refreshCts?.Dispose();
+            statusCts?.Dispose();
         }
         catch
         {
         }
 
-        refreshCts = null;
+        statusCts =
+            null;
 
-        /*
-         * Stop playback polling.
-         */
+
+        // --------------------------------------------------------
+        // STOP PLAYBACK POLLING
+        // --------------------------------------------------------
+
         try
         {
             playbackStateCts?.Cancel();
@@ -3354,31 +4338,15 @@
         {
         }
 
-        playbackStateCts = null;
+        playbackStateCts =
+            null;
 
-        /*
-         * Unregister this component from SignalR.
-         */
-        if (liveLocationSignalRReference != null)
-        {
-            try
-            {
-                await JSRuntime.InvokeVoidAsync(
-                    "attendanceRefresh.unregister",
-                    liveLocationSignalRReference);
-            }
-            catch
-            {
-            }
 
-            liveLocationSignalRReference.Dispose();
 
-            liveLocationSignalRReference = null;
-        }
+        // --------------------------------------------------------
+        // STOP HISTORY PLAYBACK
+        // --------------------------------------------------------
 
-        /*
-         * Stop historical playback.
-         */
         try
         {
             await JSRuntime.InvokeVoidAsync(
@@ -3389,9 +4357,11 @@
         {
         }
 
-        /*
-         * Destroy only this admin map.
-         */
+
+        // --------------------------------------------------------
+        // DESTROY MAP
+        // --------------------------------------------------------
+
         try
         {
             await JSRuntime.InvokeVoidAsync(
@@ -3404,6 +4374,10 @@
     }
 
 
+    // ============================================================
+    // ENUM
+    // ============================================================
+
     private enum LocationStatus
     {
         Live,
@@ -3411,6 +4385,10 @@
         Offline
     }
 
+
+    // ============================================================
+    // MAP DTO
+    // ============================================================
 
     private sealed class AdminMapLocation
     {
@@ -3432,16 +4410,29 @@
     }
 
 
+    // ============================================================
+    // SESSION SUMMARY
+    // ============================================================
 
     private sealed class SessionSummary
     {
         public Guid SessionId { get; set; }
+
         public DateTime StartUtc { get; set; }
+
         public DateTime EndUtc { get; set; }
+
         public int PointCount { get; set; }
+
         public double TravelMeters { get; set; }
+
         public double AverageAccuracy { get; set; }
     }
+
+
+    // ============================================================
+    // PLAYBACK STATE
+    // ============================================================
 
     private sealed class PlaybackState
     {

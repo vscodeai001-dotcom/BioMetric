@@ -1,20 +1,39 @@
+@using Microsoft.JSInterop
+
 @implements IAsyncDisposable
+
 @inject IJSRuntime JSRuntime
 
+
 @code {
+
+    // ============================================================
+    // CALLBACKS
+    // ============================================================
 
     [Parameter]
     public EventCallback OnAttendanceChanged { get; set; }
 
+
     [Parameter]
     public EventCallback OnLocationChanged { get; set; }
+
 
     [Parameter]
     public EventCallback OnRegularizationChanged { get; set; }
 
-    private DotNetObjectReference<AttendanceRefreshListener>? _dotNetRef;
+
+    // ============================================================
+    // SIGNALR JS REFERENCE
+    // ============================================================
+
+    private DotNetObjectReference<AttendanceRefreshListener>?
+        _dotNetRef;
 
     private bool _registered;
+
+    private bool _disposed;
+
 
     // ============================================================
     // START
@@ -23,7 +42,7 @@
     protected override async Task OnAfterRenderAsync(
         bool firstRender)
     {
-        if (!firstRender)
+        if (!firstRender || _disposed)
             return;
 
         try
@@ -44,13 +63,17 @@
         }
     }
 
+
     // ============================================================
-    // ATTENDANCE
+    // ATTENDANCE CHANGED
     // ============================================================
 
     [JSInvokable]
     public async Task AttendanceChanged()
     {
+        if (_disposed)
+            return;
+
         try
         {
             if (OnAttendanceChanged.HasDelegate)
@@ -67,13 +90,18 @@
         }
     }
 
+
     // ============================================================
-    // LOCATION
+    // LOCATION CHANGED
     // ============================================================
 
     [JSInvokable]
-    public async Task LocationChanged()
+    public async Task LocationChanged(
+        object? data)
     {
+        if (_disposed)
+            return;
+
         try
         {
             if (OnLocationChanged.HasDelegate)
@@ -90,13 +118,17 @@
         }
     }
 
+
     // ============================================================
-    // REGULARIZATION
+    // REGULARIZATION CHANGED
     // ============================================================
 
     [JSInvokable]
     public async Task RegularizationChanged()
     {
+        if (_disposed)
+            return;
+
         try
         {
             if (OnRegularizationChanged.HasDelegate)
@@ -113,12 +145,18 @@
         }
     }
 
+
     // ============================================================
     // DISPOSE
     // ============================================================
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
         try
         {
             if (_dotNetRef != null &&
@@ -142,4 +180,5 @@
             _dotNetRef = null;
         }
     }
+
 }
