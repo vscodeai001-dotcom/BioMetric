@@ -4,22 +4,364 @@
     let started = false;
     let starting = false;
 
+    let viewerRef = null;
     let listeners = [];
 
-    // ============================================================
-    // NOTIFY REGISTERED BLAZOR COMPONENTS
-    // ============================================================
+    async function start() {
 
-    async function notifyListeners(methodName, data) {
+        if (started || starting)
+            return;
 
-        for (const listener of [...listeners]) {
+        if (!window.signalR) {
+            console.warn(
+                "Attendance refresh: SignalR client is not loaded."
+            );
+            return;
+        }
 
-            if (!listener)
-                continue;
+        starting = true;
+
+        try {
+
+            connection =
+                new signalR.HubConnectionBuilder()
+                    .withUrl("/hubs/attendance-refresh")
+                    .withAutomaticReconnect([
+                        0,
+                        2000,
+                        5000,
+                        10000,
+                        30000
+                    ])
+                    .configureLogging(
+                        signalR.LogLevel.Warning
+                    )
+                    .build();
+
+
+            /*
+             * ==========================================================
+             * GENERIC DATA CHANGED
+             * ==========================================================
+             */
+
+            connection.on(
+                "DataChanged",
+                async function (data) {
+
+                    console.log(
+                        "Attendance DataChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * ATTENDANCE CHANGED
+             * ==========================================================
+             */
+
+            connection.on(
+                "AttendanceChanged",
+                async function (data) {
+
+                    console.log(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * LOCATION CHANGED
+             * ==========================================================
+             *
+             * Employee GPS sends:
+             *
+             * Employee
+             *     ↓
+             * LiveLocationStore
+             *     ↓
+             * SignalR
+             *     ↓
+             * LocationChanged
+             *     ↓
+             * Admin listeners
+             *
+             */
+
+            connection.on(
+                "LocationChanged",
+                async function (data) {
+
+                    console.log(
+                        "LocationChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "location-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+
+                    /*
+                     * IMPORTANT:
+                     * Pass the location payload through.
+                     *
+                     * The current LiveStaffLocationPanel can still
+                     * reload LiveLocationStore, so this remains
+                     * backward compatible.
+                     */
+                    await notifyListeners(
+                        "LocationChanged",
+                        data
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * REGULARIZATION CHANGED
+             * ==========================================================
+             */
+
+            connection.on(
+                "RegularizationChanged",
+                async function (data) {
+
+                    console.log(
+                        "RegularizationChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "RegularizationChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "regularization-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * RECONNECTING
+             * ==========================================================
+             */
+
+            connection.onreconnecting(
+                function () {
+
+                    console.log(
+                        "Attendance refresh connection reconnecting..."
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * RECONNECTED
+             * ==========================================================
+             */
+
+            connection.onreconnected(
+                async function (connectionId) {
+
+                    console.log(
+                        "Attendance refresh connection restored.",
+                        connectionId
+                    );
+
+                    /*
+                     * Refresh normal attendance viewers.
+                     */
+                    await notifyViewer();
+
+                    /*
+                     * IMPORTANT:
+                     *
+                     * Refresh all live-location listeners too.
+                     *
+                     * This allows the admin map to recover the latest
+                     * in-memory employee positions after reconnect.
+                     */
+                    await notifyListeners(
+                        "LocationChanged",
+                        null
+                    );
+                }
+            );
+
+
+            /*
+             * ==========================================================
+             * CLOSED
+             * ==========================================================
+             */
+
+            connection.onclose(
+                function () {
+
+                    started = false;
+                    starting = false;
+
+                    console.warn(
+                        "Attendance refresh connection closed."
+                    );
+                }
+            );
+
+
+            await connection.start();
+
+            started = true;
+
+            console.log(
+                "Attendance refresh connection started."
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "Unable to start attendance refresh:",
+                error
+            );
+
+            started = false;
 
             try {
 
-                if (data === undefined) {
+                if (connection) {
+                    await connection.stop();
+                }
+
+            }
+            catch {
+            }
+
+            connection = null;
+        }
+        finally {
+
+            starting = false;
+        }
+    }
+
+
+    /*
+     * ==============================================================
+     * VIEWER NOTIFICATION
+     * ==============================================================
+     */
+
+    async function notifyViewer() {
+
+        if (!viewerRef)
+            return;
+
+        try {
+
+            await viewerRef.invokeMethodAsync(
+                "RefreshFromNotification"
+            );
+
+        }
+        catch (error) {
+
+            console.warn(
+                "Attendance viewer refresh failed:",
+                error
+            );
+        }
+    }
+
+
+    /*
+     * ==============================================================
+     * LISTENER NOTIFICATION
+     * ==============================================================
+     *
+     * data is optional.
+     *
+     * Existing components that define:
+     *
+     * LocationChanged()
+     *
+     * continue to work.
+     *
+     * Components that define:
+     *
+     * LocationChanged(data)
+     *
+     * can now receive the actual event payload.
+     */
+
+    async function notifyListeners(
+        methodName,
+        data
+    ) {
+
+        const currentListeners =
+            [...listeners];
+
+        for (const listener of currentListeners) {
+
+            try {
+
+                if (typeof data === "undefined") {
 
                     await listener.invokeMethodAsync(
                         methodName
@@ -39,257 +381,51 @@
             catch (error) {
 
                 console.warn(
-                    "[AttendanceRefresh] Listener failed:",
-                    methodName,
+                    "Attendance refresh listener failed:",
                     error
                 );
+
             }
         }
     }
 
 
-    // ============================================================
-    // START SIGNALR
-    // ============================================================
+    /*
+     * ==============================================================
+     * VIEWER REGISTRATION
+     * ==============================================================
+     */
 
-    async function start() {
+    function registerViewer(dotNetReference) {
 
-        if (started || starting)
-            return;
+        viewerRef = dotNetReference;
 
-        if (!window.signalR) {
-
-            console.warn(
-                "[AttendanceRefresh] SignalR client is not available."
-            );
-
-            return;
-        }
-
-        starting = true;
-
-        try {
-
-            connection =
-                new signalR.HubConnectionBuilder()
-                    .withUrl(
-                        "/hubs/attendance-refresh"
-                    )
-                    .withAutomaticReconnect([
-                        0,
-                        2000,
-                        5000,
-                        10000,
-                        30000
-                    ])
-                    .build();
+        start();
+    }
 
 
-            // ====================================================
-            // ATTENDANCE CHANGED
-            // ====================================================
+    async function unregisterViewer(
+        dotNetReference
+    ) {
 
-            connection.on(
-                "AttendanceChanged",
-                async function (data) {
-
-                    console.log(
-                        "[AttendanceRefresh] AttendanceChanged",
-                        data
-                    );
-
-                    await notifyListeners(
-                        "AttendanceChanged"
-                    );
-                }
-            );
-
-
-            // ====================================================
-            // LOCATION CHANGED
-            // ====================================================
-
-            connection.on(
-                "LocationChanged",
-                async function (data) {
-
-                    console.log(
-                        "[AttendanceRefresh] LocationChanged",
-                        data
-                    );
-
-                    // --------------------------------------------
-                    // Browser event
-                    // --------------------------------------------
-
-                    try {
-
-                        window.dispatchEvent(
-                            new CustomEvent(
-                                "location-data-changed",
-                                {
-                                    detail: data
-                                }
-                            )
-                        );
-
-                    }
-                    catch (error) {
-
-                        console.warn(
-                            "[AttendanceRefresh] Browser location event failed:",
-                            error
-                        );
-
-                    }
-
-
-                    // --------------------------------------------
-                    // Blazor listeners
-                    // --------------------------------------------
-
-                    await notifyListeners(
-                        "LocationChanged",
-                        data
-                    );
-                }
-            );
-
-
-            // ====================================================
-            // REGULARIZATION CHANGED
-            // ====================================================
-
-            connection.on(
-                "RegularizationChanged",
-                async function (data) {
-
-                    console.log(
-                        "[AttendanceRefresh] RegularizationChanged",
-                        data
-                    );
-
-                    await notifyListeners(
-                        "RegularizationChanged"
-                    );
-                }
-            );
-
-
-            // ====================================================
-            // RECONNECTED
-            // ====================================================
-
-            connection.onreconnected(
-                async function (connectionId) {
-
-                    started = true;
-
-                    console.log(
-                        "[AttendanceRefresh] Connection restored.",
-                        connectionId
-                    );
-
-                    /*
-                     * Force all registered Blazor components
-                     * to reload their current data.
-                     */
-
-                    await notifyListeners(
-                        "AttendanceChanged"
-                    );
-
-                    await notifyListeners(
-                        "LocationChanged"
-                    );
-
-                    await notifyListeners(
-                        "RegularizationChanged"
-                    );
-                }
-            );
-
-
-            // ====================================================
-            // RECONNECTING
-            // ====================================================
-
-            connection.onreconnecting(
-                function (error) {
-
-                    console.warn(
-                        "[AttendanceRefresh] SignalR reconnecting...",
-                        error
-                    );
-                }
-            );
-
-
-            // ====================================================
-            // CLOSED
-            // ====================================================
-
-            connection.onclose(
-                function (error) {
-
-                    started = false;
-
-                    console.warn(
-                        "[AttendanceRefresh] SignalR connection closed.",
-                        error
-                    );
-
-                }
-            );
-
-
-            // ====================================================
-            // CONNECT
-            // ====================================================
-
-            await connection.start();
-
-            started = true;
-
-            console.log(
-                "[AttendanceRefresh] Live refresh connected."
-            );
-
-        }
-        catch (error) {
-
-            started = false;
-
-            console.error(
-                "[AttendanceRefresh] Live refresh connection failed:",
-                error
-            );
-
-        }
-        finally {
-
-            starting = false;
-
+        if (viewerRef === dotNetReference) {
+            viewerRef = null;
         }
     }
 
 
-    // ============================================================
-    // REGISTER BLAZOR LISTENER
-    // ============================================================
+    /*
+     * ==============================================================
+     * GENERAL LISTENER REGISTRATION
+     * ==============================================================
+     */
 
-    function register(dotNetRef) {
+    function register(dotNetReference) {
 
-        if (!dotNetRef)
-            return;
+        if (!listeners.includes(dotNetReference)) {
 
-        if (!listeners.includes(dotNetRef)) {
-
-            listeners.push(dotNetRef);
-
-            console.log(
-                "[AttendanceRefresh] Listener registered. Total:",
-                listeners.length
+            listeners.push(
+                dotNetReference
             );
         }
 
@@ -297,34 +433,29 @@
     }
 
 
-    // ============================================================
-    // UNREGISTER BLAZOR LISTENER
-    // ============================================================
-
-    function unregister(dotNetRef) {
+    async function unregister(
+        dotNetReference
+    ) {
 
         listeners =
             listeners.filter(
-                function (x) {
-                    return x !== dotNetRef;
+                function (item) {
+
+                    return item !== dotNetReference;
                 }
             );
-
-        console.log(
-            "[AttendanceRefresh] Listener unregistered. Total:",
-            listeners.length
-        );
     }
 
 
-    // ============================================================
-    // PUBLIC API
-    // ============================================================
-
     return {
 
-        start:
-            start,
+        start: start,
+
+        registerViewer:
+            registerViewer,
+
+        unregisterViewer:
+            unregisterViewer,
 
         register:
             register,
