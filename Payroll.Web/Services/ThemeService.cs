@@ -1,9 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Payroll.Web.Services
 {
     public class ThemeService
     {
+        private const string ThemePreferenceTableName = "public.user_theme_preferences";
+
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
         public ThemeService(
@@ -34,11 +37,25 @@ namespace Payroll.Web.Services
                 return null;
 
             await using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.UserThemePreferences
-                .AsNoTracking()
-                .Where(x => x.UserId == userId)
-                .Select(x => x.Theme)
-                .FirstOrDefaultAsync();
+
+            try
+            {
+                return await db.UserThemePreferences
+                    .AsNoTracking()
+                    .Where(x => x.UserId == userId)
+                    .Select(x => x.Theme)
+                    .FirstOrDefaultAsync();
+            }
+            catch (PostgresException ex) when (ex.SqlState == "42P01")
+            {
+                await EnsureThemePreferencesTableAsync(db);
+
+                return await db.UserThemePreferences
+                    .AsNoTracking()
+                    .Where(x => x.UserId == userId)
+                    .Select(x => x.Theme)
+                    .FirstOrDefaultAsync();
+            }
         }
 
         public async Task SaveThemeAsync(string userId, string theme)
@@ -49,25 +66,65 @@ namespace Payroll.Web.Services
             theme = theme == "dark" ? "dark" : "light";
 
             await using var db = await _dbFactory.CreateDbContextAsync();
-            var preference = await db.UserThemePreferences
-                .FirstOrDefaultAsync(x => x.UserId == userId);
 
-            if (preference == null)
+            try
             {
-                db.UserThemePreferences.Add(new Payroll.Shared.Data.UserThemePreference
+                var preference = await db.UserThemePreferences
+                    .FirstOrDefaultAsync(x => x.UserId == userId);
+
+                if (preference == null)
                 {
-                    UserId = userId,
-                    Theme = theme,
-                    UpdatedAtUtc = DateTime.UtcNow
-                });
-            }
-            else
-            {
-                preference.Theme = theme;
-                preference.UpdatedAtUtc = DateTime.UtcNow;
-            }
+                    db.UserThemePreferences.Add(new Payroll.Shared.Data.UserThemePreference
+                    {
+                        UserId = userId,
+                        Theme = theme,
+                        UpdatedAtUtc = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    preference.Theme = theme;
+                    preference.UpdatedAtUtc = DateTime.UtcNow;
+                }
 
-            await db.SaveChangesAsync();
+                await db.SaveChangesAsync();
+            }
+            catch (PostgresException ex) when (ex.SqlState == "42P01")
+            {
+                await EnsureThemePreferencesTableAsync(db);
+
+                var preference = await db.UserThemePreferences
+                    .FirstOrDefaultAsync(x => x.UserId == userId);
+
+                if (preference == null)
+                {
+                    db.UserThemePreferences.Add(new Payroll.Shared.Data.UserThemePreference
+                    {
+                        UserId = userId,
+                        Theme = theme,
+                        UpdatedAtUtc = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    preference.Theme = theme;
+                    preference.UpdatedAtUtc = DateTime.UtcNow;
+                }
+
+                await db.SaveChangesAsync();
+            }
+        }
+
+        private async Task EnsureThemePreferencesTableAsync(AppDbContext db)
+        {
+            await db.Database.ExecuteSqlRawAsync($"""
+                CREATE TABLE IF NOT EXISTS {ThemePreferenceTableName} (
+                    user_id character varying(450) NOT NULL,
+                    theme character varying(20) NOT NULL DEFAULT 'light',
+                    updated_at_utc timestamp without time zone NOT NULL DEFAULT NOW(),
+                    CONSTRAINT PK_user_theme_preferences PRIMARY KEY (user_id)
+                );
+                """);
         }
     }
 }

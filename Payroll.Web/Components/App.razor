@@ -101,7 +101,7 @@
        ============================================================ *@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.21/signalr.min.js"></script>
-    <script src="/js/attendance-refresh.js?v=20260829"></script>
+    <script src="/js/attendance-refresh.js?v=20260830"></script>
 
 
     @* ============================================================
@@ -109,6 +109,30 @@
        ============================================================ *@
 
     <script src="_framework/blazor.web.js?v=20260829"></script>
+
+    <div id="components-reconnect-modal" aria-live="polite">
+        <span class="components-reconnect-show">Connection interrupted. Reconnecting...</span>
+        <span class="components-reconnect-failed">Connection lost. Reload to continue.</span>
+        <span class="components-reconnect-rejected">Session ended. Reload to sign in again.</span>
+    </div>
+
+    <script>
+        (function () {
+            function keepServerAwake() {
+                fetch('/health', {
+                    method: 'GET',
+                    cache: 'no-store',
+                    credentials: 'same-origin'
+                }).catch(function () { });
+            }
+
+            keepServerAwake();
+            window.setInterval(keepServerAwake, 20000);
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden) keepServerAwake();
+            });
+        })();
+    </script>
 
 
     @* ============================================================

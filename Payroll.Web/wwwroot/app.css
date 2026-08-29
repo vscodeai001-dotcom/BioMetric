@@ -380,6 +380,21 @@ body.dark textarea.form-control:focus {
     box-sizing: border-box !important;
 }
 
+#components-reconnect-modal .components-reconnect-failed,
+#components-reconnect-modal .components-reconnect-rejected {
+    display: none;
+}
+
+#components-reconnect-modal.components-reconnect-failed .components-reconnect-show,
+#components-reconnect-modal.components-reconnect-rejected .components-reconnect-show {
+    display: none;
+}
+
+#components-reconnect-modal.components-reconnect-failed .components-reconnect-failed,
+#components-reconnect-modal.components-reconnect-rejected .components-reconnect-rejected {
+    display: inline;
+}
+
 
     /* ---------------------------------------------------------
    NORMAL STATE
