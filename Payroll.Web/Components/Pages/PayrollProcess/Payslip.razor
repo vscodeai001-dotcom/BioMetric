@@ -318,47 +318,95 @@ else
             margin: 2px 0;
         }
 
-        /* --- DARK MODE FIXES --- */
+        /* --- ON-SCREEN THEME STYLES --- */
         .payslip-container {
-            background-color: #ffffff !important;
-            color: #000000 !important; /* Force Black Text */
+            background-color: #ffffff;
+            color: #212529;
         }
-            /* Force all children to be black too */
+
+        .payslip-container .text-danger {
+            color: #dc3545;
+        }
+
+        .payslip-container .text-muted {
+            color: #6c757d;
+        }
+
+        body.dark .payslip-container {
+            background-color: #1b222c !important;
+            color: #f3f6fa !important;
+            border-color: #465464 !important;
+        }
+
+        body.dark .payslip-container h1,
+        body.dark .payslip-container h2,
+        body.dark .payslip-container h3,
+        body.dark .payslip-container h4,
+        body.dark .payslip-container h5,
+        body.dark .payslip-container h6,
+        body.dark .payslip-container strong,
+        body.dark .payslip-container td,
+        body.dark .payslip-container th {
+            color: #f3f6fa !important;
+        }
+
+        body.dark .payslip-container small,
+        body.dark .payslip-container .text-muted {
+            color: #b8c3d0 !important;
+        }
+
+        body.dark .payslip-container hr {
+            border-color: #465464 !important;
+            opacity: 1;
+        }
+
+        body.dark .payslip-container .table {
+            --bs-table-bg: #1b222c;
+            --bs-table-color: #f3f6fa;
+            --bs-table-border-color: #465464;
+            color: #f3f6fa !important;
+            border-color: #465464 !important;
+        }
+
+        body.dark .payslip-container .table thead th {
+            background-color: #2a3542 !important;
+            color: #ffffff !important;
+            border-color: #536274 !important;
+        }
+
+        body.dark .payslip-container .table tbody td {
+            background-color: #1b222c !important;
+            color: #f3f6fa !important;
+            border-color: #465464 !important;
+        }
+
+        body.dark .payslip-container .bg-light {
+            background-color: #2a3542 !important;
+            color: #f3f6fa !important;
+        }
+
+        body.dark .payslip-container .payslip-summary {
+            background-color: #263a4f !important;
+            color: #ffffff !important;
+        }
+
+        body.dark .payslip-container .text-danger,
+        body.dark .payslip-container .text-danger * {
+            color: #ff7b86 !important;
+        }
+
+        @@media print {
+            .payslip-container,
             .payslip-container * {
-                color: #000000 !important;
+                background-color: #ffffff !important;
+                color: #212529 !important;
+                border-color: #dee2e6 !important;
             }
-            /* Exceptions */
-            .payslip-container .text-danger {
+
+            .payslip-container .text-danger,
+            .payslip-container .text-danger * {
                 color: #dc3545 !important;
             }
-
-            .payslip-container .text-muted {
-                color: #6c757d !important;
-            }
-        /* Grey, readable on white */
-
-        /* Table Overrides for Dark Mode */
-        body.dark .payslip-container .table {
-            color: #000000 !important;
-            border-color: #dee2e6 !important;
-            --bs-table-bg: #ffffff !important;
-        }
-
-            body.dark .payslip-container .table thead th {
-                background-color: #f8f9fa !important;
-                color: #000000 !important;
-                border-color: #dee2e6 !important;
-            }
-
-            body.dark .payslip-container .table tbody td {
-                background-color: #ffffff !important;
-                color: #000000 !important;
-                border-color: #dee2e6 !important;
-            }
-
-        body.dark .thermal-slip {
-            background-color: #ffffff !important;
-            color: #000000 !important;
         }
     </style>
 }

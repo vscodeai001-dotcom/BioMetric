@@ -902,9 +902,9 @@ body.dark .nav-tabs .nav-link.active {
     border-color: #5d82ad #5d82ad #273544 !important;
 }
 
-/* Printable payslips intentionally remain white documents. */
-body.dark .payslip-container.bg-white,
-body.dark .payslip-container.bg-white * {
-    background-color: #ffffff !important;
-    color: #212529 !important;
+/* Payslips are dark on screen; print output is kept white by Payslip.razor. */
+body.dark .payslip-container.bg-white {
+    background-color: #1b222c !important;
+    color: #f3f6fa !important;
+    border-color: #465464 !important;
 }
