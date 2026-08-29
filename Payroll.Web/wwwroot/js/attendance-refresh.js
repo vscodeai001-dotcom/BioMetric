@@ -3,6 +3,7 @@
     let connection = null;
     let started = false;
     let starting = false;
+    let retryTimer = null;
 
     let viewerRef = null;
     let listeners = [];
@@ -422,6 +423,8 @@
                     console.warn(
                         "Attendance refresh connection closed."
                     );
+
+                    scheduleRetry();
                 }
             );
 
@@ -455,11 +458,27 @@
             }
 
             connection = null;
+
+            scheduleRetry();
         }
         finally {
 
             starting = false;
         }
+    }
+
+    function scheduleRetry() {
+
+        if (retryTimer || !listeners.length)
+            return;
+
+        retryTimer = setTimeout(
+            function () {
+                retryTimer = null;
+                start();
+            },
+            2000
+        );
     }
 
 
