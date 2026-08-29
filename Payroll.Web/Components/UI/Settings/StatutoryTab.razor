@@ -19,7 +19,7 @@
                 </div>
                 @if (Settings.EnablePfEsiSystem)
                 {
-                    <div class="p-3 bg-light border rounded">
+                    <div class="statutory-card p-3 border rounded">
                         <div class="row g-3 align-items-end mb-3">
                             <div class="col-6">
                                 <label class="small fw-bold">ESI Wage Limit (₹)</label>
@@ -39,7 +39,7 @@
                 else
                 {
 
-                    <div class="alert alert-light small">Disabled.</div>
+                    <div class="statutory-status alert alert-light small">Disabled.</div>
                 }
             }
         </div>
@@ -56,7 +56,7 @@
                 </div>
                 @if (Settings.EnableProfessionalTax)
                 {
-                    <div class="p-3 bg-light border rounded">
+                    <div class="statutory-card p-3 border rounded">
                         <p class="small text-muted mb-2">Manage tax slabs based on Gross Salary range.</p>
                         <button class="btn btn-sm btn-outline-primary" @onclick="OpenSlabModal"><i class="bi bi-table"></i> Manage Slabs</button>
                         <span class="ms-2 small fw-bold">@(ptSlabs?.Count ?? 0) Slabs Active</span>
@@ -65,7 +65,7 @@
                 else
                 {
 
-                    <div class="alert alert-light small">Disabled.</div>
+                    <div class="statutory-status alert alert-light small">Disabled.</div>
                 }
             }
         </div>
@@ -83,7 +83,7 @@
 
                 @if (Settings.EnableShiftAllowance)
                 {
-                    <div class="p-3 bg-light border rounded">
+                    <div class="statutory-card p-3 border rounded">
                         <p class="small text-muted mb-0">
                             If enabled, employees can be assigned a "Night Shift Allowance" rate in their profile.
                             This amount (e.g. ₹200) will be automatically added to their daily pay if they work a shift that crosses midnight.
@@ -93,7 +93,7 @@
                 else
                 {
 
-                    <div class="alert alert-light small">Allowance system disabled.</div>
+                    <div class="statutory-status alert alert-light small">Allowance system disabled.</div>
                 }
             </div>
         }

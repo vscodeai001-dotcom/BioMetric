@@ -139,11 +139,17 @@
     --app-border: #dbe3ee;
     --app-accent: #1769e0;
     --app-shadow: 0 8px 24px rgba(31, 41, 55, .07);
+    --app-spacing-xs: 0.4rem;
+    --app-spacing-sm: 0.7rem;
+    --app-spacing-md: 1rem;
+    --app-spacing-lg: 1.25rem;
+    --app-control-height: 2.2rem;
 }
 
 html, body {
     background: var(--app-bg);
     color: var(--app-text);
+    font-size: 14px;
 }
 
 body:not(.dark) .card,
@@ -193,6 +199,79 @@ body:not(.dark) .form-select:focus {
 
 .card-header {
     border-bottom-color: var(--app-border);
+    padding: 0.7rem 1rem;
+}
+
+.card-body {
+    padding: 0.9rem 1rem;
+}
+
+.card-footer {
+    padding: 0.7rem 1rem;
+}
+
+.btn {
+    min-height: var(--app-control-height);
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+}
+
+.btn-sm {
+    min-height: 2rem;
+    padding: 0.25rem 0.6rem;
+}
+
+.form-control,
+.form-select,
+.input-group-text {
+    min-height: var(--app-control-height);
+    padding: 0.45rem 0.7rem;
+}
+
+.table th,
+.table td {
+    padding: 0.55rem 0.7rem;
+    vertical-align: middle;
+}
+
+.table-sm th,
+.table-sm td {
+    padding: 0.38rem 0.55rem;
+}
+
+.container,
+.container-fluid {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+}
+
+.row.g-2,
+.row.g-3,
+.row.g-4 {
+    --bs-gutter-x: 0.75rem;
+    --bs-gutter-y: 0.75rem;
+}
+
+.mb-4,
+.mt-4,
+.my-4 {
+    margin-bottom: 1rem !important;
+    margin-top: 1rem !important;
+}
+
+.mb-3,
+.mt-3,
+.my-3 {
+    margin-bottom: 0.75rem !important;
+    margin-top: 0.75rem !important;
+}
+
+.p-4 {
+    padding: 1rem !important;
+}
+
+.p-3 {
+    padding: 0.8rem !important;
 }
 
 .btn:hover:not(:disabled) {

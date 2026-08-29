@@ -79,6 +79,46 @@ body.dark .btn-outline-primary:focus {
     background-color: #245a9c !important;
 }
 
+body.dark .statutory-card,
+body.dark .statutory-status {
+    background-color: var(--app-surface) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+    box-shadow: none !important;
+}
+
+body.dark .statutory-card .text-muted,
+body.dark .statutory-card .small,
+body.dark .statutory-card label,
+body.dark .statutory-card p,
+body.dark .statutory-card span,
+body.dark .statutory-status {
+    color: var(--app-text) !important;
+}
+
+body.dark .statutory-card .form-control,
+body.dark .statutory-card .form-select,
+body.dark .statutory-card .input-group-text {
+    background-color: #151c25 !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
+body.dark .statutory-card .btn-outline-primary {
+    color: #8dbbff !important;
+    border-color: #4c83c8 !important;
+}
+
+body.dark .border-start {
+    border-left-color: var(--app-border) !important;
+}
+
+body.dark .statutory-status.alert-light {
+    background-color: rgba(255,255,255,0.04) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
     body.dark article.content {
         /* Main content area */
         background-color: #1e1f24 !important;

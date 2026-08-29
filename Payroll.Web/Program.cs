@@ -604,6 +604,72 @@ var app =
     builder.Build();
 
 
+static async Task ValidateDatabaseSchemaAsync(
+    AppDbContext db,
+    ILogger logger)
+{
+    const string migrationName = "20260830000000_AddUserThemePreferences";
+    var requiredTables = new[]
+    {
+        "AspNetUsers",
+        "AspNetRoles",
+        "employees",
+        "user_theme_preferences"
+    };
+
+    await using var connection = db.Database.GetDbConnection();
+    if (connection.State != System.Data.ConnectionState.Open)
+        await connection.OpenAsync();
+
+    foreach (var tableName in requiredTables)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = @"
+            SELECT CASE WHEN EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = @tableName
+            ) THEN TRUE ELSE FALSE END;";
+
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var tableExists = Convert.ToBoolean(await command.ExecuteScalarAsync());
+        if (!tableExists)
+        {
+            throw new InvalidOperationException(
+                $"Required database table '{tableName}' is missing in the current PostgreSQL schema.");
+        }
+    }
+
+    using (var command = connection.CreateCommand())
+    {
+        command.CommandText = @"
+            SELECT EXISTS (
+                SELECT 1
+                FROM public.""__EFMigrationsHistory""
+                WHERE ""MigrationId"" = @migrationId
+            );";
+
+        var migrationParameter = command.CreateParameter();
+        migrationParameter.ParameterName = "@migrationId";
+        migrationParameter.Value = migrationName;
+        command.Parameters.Add(migrationParameter);
+
+        var migrationApplied = Convert.ToBoolean(await command.ExecuteScalarAsync());
+        if (!migrationApplied)
+        {
+            logger.LogWarning(
+                "EF migration '{MigrationName}' is not recorded in the database history. Confirm the target database has applied the latest migrations.",
+                migrationName);
+        }
+    }
+}
+
+
 // ============================================================
 // REQUEST LOCALIZATION
 // ============================================================
@@ -661,6 +727,12 @@ try
 
 
     db.Database.Migrate();
+
+    await ValidateDatabaseSchemaAsync(
+        db,
+        app.Services
+            .GetRequiredService<
+                ILogger<Program>>());
 }
 catch (Exception ex)
 {
@@ -672,7 +744,9 @@ catch (Exception ex)
 
     logger.LogError(
         ex,
-        "Error during DB migration.");
+        "Error during DB migration or startup schema validation.");
+
+    throw;
 }
 
 
