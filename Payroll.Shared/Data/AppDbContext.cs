@@ -61,6 +61,8 @@ public class AppDbContext
 
     public DbSet<Notification> Notifications { get; set; }
 
+    public DbSet<UserThemePreference> UserThemePreferences { get; set; }
+
     public DbSet<ReportDefinition> ReportDefinitions { get; set; }
 
     public DbSet<AttendanceRegularization>

@@ -987,3 +987,70 @@ body.dark #payslip-to-print-standard .payslip-header strong,
 body.dark #payslip-to-print-thermal .text-start {
     color: #e4ebf3 !important;
 }
+
+/* ============================================================
+   DARK MODE - ALERTS, EMPTY STATES, AND SPECIAL ROWS
+   ============================================================ */
+
+body.dark .alert-info,
+body.dark .alert-warning,
+body.dark .alert-secondary,
+body.dark .alert-success {
+    background-color: #263342 !important;
+    border-color: #48617b !important;
+    color: #e4edf7 !important;
+}
+
+body.dark .alert-info *,
+body.dark .alert-warning *,
+body.dark .alert-secondary *,
+body.dark .alert-success * {
+    color: inherit !important;
+}
+
+body.dark .alert-warning {
+    background-color: #4a3b1e !important;
+    border-color: #876d2f !important;
+    color: #ffe8a8 !important;
+}
+
+body.dark .alert-success {
+    background-color: #1d4234 !important;
+    border-color: #36765b !important;
+    color: #c8f5dc !important;
+}
+
+body.dark .table-danger > *,
+body.dark .table-danger td,
+body.dark .table-danger th {
+    background-color: #542b38 !important;
+    color: #ffe0e7 !important;
+    border-color: #784354 !important;
+}
+
+body.dark .table-danger .badge,
+body.dark .table-danger .text-danger {
+    color: #ffffff !important;
+}
+
+body.dark .badge.bg-light,
+body.dark .badge.bg-white {
+    background-color: #344252 !important;
+    color: #f3f6fa !important;
+    border-color: #536579 !important;
+}
+
+/* ============================================================
+   DARK MODE - MAP CANVASES
+   ============================================================ */
+
+body.dark .admin-live-map,
+body.dark .geo-real-map {
+    background-color: #18212b !important;
+    filter: invert(.88) hue-rotate(180deg) saturate(.82) brightness(.86);
+}
+
+body.dark .admin-live-map .leaflet-control,
+body.dark .geo-real-map .leaflet-control {
+    filter: invert(1) hue-rotate(180deg);
+}

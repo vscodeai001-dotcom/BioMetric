@@ -111,6 +111,17 @@
         var authState =
             await AuthState.GetAuthenticationStateAsync();
 
+        var userId =
+            authState.User.FindFirst(
+                System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            var storedTheme = await Theme.GetThemeAsync(userId);
+            if (!string.IsNullOrWhiteSpace(storedTheme))
+                Theme.SetTheme(storedTheme);
+        }
+
         userIsSuperAdmin =
             authState.User.IsInRole("SuperAdmin");
 
@@ -213,6 +224,16 @@
         await JSRuntime.InvokeVoidAsync(
             "themeInterop.saveTheme",
             newTheme);
+
+        var authState =
+            await AuthState.GetAuthenticationStateAsync();
+
+        var userId =
+            authState.User.FindFirst(
+                System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (!string.IsNullOrWhiteSpace(userId) && Theme != null)
+            await Theme.SaveThemeAsync(userId, newTheme);
 
         await JSRuntime.InvokeVoidAsync(
             "themeInterop.setThemeOnBody",
