@@ -9,6 +9,7 @@
 @using System.Globalization
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject FBPService FBPService
+@inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
 @inject IJSRuntime JSRuntime
 @inject IToastService toastService
 @inject UserManager<IdentityUser> UserManager
@@ -78,6 +79,8 @@ else
         </div>
     </div>
 }
+
+<AttendanceRefreshListener OnAttendanceChanged="HandleDataRefresh" />
 
 @code {
     private bool isLoading = true;
@@ -164,6 +167,7 @@ else
             }
             
             await db.SaveChangesAsync();
+            await AttendanceRefresh.NotifyDataChangedAsync(summary.EmployeeId, null, "FBP_APPROVAL");
             toastService.ShowSuccess($"Declaration for {summary.EmployeeName} locked and approved.");
             await LoadData();
         }
@@ -172,6 +176,11 @@ else
             toastService.ShowError($"Approval failed: {ex.Message}");
         }
         finally { isSaving = false; }
+    }
+
+    private async Task HandleDataRefresh()
+    {
+        await LoadData();
     }
 
     private async Task RejectDeclaration(FBPDeclarationSummary summary)
@@ -192,6 +201,8 @@ else
                 .ToListAsync();
             
             db.FlexibleBenefitDeclarations.RemoveRange(declarationsToReject);
+            await db.SaveChangesAsync();
+            await AttendanceRefresh.NotifyDataChangedAsync(summary.EmployeeId, null, "FBP_REJECTION");
             
             // Send email notification (TODO: Implement proper notification via service)
             // await EmailService.SendEmailAsync(...)

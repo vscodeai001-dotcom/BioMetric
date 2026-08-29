@@ -7,6 +7,7 @@
 @using System.Globalization
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject ResignationService ExitService
+@inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
 @inject IToastService toastService
 @inject IJSRuntime JSRuntime
 @attribute [Authorize(Roles = "Admin, SuperAdmin")]
@@ -199,6 +200,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleDataRefresh" />
+
 @code {
     private bool isAccessDenied = false;
     private bool isCalculating = false;
@@ -247,9 +250,15 @@ else
     {
         if (selectedRequest == null) return;
         await ExitService.UpdateStatusAsync(selectedRequest.RequestId, approved ? "Approved" : "Rejected", DateOnly.FromDateTime(approvalDateHelper), adminRemarks);
+        await AttendanceRefresh.NotifyExitChangedAsync(selectedRequest.EmployeeId, approved ? "APPROVED" : "REJECTED");
         toastService.ShowSuccess(approved ? "Approved" : "Rejected");
         await LoadData();
         selectedRequest = requests.FirstOrDefault(r => r.RequestId == selectedRequest.RequestId); // Refresh ref
+    }
+
+    private async Task HandleDataRefresh()
+    {
+        await LoadData();
     }
 
     private async Task CalculateFnF()
@@ -274,6 +283,7 @@ else
             // Recalc net just before saving to capture manual inputs
             settlementCalc.NetPayable = NetPayable;
             await ExitService.FinalizeSettlementAsync(settlementCalc);
+            await AttendanceRefresh.NotifyExitChangedAsync(settlementCalc.EmployeeId, "SETTLED");
             toastService.ShowSuccess("Settlement Finalized & Employee Terminated.");
             await LoadData();
             selectedRequest = requests.FirstOrDefault(r => r.RequestId == selectedRequest!.RequestId);

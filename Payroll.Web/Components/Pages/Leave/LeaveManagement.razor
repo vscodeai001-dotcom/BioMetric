@@ -28,6 +28,8 @@
 }
 else
 {
+    <AttendanceRefreshListener OnAttendanceChanged="HandleAttendanceRefresh" />
+
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h3 class="mb-0">Leave Management</h3>
@@ -153,6 +155,11 @@ else
             isLoading = false;
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private async Task HandleAttendanceRefresh()
+    {
+        await LoadLeaveAsync();
     }
 
     private async Task SaveLeaveRequest()

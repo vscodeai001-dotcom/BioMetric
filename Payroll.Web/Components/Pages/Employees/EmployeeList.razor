@@ -12,6 +12,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject Payroll.Web.Services.AuditService AuditService
 @inject Payroll.Web.Services.EmployeeDeletionService DeletionService
+@inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
 @inject IJSRuntime JSRuntime
 @inject ILogger<EmployeeList> _logger
 @inject IToastService toastService
@@ -144,6 +145,8 @@ else
         </table>
     </div>
 }
+
+<AttendanceRefreshListener OnAttendanceChanged="HandleDataRefresh" />
 
 @* --- DELETION CONFIRMATION MODAL --- *@
 @if (showDeletionDialog && selectedEmployeeForDeletion != null)
@@ -425,6 +428,8 @@ private CultureInfo inrCulture = new CultureInfo("en-IN");
 
             await dbContext.SaveChangesAsync();
 
+            await AttendanceRefresh.NotifyEmployeeChangedAsync(currentEmployee.EmployeeID == 0 ? null : currentEmployee.EmployeeID, currentEmployee.EmployeeID == 0 ? "CREATED" : "UPDATED");
+
             toastService.ShowSuccess("Employee saved successfully.");
             CloseForm();
             await LoadEmployees();
@@ -434,6 +439,11 @@ private CultureInfo inrCulture = new CultureInfo("en-IN");
             _logger.LogError(ex, "Error saving employee.");
             toastService.ShowError($"Error: {ex.Message}");
         }
+    }
+
+    private async Task HandleDataRefresh()
+    {
+        await LoadEmployees();
     }
 
     private async Task DeleteEmployee(Employee emp)
@@ -491,6 +501,8 @@ private CultureInfo inrCulture = new CultureInfo("en-IN");
                 entity.IsDeleted = true; // SOFT DELETE ACTION
                 dbContext.Update(entity);
                 await dbContext.SaveChangesAsync();
+
+                await AttendanceRefresh.NotifyEmployeeChangedAsync(entity.EmployeeID, "DELETED");
 
                 // AUDIT LOG
                 await AuditService.LogAsync("SOFT DELETE", "Employee", entity.EmployeeID.ToString(),

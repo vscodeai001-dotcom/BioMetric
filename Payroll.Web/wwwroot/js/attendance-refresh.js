@@ -72,6 +72,168 @@
                 }
             );
 
+            connection.on(
+                "LeaveChanged",
+                async function (data) {
+
+                    console.log(
+                        "LeaveChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+            connection.on(
+                "AdvanceChanged",
+                async function (data) {
+
+                    console.log(
+                        "AdvanceChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+            connection.on(
+                "PunchChanged",
+                async function (data) {
+
+                    console.log(
+                        "PunchChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+            connection.on(
+                "EmployeeChanged",
+                async function (data) {
+
+                    console.log(
+                        "EmployeeChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+            connection.on(
+                "ExitChanged",
+                async function (data) {
+
+                    console.log(
+                        "ExitChanged",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
+            connection.on(
+                "GlobalRefresh",
+                async function (data) {
+
+                    console.log(
+                        "GlobalRefresh",
+                        data
+                    );
+
+                    await notifyViewer();
+
+                    await notifyListeners(
+                        "AttendanceChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "attendance-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+                }
+            );
+
 
             /*
              * ==========================================================

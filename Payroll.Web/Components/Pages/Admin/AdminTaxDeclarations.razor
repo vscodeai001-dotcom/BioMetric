@@ -6,6 +6,7 @@
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject TaxDeclarationService TaxService
+@inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
 @inject IToastService toastService
 @inject IJSRuntime JSRuntime
 @attribute [Authorize(Roles = "Admin, SuperAdmin")]
@@ -138,6 +139,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleDataRefresh" />
+
 <style>
     .sticky-header-table thead th {
         position: sticky;
@@ -195,10 +198,16 @@ else
 
     private string GetEmployeeName(int id) => employees.FirstOrDefault(e => e.EmployeeID == id)?.Name ?? $"ID:{id}";
 
+    private async Task HandleDataRefresh()
+    {
+        await LoadData();
+    }
+
     private async Task Approve(TaxDeclaration item)
     {
         if (!await JSRuntime.InvokeAsync<bool>("confirm", "Approve this declaration? This locks the regime for payroll.")) return;
         await TaxService.ApproveAsync(item.DeclarationId, "Approved by Admin");
+        await AttendanceRefresh.NotifyDataChangedAsync(item.EmployeeId, null, "TAX_APPROVAL");
         toastService.ShowSuccess("Approved");
         await LoadData();
     }
@@ -208,6 +217,7 @@ else
         var reason = await JSRuntime.InvokeAsync<string>("prompt", "Enter rejection reason:");
         if (string.IsNullOrWhiteSpace(reason)) return;
         await TaxService.RejectAsync(item.DeclarationId, reason);
+        await AttendanceRefresh.NotifyDataChangedAsync(item.EmployeeId, null, "TAX_REJECTION");
         toastService.ShowWarning("Rejected");
         await LoadData();
     }
@@ -221,6 +231,7 @@ else
         {
             existing.Status = "Draft";
             await db.SaveChangesAsync();
+            await AttendanceRefresh.NotifyDataChangedAsync(item.EmployeeId, null, "TAX_UNLOCK");
             toastService.ShowInfo("Declaration unlocked.");
             await LoadData();
         }

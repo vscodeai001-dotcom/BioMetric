@@ -8,6 +8,7 @@
 @inject ILogger<HolidayManagement> _logger
 @inject AuthenticationStateProvider AuthState
 @inject IToastService toastService
+@inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
 @attribute [Authorize(Roles = "Admin, SuperAdmin")]
 
 <PageTitle>Holiday Management</PageTitle>
@@ -107,6 +108,8 @@ else
      </table>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRefresh" />
+
 @code {
     private List<CompanyHoliday>? holidayList;
     private List<CompanyHoliday> holidays = new();
@@ -201,6 +204,7 @@ else
             
             dbContext.CompanyHolidays.Add(newHoliday);
             await dbContext.SaveChangesAsync();
+            await AttendanceRefresh.NotifyGlobalRefreshAsync("HOLIDAY_CREATED");
 
             // --- NEW: Show success toast ---
             toastService.ShowSuccess("Holiday saved successfully!");
@@ -234,6 +238,7 @@ else
             await using var dbContext = await DbFactory.CreateDbContextAsync();
             dbContext.CompanyHolidays.Remove(holidayToDelete);
             await dbContext.SaveChangesAsync();
+            await AttendanceRefresh.NotifyGlobalRefreshAsync("HOLIDAY_DELETED");
             
             // --- NEW: Show success toast ---
             toastService.ShowSuccess("Holiday deleted successfully!");
@@ -249,5 +254,10 @@ else
         {
             isSaving = false;
         }
+    }
+
+    private async Task HandleRefresh()
+    {
+        await LoadHolidays();
     }
 }

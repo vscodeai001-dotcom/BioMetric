@@ -9,6 +9,7 @@
 @inject IToastService toastService
 @inject IJSRuntime JSRuntime
 @inject Payroll.Web.Services.AuditService AuditService
+@inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
 @attribute [Authorize(Roles = "SuperAdmin")]
 
 <PageTitle>Recycle Bin</PageTitle>
@@ -61,6 +62,8 @@ else
         </table>
     </div>
 }
+
+<AttendanceRefreshListener OnAttendanceChanged="HandleRefresh" />
 
 @code {
     private List<Employee> deletedEmployees = new();
@@ -122,6 +125,7 @@ else
                 await AuditService.LogAsync("RESTORE", "Employee", entity.EmployeeID.ToString(), 
                     $"Employee restored from Recycle Bin.");
                 // -----------------
+                await AttendanceRefresh.NotifyEmployeeChangedAsync(entity.EmployeeID, "RESTORED");
             }
             toastService.ShowSuccess("Employee restored successfully.");
             await LoadDeletedEmployees();
@@ -163,6 +167,7 @@ else
                 // -----------------
             }
 
+            await AttendanceRefresh.NotifyEmployeeChangedAsync(emp.EmployeeID, "PERMANENT_DELETE");
             toastService.ShowSuccess($"Wipe complete for {emp.Name}.");
             await LoadDeletedEmployees();
         }
@@ -176,5 +181,10 @@ else
         {
             isSaving = false;
         }
+    }
+
+    private async Task HandleRefresh()
+    {
+        await LoadDeletedEmployees();
     }
 }

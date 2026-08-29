@@ -16,6 +16,7 @@
 @inject IToastService toastService
 @inject ILogger<UserManagement> _logger
 @inject AuditService AuditService
+@inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
 
 @attribute [Authorize(Roles = "SuperAdmin")]
 
@@ -60,6 +61,8 @@ else
         </div>
     </div>
 }
+
+<AttendanceRefreshListener OnAttendanceChanged="HandleRefresh" />
 
 @code {
     private bool isLoading = true;
@@ -151,6 +154,7 @@ else
                 }
             }
 
+            await AttendanceRefresh.NotifyGlobalRefreshAsync("USER_CREATED");
             toastService.ShowSuccess("User created.");
             newUserForm = new();
         }
@@ -205,6 +209,7 @@ else
                 }
             }
 
+            await AttendanceRefresh.NotifyGlobalRefreshAsync("USER_ROLE_UPDATED");
             toastService.ShowSuccess($"Role updated to {newRoleForUser}.");
             showEditRoleModal = false; // Close modal on success
         }
@@ -219,6 +224,12 @@ else
             await using var db = await DbFactory.CreateDbContextAsync();
             await LoadUsersAndRoles(db);
         }
+    }
+
+    private async Task HandleRefresh()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await LoadUsersAndRoles(db);
     }
 
 
@@ -257,6 +268,7 @@ else
                 await UserManager.DeleteAsync(u);
             }
 
+            await AttendanceRefresh.NotifyGlobalRefreshAsync("USER_DELETED");
             toastService.ShowSuccess("User deleted.");
         }
         finally

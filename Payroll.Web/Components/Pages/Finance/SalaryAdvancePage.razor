@@ -29,6 +29,8 @@
 }
 else
 {
+    <AttendanceRefreshListener OnAttendanceChanged="HandleAttendanceRefresh" />
+
     <h3>Salary Advances</h3>
     <p>Log a cash advance for an employee. It will be automatically deducted during the next payroll run.</p>
 
@@ -141,6 +143,11 @@ else
                 isLoadingHistory = false;
             }
         }
+    }
+
+    private async Task HandleAttendanceRefresh()
+    {
+        await LoadData();
     }
 
     private async Task LoadData()

@@ -14,6 +14,7 @@
 @inject FeatureCleanUpService CleanerService
 @inject ILogger<FeatureToggleManager> _logger
 @inject AuthenticationStateProvider AuthState
+@inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
 
 <PageTitle>Feature & Permission Manager</PageTitle>
 
@@ -576,6 +577,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRefresh" />
+
 @code {
     private FeatureSettings? settings;
     private bool isLoading = true;
@@ -640,6 +643,7 @@ else
 
             dbContext.FeatureSettings.Update(settings);
             await dbContext.SaveChangesAsync();
+            await AttendanceRefresh.NotifyGlobalRefreshAsync("FEATURE_TOGGLES_UPDATED");
             toastService.ShowSuccess("Feature settings saved!");
         }
         catch (Exception ex)
@@ -655,9 +659,15 @@ else
         if (await JSRuntime.InvokeAsync<bool>("confirm", "Reset all toggles to default?"))
         {
             await CleanerService.ResetAllTogglesAsync();
+            await AttendanceRefresh.NotifyGlobalRefreshAsync("FEATURE_TOGGLES_RESET");
             toastService.ShowSuccess("Toggles reset.");
             await LoadAllSettings();
         }
+    }
+
+    private async Task HandleRefresh()
+    {
+        await LoadAllSettings();
     }
 
     private async Task ConfirmWipeData()
