@@ -744,23 +744,6 @@ public class GeoLocationService
 
         await db.SaveChangesAsync();
 
-        try
-        {
-            await _refreshService
-                .NotifyAttendanceChangedAsync(
-                    employeeId,
-                    DateOnly.FromDateTime(
-                        log.PunchTime.Date));
-        }
-        catch (Exception ex)
-        {
-            // Refresh notification must never invalidate a successful punch.
-            _logger.LogWarning(
-                ex,
-                "Mobile punch saved but live attendance notification failed for employee {EmployeeId}.",
-                employeeId);
-        }
-
         var success = new GeoPunchResult
         {
             Success = true,
@@ -781,6 +764,23 @@ public class GeoLocationService
             true,
             success,
             log.LogID);
+
+        try
+        {
+            await _refreshService
+                .NotifyAttendanceChangedAsync(
+                    employeeId,
+                    DateOnly.FromDateTime(
+                        log.PunchTime.Date));
+        }
+        catch (Exception ex)
+        {
+            // Refresh notification must never invalidate a successful punch.
+            _logger.LogWarning(
+                ex,
+                "Mobile punch saved but live attendance notification failed for employee {EmployeeId}.",
+                employeeId);
+        }
 
         return success;
     }

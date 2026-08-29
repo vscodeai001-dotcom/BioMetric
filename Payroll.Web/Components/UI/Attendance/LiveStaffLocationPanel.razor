@@ -2025,6 +2025,8 @@
              * This is NOT a database query.
              */
             await RefreshLocations();
+            await RefreshSelectedEmployeePunchAuditsSilently();
+            await LoadSelectedEmployeeHistory();
         }
         catch (Exception ex)
         {

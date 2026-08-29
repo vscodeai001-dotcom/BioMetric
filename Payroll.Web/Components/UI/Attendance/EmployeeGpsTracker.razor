@@ -400,52 +400,6 @@
                 return;
             }
 
-            // ============================================================
-            // REAL-TIME ADMIN LOCATION BROADCAST
-            // ============================================================
-            //
-            // IMPORTANT:
-            // LiveLocationStore is updated first.
-            // SignalR failure must NEVER stop GPS tracking.
-            //
-            // Employee
-            //    ↓
-            // LiveLocationStore
-            //    ↓
-            // SignalR
-            //    ↓
-            // Admin browsers
-            //
-            try
-            {
-                await AttendanceHub.Clients.All.SendAsync(
-                    "LocationChanged",
-                    new
-                    {
-                        EmployeeId = EmployeeId,
-                        Latitude = coords.Latitude,
-                        Longitude = coords.Longitude,
-                        AccuracyMeters = accuracy,
-                        DistanceMeters =
-                            distanceResult.DistanceMeters,
-                        AllowedRadiusMeters =
-                            distanceResult.AllowedRadiusMeters,
-                        IsWithinAllowedRadius =
-                            distanceResult.IsWithinAllowedRadius,
-                        SessionId = liveLocationSessionId,
-                        LastUpdatedUtc = DateTime.UtcNow
-                    });
-            }
-            catch (Exception signalREx)
-            {
-                // SignalR is an enhancement.
-                // GPS tracking must continue even if broadcasting fails.
-                Console.Error.WriteLine(
-                    $"GPS SignalR broadcast failed. " +
-                    $"EmployeeId={EmployeeId}. " +
-                    $"Error={signalREx}");
-            }
-
             /*
              * Persist session statistics.
              */
@@ -500,6 +454,33 @@
                         $"EmployeeId={EmployeeId}. " +
                         $"Error={historyEx}");
                 }
+            }
+
+            // Broadcast only after the store and any scheduled history point
+            // are ready for the admin panel to read.
+            try
+            {
+                await AttendanceHub.Clients.All.SendAsync(
+                    "LocationChanged",
+                    new
+                    {
+                        EmployeeId = EmployeeId,
+                        Latitude = coords.Latitude,
+                        Longitude = coords.Longitude,
+                        AccuracyMeters = accuracy,
+                        DistanceMeters = distanceResult.DistanceMeters,
+                        AllowedRadiusMeters = distanceResult.AllowedRadiusMeters,
+                        IsWithinAllowedRadius = distanceResult.IsWithinAllowedRadius,
+                        SessionId = liveLocationSessionId,
+                        LastUpdatedUtc = DateTime.UtcNow
+                    });
+            }
+            catch (Exception signalREx)
+            {
+                Console.Error.WriteLine(
+                    $"GPS SignalR broadcast failed. " +
+                    $"EmployeeId={EmployeeId}. " +
+                    $"Error={signalREx}");
             }
         }
         catch (Exception ex)
