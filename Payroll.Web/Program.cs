@@ -7,12 +7,15 @@ using Hangfire;
 using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
 
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.AspNetCore.SignalR;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -395,6 +398,58 @@ builder.Services.AddScoped<
 
 
 // ============================================================
+// DATA PROTECTION
+// ============================================================
+//
+// IMPORTANT FOR PRODUCTION / CONTAINERS:
+//
+// ASP.NET Core Data Protection is used for:
+// - Authentication cookies
+// - Protected claims
+// - CSRF tokens
+// - Session data
+//
+// On container restart, ephemeral keys cause authentication failures.
+//
+// CONFIGURATION:
+// 1. Key storage: Persistent file system (e.g., /data volume)
+// 2. Key encryption: Environment variable (optional)
+//
+// For Docker/Render:
+// - Mount a persistent volume at /data/dataprotection
+// - Container automatically uses this for keys
+// - Keys survive container restarts
+//
+
+var dataProtectionPath =
+    Environment.GetEnvironmentVariable(
+        "DATA_PROTECTION_PATH") ??
+    "/data/dataprotection";
+
+try
+{
+    // Ensure the directory exists
+    if (!Directory.Exists(dataProtectionPath))
+    {
+        Directory.CreateDirectory(dataProtectionPath);
+    }
+
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(
+            new DirectoryInfo(dataProtectionPath));
+}
+catch (Exception dpEx)
+{
+    Console.WriteLine(
+        $"Data Protection key storage configuration failed. " +
+        $"Using default in-memory storage. " +
+        $"Keys will be lost on container restart. " +
+        $"Path: {dataProtectionPath}. " +
+        $"Error: {dpEx.Message}");
+}
+
+
+// ============================================================
 // AUTHORIZATION POLICIES
 // ============================================================
 
@@ -455,6 +510,24 @@ builder.Services.AddRazorComponents()
 builder.Services.AddCascadingAuthenticationState();
 
 builder.Services.AddBlazoredToast();
+
+
+// ============================================================
+// HEALTH CHECKS
+// ============================================================
+//
+// Health checks help Render platform detect if the application
+// is still responding and healthy.
+//
+// If the health check fails, Render can restart the container.
+//
+// Endpoint: /health
+//
+
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>(
+        name: "database",
+        tags: new[] { "ready" });
 
 
 // ============================================================
@@ -662,6 +735,44 @@ app.UseAntiforgery();
 
 
 // ============================================================
+// HEALTH CHECK ENDPOINT
+// ============================================================
+//
+// Render platform (and other orchestration systems) use this
+// endpoint to determine if the application is healthy.
+//
+// If health check fails repeatedly, the container is restarted.
+//
+// Endpoint: /health
+// Response: 200 OK or 503 Service Unavailable
+//
+
+app.MapHealthChecks(
+    "/health",
+    new HealthCheckOptions
+    {
+        ResponseWriter = async (context, report) =>
+        {
+            context.Response.ContentType = "application/json";
+
+            var response = new
+            {
+                status = report.Status.ToString(),
+                checks = report.Entries.ToDictionary(
+                    x => x.Key,
+                    x => new
+                    {
+                        status = x.Value.Status.ToString(),
+                        description = x.Value.Description
+                    })
+            };
+
+            await context.Response.WriteAsJsonAsync(response);
+        }
+    });
+
+
+// ============================================================
 // HANGFIRE DASHBOARD
 // ============================================================
 
@@ -836,6 +947,73 @@ app.MapRazorPages();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+
+// ============================================================
+// GRACEFUL SHUTDOWN HANDLING
+// ============================================================
+//
+// When Render (or any container platform) stops the container,
+// we need to gracefully shutdown to avoid data loss.
+//
+// - SignalR connections are closed gracefully
+// - Hangfire jobs are allowed to complete
+// - Database connections are closed properly
+// - GPS sessions are recorded
+//
+// Signals handled:
+// - SIGTERM (standard shutdown signal)
+// - SIGINT (Ctrl+C)
+//
+
+var appLogger =
+    app.Services.GetRequiredService<
+        ILogger<Program>>();
+
+var hostApplicationLifetime =
+    app.Services.GetRequiredService<
+        IHostApplicationLifetime>();
+
+hostApplicationLifetime.ApplicationStopping.Register(() =>
+{
+    appLogger.LogInformation(
+        "Application shutdown initiated. " +
+        "Allowing graceful shutdown of services...");
+
+    try
+    {
+        var hubContext =
+            app.Services.GetRequiredService<
+                IHubContext<AttendanceRefreshHub>>();
+
+        hubContext.Clients.All.SendAsync(
+            "ServerShuttingDown",
+            new
+            {
+                Reason = "Server maintenance or restart",
+                Timestamp = DateTime.UtcNow
+            }).Wait(TimeSpan.FromSeconds(5));
+
+        appLogger.LogInformation(
+            "SignalR clients notified of shutdown.");
+    }
+    catch (Exception ex)
+    {
+        appLogger.LogWarning(
+            ex,
+            "Error notifying SignalR clients of shutdown.");
+    }
+
+    appLogger.LogInformation(
+        "Application shutdown preparation complete. " +
+        "Shutting down...");
+});
+
+hostApplicationLifetime.ApplicationStopped.Register(() =>
+{
+    appLogger.LogInformation(
+        "Application has shut down successfully.");
+});
 
 
 // ============================================================

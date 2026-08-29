@@ -50,6 +50,16 @@
     private const int LocationHistoryIntervalSeconds = 10;
 
     /*
+     * TRACKER FOR CIRCUIT RECONNECT DETECTION
+     * 
+     * When a Blazor circuit reconnects, the component is reinitialized
+     * but we should not create a new GPS session if one already exists
+     * in the browser's localStorage.
+     */
+    private int reconnectAttempts = 0;
+    private const int MaxReconnectAttempts = 3;
+
+    /*
      * IMPORTANT:
      *
      * localStorage is used instead of sessionStorage.
@@ -126,6 +136,7 @@
         }
 
         starting = true;
+        reconnectAttempts++;
 
         try
         {
@@ -157,6 +168,11 @@
 
             /*
              * Start browser GPS watcher.
+             * 
+             * IMPORTANT:
+             * The GPS watcher has its own internal state tracking.
+             * If it's already running from a previous circuit,
+             * this will reuse that instance.
              */
             var gpsStarted =
                 await JSRuntime.InvokeAsync<bool>(
@@ -172,8 +188,18 @@
                 return;
             }
 
+            Console.WriteLine(
+                $"GPS watcher initialized. " +
+                $"EmployeeId={EmployeeId}, " +
+                $"SessionId={liveLocationSessionId}, " +
+                $"ReconnectAttempt={reconnectAttempts}");
+
             /*
              * Try to reuse the existing database session.
+             * 
+             * CIRCUIT RECONNECT SCENARIO:
+             * If we reconnected, the database still has the active session.
+             * We verify it exists and is still valid (not timed out).
              */
             sessionStarted =
                 await GeoService.StartGpsSessionAsync(
@@ -183,14 +209,20 @@
             /*
              * If the stored SessionId already ended/timed out,
              * create a completely new SessionId.
+             * 
+             * This happens when:
+             * 1. GPS session naturally timed out (2 min no update)
+             * 2. Browser was closed and reopened after timeout
+             * 3. Explicit logout occurred
              */
             if (!sessionStarted)
             {
                 Console.WriteLine(
-                    $"Stored GPS session has ended. " +
+                    $"Stored GPS session has ended or timed out. " +
                     $"Creating a new session. " +
                     $"EmployeeId={EmployeeId}, " +
-                    $"OldSessionId={liveLocationSessionId}");
+                    $"OldSessionId={liveLocationSessionId}, " +
+                    $"ReconnectAttempt={reconnectAttempts}");
 
                 var newSessionIdText =
                     await JSRuntime.InvokeAsync<string>(
@@ -240,25 +272,33 @@
             Console.WriteLine(
                 $"Employee GPS started. " +
                 $"EmployeeId={EmployeeId}, " +
-                $"SessionId={liveLocationSessionId}");
+                $"SessionId={liveLocationSessionId}, " +
+                $"DatabaseSessionStarted={sessionStarted}, " +
+                $"ReconnectAttempt={reconnectAttempts}");
         }
         catch (JSException ex)
         {
             Console.Error.WriteLine(
                 $"Employee GPS JavaScript error. " +
-                $"EmployeeId={EmployeeId}. Error={ex}");
+                $"EmployeeId={EmployeeId}. " +
+                $"ReconnectAttempt={reconnectAttempts}. " +
+                $"Error={ex}");
         }
         catch (InvalidOperationException ex)
         {
             Console.Error.WriteLine(
                 $"Employee GPS circuit error. " +
-                $"EmployeeId={EmployeeId}. Error={ex}");
+                $"EmployeeId={EmployeeId}. " +
+                $"ReconnectAttempt={reconnectAttempts}. " +
+                $"Error={ex}");
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine(
                 $"Employee GPS start failed. " +
-                $"EmployeeId={EmployeeId}. Error={ex}");
+                $"EmployeeId={EmployeeId}. " +
+                $"ReconnectAttempt={reconnectAttempts}. " +
+                $"Error={ex}");
         }
         finally
         {

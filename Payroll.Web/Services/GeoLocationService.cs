@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.SignalR;
 using Payroll.Shared;
 using Payroll.Shared.Data;
+using Payroll.Web.Hubs;
 
 namespace Payroll.Web.Services;
 
@@ -10,15 +12,18 @@ public class GeoLocationService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<GeoLocationService> _logger;
     private readonly AttendanceRefreshService _refreshService;
+    private readonly IHubContext<AttendanceRefreshHub> _hubContext;
 
     public GeoLocationService(
         IDbContextFactory<AppDbContext> dbFactory,
         ILogger<GeoLocationService> logger,
-        AttendanceRefreshService refreshService)
+        AttendanceRefreshService refreshService,
+        IHubContext<AttendanceRefreshHub> hubContext)
     {
         _dbFactory = dbFactory;
         _logger = logger;
         _refreshService = refreshService;
+        _hubContext = hubContext;
     }
 
     // ================================================================
@@ -166,6 +171,30 @@ public class GeoLocationService
                 employeeId,
                 sessionId);
 
+            /*
+             * BROADCAST SESSION START
+             *
+             * Notify all connected admin clients that a new GPS session started.
+             */
+            try
+            {
+                await _hubContext.Clients.All.SendAsync(
+                    "SessionStarted",
+                    new
+                    {
+                        EmployeeId = employeeId,
+                        SessionId = sessionId,
+                        StartedAtUtc = now
+                    });
+            }
+            catch (Exception signalREx)
+            {
+                _logger.LogWarning(
+                    signalREx,
+                    "Failed to broadcast session start via SignalR for employee {EmployeeId}",
+                    employeeId);
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -286,6 +315,39 @@ public class GeoLocationService
             }
 
             await db.SaveChangesAsync();
+
+            /*
+             * BROADCAST REAL-TIME LOCATION UPDATE
+             *
+             * Notify all connected admin clients of the location change
+             * so the live map updates automatically without requiring refresh.
+             */
+            try
+            {
+                await _hubContext.Clients.All.SendAsync(
+                    "LocationChanged",
+                    new
+                    {
+                        EmployeeId = employeeId,
+                        SessionId = sessionId,
+                        Latitude = latitude,
+                        Longitude = longitude,
+                        Timestamp = now,
+                        DistanceMeters = safeDistance,
+                        AccuracyMeters = safeAccuracy,
+                        IsWithinAllowedRadius = isWithinAllowedRadius
+                    });
+            }
+            catch (Exception signalREx)
+            {
+                /*
+                 * SignalR broadcast failure must never stop GPS tracking.
+                 */
+                _logger.LogWarning(
+                    signalREx,
+                    "Failed to broadcast location update via SignalR for employee {EmployeeId}",
+                    employeeId);
+            }
         }
         catch (Exception ex)
         {
@@ -347,6 +409,31 @@ public class GeoLocationService
                 employeeId,
                 sessionId,
                 session.EndReason);
+
+            /*
+             * BROADCAST SESSION END
+             *
+             * Notify all connected admin clients that a GPS session ended.
+             */
+            try
+            {
+                await _hubContext.Clients.All.SendAsync(
+                    "SessionEnded",
+                    new
+                    {
+                        EmployeeId = employeeId,
+                        SessionId = sessionId,
+                        EndedAtUtc = session.EndedAtUtc,
+                        EndReason = session.EndReason
+                    });
+            }
+            catch (Exception signalREx)
+            {
+                _logger.LogWarning(
+                    signalREx,
+                    "Failed to broadcast session end via SignalR for employee {EmployeeId}",
+                    employeeId);
+            }
         }
         catch (Exception ex)
         {
