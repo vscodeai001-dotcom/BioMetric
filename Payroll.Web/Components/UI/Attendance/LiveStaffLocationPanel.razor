@@ -2189,29 +2189,10 @@
                 if (token.IsCancellationRequested)
                     break;
 
-                /*
-                 * IMPORTANT:
-                 *
-                 * Do NOT call RefreshLocations() here.
-                 *
-                 * Location data arrives through SignalR.
-                 *
-                 * This timer exists only so the UI can age:
-                 *
-                 * LIVE
-                 *   ↓ 30 sec
-                 * STALE
-                 *   ↓ 120 sec
-                 * OFFLINE
-                 *
-                 * No database query.
-                 * No LiveLocationStore polling.
-                 */
-
-                mapNeedsUpdate = true;
-
-                await InvokeAsync(
-                    StateHasChanged);
+                // SignalR normally delivers updates immediately. This
+                // lightweight in-process sync also recovers an event missed
+                // while the admin circuit or connection was starting.
+                await RefreshLocations();
 
                 /*
                  * Existing history playback functionality.
