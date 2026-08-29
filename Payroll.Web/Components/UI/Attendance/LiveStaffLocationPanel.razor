@@ -2046,6 +2046,10 @@
             await RefreshLocations();
             await RefreshSelectedEmployeePunchAuditsSilently();
             await LoadSelectedEmployeeHistory();
+
+            await Task.Delay(300);
+            await RefreshSelectedEmployeePunchAuditsSilently();
+            await LoadSelectedEmployeeHistory();
         }
         catch (Exception ex)
         {

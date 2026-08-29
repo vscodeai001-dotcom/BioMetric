@@ -76,6 +76,21 @@ namespace Payroll.Web.Services
                 });
         }
 
+        public async Task NotifyPunchCreatedAsync(
+            int employeeId,
+            DateOnly date)
+        {
+            await _hub.Clients.All.SendAsync(
+                "PunchChanged",
+                new
+                {
+                    EmployeeId = employeeId,
+                    Date = date.ToString("yyyy-MM-dd"),
+                    Action = "CREATED",
+                    Timestamp = DateTime.UtcNow
+                });
+        }
+
 
         public async Task NotifyLocationChangedAsync(
             int? employeeId = null)

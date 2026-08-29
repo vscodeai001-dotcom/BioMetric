@@ -772,6 +772,10 @@ public class GeoLocationService
                     employeeId,
                     DateOnly.FromDateTime(
                         log.PunchTime.Date));
+
+            await _refreshService.NotifyPunchCreatedAsync(
+                employeeId,
+                DateOnly.FromDateTime(log.PunchTime.Date));
         }
         catch (Exception ex)
         {
