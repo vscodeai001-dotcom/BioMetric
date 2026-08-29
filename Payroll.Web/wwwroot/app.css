@@ -126,6 +126,79 @@
     color: #212529;
 }
 
+/* =========================================================
+   SHARED APPLICATION SURFACES
+   ========================================================= */
+
+:root {
+    --app-bg: #eef2f7;
+    --app-surface: #ffffff;
+    --app-surface-muted: #f6f8fb;
+    --app-text: #1f2937;
+    --app-text-muted: #667085;
+    --app-border: #dbe3ee;
+    --app-accent: #1769e0;
+    --app-shadow: 0 8px 24px rgba(31, 41, 55, .07);
+}
+
+html, body {
+    background: var(--app-bg);
+    color: var(--app-text);
+}
+
+body:not(.dark) .card,
+body:not(.dark) .modal-content,
+body:not(.dark) .list-group-item,
+body:not(.dark) .dropdown-menu {
+    background-color: var(--app-surface);
+    color: var(--app-text);
+    border-color: var(--app-border);
+    box-shadow: var(--app-shadow);
+}
+
+body:not(.dark) .bg-light,
+body:not(.dark) .bg-light-subtle {
+    background-color: var(--app-surface-muted) !important;
+}
+
+body:not(.dark) .text-muted {
+    color: var(--app-text-muted) !important;
+}
+
+body:not(.dark) .form-control,
+body:not(.dark) .form-select,
+body:not(.dark) .input-group-text {
+    border-color: var(--app-border);
+    color: var(--app-text);
+}
+
+body:not(.dark) .form-control:focus,
+body:not(.dark) .form-select:focus {
+    border-color: var(--app-accent);
+    box-shadow: 0 0 0 .2rem rgba(23, 105, 224, .14);
+}
+
+.card,
+.modal-content,
+.list-group-item,
+.btn,
+.form-control,
+.form-select {
+    transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.card {
+    border-radius: 10px;
+}
+
+.card-header {
+    border-bottom-color: var(--app-border);
+}
+
+.btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
 
 /* =========================================================
    DARK MODE - INPUTS

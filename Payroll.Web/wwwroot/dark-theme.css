@@ -8,6 +8,77 @@ body.dark {
     color: #e0e0e0;
 }
 
+/* Shared dark surface tokens keep Bootstrap pages readable and consistent. */
+body.dark {
+    --app-bg: #11151c;
+    --app-surface: #1b222c;
+    --app-surface-muted: #202934;
+    --app-text: #f3f6fa;
+    --app-text-muted: #b4bfcc;
+    --app-border: #344150;
+    --app-accent: #67a4ff;
+    --app-shadow: 0 10px 28px rgba(0, 0, 0, .22);
+    background: radial-gradient(circle at top right, #202b3a 0, #11151c 42%, #0d1117 100%) !important;
+    color: var(--app-text) !important;
+}
+
+body.dark .card,
+body.dark .modal-content,
+body.dark .list-group-item,
+body.dark .dropdown-menu,
+body.dark .bg-light,
+body.dark .bg-light-subtle {
+    background-color: var(--app-surface) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+    box-shadow: var(--app-shadow);
+}
+
+body.dark .card-header,
+body.dark .card-footer {
+    background-color: var(--app-surface-muted) !important;
+    border-color: var(--app-border) !important;
+    color: var(--app-text) !important;
+}
+
+body.dark p,
+body.dark .text-muted,
+body.dark small,
+body.dark .small,
+body.dark .form-label,
+body.dark .form-text {
+    color: var(--app-text-muted) !important;
+}
+
+body.dark .form-control,
+body.dark .form-select,
+body.dark .input-group-text {
+    background-color: #151c25 !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
+body.dark .form-control::placeholder {
+    color: #91a0b1 !important;
+}
+
+body.dark .form-control:focus,
+body.dark .form-select:focus {
+    border-color: var(--app-accent) !important;
+    box-shadow: 0 0 0 .2rem rgba(103, 164, 255, .2) !important;
+}
+
+body.dark .btn-outline-primary {
+    color: #8dbbff !important;
+    border-color: #4c83c8 !important;
+}
+
+body.dark .btn-outline-primary:hover,
+body.dark .btn-outline-primary:focus {
+    color: #fff !important;
+    background-color: #245a9c !important;
+}
+
     body.dark article.content {
         /* Main content area */
         background-color: #1e1f24 !important;
