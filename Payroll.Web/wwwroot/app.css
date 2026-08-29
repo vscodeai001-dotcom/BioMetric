@@ -199,6 +199,53 @@ body:not(.dark) .form-select:focus {
     transform: translateY(-1px);
 }
 
+/* =========================================================
+   IDENTITY PAGE HEADER
+   ========================================================= */
+
+.identity-header {
+    min-height: 3.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: .55rem max(1rem, calc((100vw - 1000px) / 2));
+    border-bottom: 1px solid var(--app-border);
+    background: var(--app-surface);
+    box-shadow: 0 4px 18px rgba(31, 41, 55, .06);
+}
+
+.identity-brand,
+.identity-actions a {
+    color: var(--app-text);
+    text-decoration: none;
+}
+
+.identity-brand {
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+.identity-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.identity-theme-toggle {
+    width: 2.35rem;
+    height: 2.35rem;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--app-surface-muted);
+    color: var(--app-text);
+}
+
+.identity-theme-toggle:hover,
+.identity-theme-toggle:focus-visible {
+    border-color: var(--app-accent);
+    color: var(--app-accent);
+}
+
 
 /* =========================================================
    DARK MODE - INPUTS

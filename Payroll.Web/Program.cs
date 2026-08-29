@@ -53,6 +53,12 @@ Environment.SetEnvironmentVariable(
     "DOTNET_USE_POLLING_FILE_WATCHER",
     "true");
 
+// All existing UI defaults use DateTime.Now/Today. Set the process timezone
+// before the app loads so those defaults follow the India business date.
+Environment.SetEnvironmentVariable(
+    "TZ",
+    "Asia/Kolkata");
+
 // Use the platform-provided port through ASPNETCORE_URLS and clear the
 // base image default so Kestrel does not report a conflicting port source.
 var platformPort = Environment.GetEnvironmentVariable("PORT");

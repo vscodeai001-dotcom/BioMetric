@@ -16,6 +16,22 @@
 </head>
 
 <body>
+    <header class="identity-header">
+        <a class="identity-brand" asp-area="" asp-page="/Index">Payroll.Web</a>
+        <div class="identity-actions">
+            <button type="button"
+                    id="identityThemeToggle"
+                    class="identity-theme-toggle"
+                    aria-label="Switch theme"
+                    title="Switch theme"
+                    onclick="window.identityTheme.toggle()">
+                <span id="identityThemeIcon" aria-hidden="true"></span>
+            </button>
+            <a asp-area="Identity" asp-page="/Account/Register">Register</a>
+            <a asp-area="Identity" asp-page="/Account/Login">Login</a>
+        </div>
+    </header>
+
     <div class="container mt-4">
         <main role="main" class="pb-3">
             @RenderBody()
@@ -25,13 +41,28 @@
     <!-- Identity page scripts -->
     @await RenderSectionAsync("Scripts", required: false)
 
-    <script src="~/js/themeInterop.js"></script>
+    <script src="~/js/themeInterop.js?v=20260830"></script>
     <!-- APPLY DARK/LIGHT THEME WHEN PAGE LOADS -->
     <script>
         (function () {
             try {
-                // applySavedTheme returns the applied theme
-                window.themeInterop.applySavedTheme();
+                window.identityTheme = {
+                    apply: function (theme) {
+                        var value = theme === 'dark' ? 'dark' : 'light';
+                        window.themeInterop.setThemeOnBody(value);
+                        window.themeInterop.saveTheme(value);
+                        var icon = document.getElementById('identityThemeIcon');
+                        if (icon) {
+                            icon.className = value === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+                        }
+                    },
+                    toggle: function () {
+                        var next = document.body.classList.contains('dark') ? 'light' : 'dark';
+                        this.apply(next);
+                    }
+                };
+
+                window.identityTheme.apply(window.themeInterop.loadTheme());
             } catch (e) {
                 console.warn('Theme init failed', e);
             }

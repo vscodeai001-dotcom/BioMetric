@@ -1054,3 +1054,20 @@ body.dark .admin-live-map .leaflet-control,
 body.dark .geo-real-map .leaflet-control {
     filter: invert(1) hue-rotate(180deg);
 }
+
+body.dark .identity-header {
+    background: #1b222c !important;
+    border-color: #344150 !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, .24);
+}
+
+body.dark .identity-brand,
+body.dark .identity-actions a {
+    color: #f3f6fa !important;
+}
+
+body.dark .identity-theme-toggle {
+    background: #252e38 !important;
+    border-color: #465464 !important;
+    color: #f3f6fa !important;
+}
