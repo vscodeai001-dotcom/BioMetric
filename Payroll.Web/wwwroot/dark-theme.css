@@ -908,3 +908,82 @@ body.dark .payslip-container.bg-white {
     color: #f3f6fa !important;
     border-color: #465464 !important;
 }
+
+/* ============================================================
+   DARK MODE - LIVE STAFF MAP CARD
+   ============================================================ */
+
+body.dark .live-staff-card,
+body.dark .live-staff-details,
+body.dark .location-history-card,
+body.dark .geo-punch-audit-card {
+    background-color: #1b222c !important;
+    color: #f3f6fa !important;
+    border-color: #3a4654 !important;
+}
+
+body.dark .live-staff-header,
+body.dark .live-staff-footer,
+body.dark .live-details-header,
+body.dark .location-history-header,
+body.dark .geo-punch-audit-header {
+    background-color: #252e38 !important;
+    color: #f3f6fa !important;
+    border-color: #3a4654 !important;
+}
+
+body.dark .live-staff-card h5,
+body.dark .live-staff-card strong,
+body.dark .live-staff-card .staff-name-row,
+body.dark .live-staff-details h6,
+body.dark .live-staff-details strong,
+body.dark .geo-punch-audit-card h5,
+body.dark .location-history-card h5 {
+    color: #f8fafc !important;
+}
+
+body.dark .live-staff-card small,
+body.dark .live-staff-card .text-muted,
+body.dark .live-staff-footer,
+body.dark .live-staff-details small,
+body.dark .location-history-card small,
+body.dark .geo-punch-audit-card small {
+    color: #b8c3d0 !important;
+}
+
+body.dark .staff-location-item {
+    color: #f3f6fa !important;
+    border-color: #344150 !important;
+}
+
+body.dark .staff-location-item:hover,
+body.dark .staff-location-item.selected {
+    background-color: #263747 !important;
+    border-color: #5685b9 !important;
+}
+
+body.dark .admin-live-map {
+    border-color: #3a4654 !important;
+}
+
+/* ============================================================
+   DARK MODE - PAYSLIP METADATA
+   ============================================================ */
+
+body.dark #payslip-to-print-standard,
+body.dark #payslip-to-print-thermal {
+    color: #f3f6fa !important;
+}
+
+body.dark #payslip-to-print-standard small,
+body.dark #payslip-to-print-standard .text-muted,
+body.dark #payslip-to-print-thermal small,
+body.dark #payslip-to-print-thermal .text-muted {
+    color: #b8c3d0 !important;
+}
+
+body.dark #payslip-to-print-standard .payslip-header small,
+body.dark #payslip-to-print-standard .payslip-header strong,
+body.dark #payslip-to-print-thermal .text-start {
+    color: #e4ebf3 !important;
+}

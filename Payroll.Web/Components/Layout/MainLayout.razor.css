@@ -513,3 +513,30 @@ main {
     background-color: #66bb6a;
     border-color: #66bb6a;
 }
+
+/* ============================================================
+   DARK MODE - APPLICATION SHELL
+   ============================================================ */
+
+body.dark .page {
+    background: #11151c !important;
+}
+
+body.dark main {
+    background: #11151c !important;
+}
+
+body.dark article.content {
+    background: #171d25 !important;
+    color: #f3f6fa !important;
+    border-color: #2f3b49 !important;
+}
+
+body.dark .card-body,
+body.dark .bg-light,
+body.dark .bg-light-subtle,
+body.dark .modal-content {
+    background-color: #1b222c !important;
+    color: #f3f6fa !important;
+    border-color: #3a4654 !important;
+}
