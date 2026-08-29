@@ -1055,6 +1055,73 @@ body.dark .geo-real-map .leaflet-control {
     filter: invert(1) hue-rotate(180deg);
 }
 
+/* ============================================================
+   DARK MODE - GPS HISTORY CARD INTERNAL SURFACES
+   ============================================================ */
+
+body.dark .gps-session-summary,
+body.dark .location-history-card .history-playback-progress,
+body.dark .location-history-card .history-playback-status {
+    background-color: #1b222c !important;
+    color: #f3f6fa !important;
+    border-color: #3a4654 !important;
+}
+
+body.dark .gps-quality-grid > div,
+body.dark .location-history-summary > div,
+body.dark .live-detail-box,
+body.dark .location-history-card .geo-audit-detail-grid > div {
+    background-color: #1b222c !important;
+    color: #f3f6fa !important;
+    border-color: #3a4654 !important;
+}
+
+body.dark .gps-session-timeline,
+body.dark .location-history-card .history-playback-toolbar {
+    background-color: #202832 !important;
+    color: #f3f6fa !important;
+    border-color: #3a4654 !important;
+}
+
+body.dark .gps-session-title,
+body.dark .history-playback-title,
+body.dark .location-history-card .playback-progress-top strong,
+body.dark .location-history-card .gps-quality-grid strong,
+body.dark .location-history-card .location-history-summary strong {
+    color: #f8fafc !important;
+}
+
+body.dark .location-history-card .gps-quality-grid small,
+body.dark .location-history-card .location-history-summary small,
+body.dark .location-history-card .playback-progress-top span,
+body.dark .location-history-card .playback-progress-bottom span,
+body.dark .location-history-card .history-playback-status {
+    color: #b8c3d0 !important;
+}
+
+body.dark .location-history-card .gps-session-table,
+body.dark .location-history-card .location-history-table {
+    --bs-table-bg: #1b222c;
+    --bs-table-color: #edf2f7;
+    --bs-table-border-color: #3a4654;
+    color: #edf2f7 !important;
+    background-color: #1b222c !important;
+}
+
+body.dark .location-history-card .gps-session-table th,
+body.dark .location-history-card .location-history-table th {
+    background-color: #202832 !important;
+    color: #f8fafc !important;
+    border-color: #3a4654 !important;
+}
+
+body.dark .location-history-card .gps-session-table td,
+body.dark .location-history-card .location-history-table td {
+    background-color: #1b222c !important;
+    color: #edf2f7 !important;
+    border-color: #3a4654 !important;
+}
+
 body.dark .identity-header {
     background: #1b222c !important;
     border-color: #344150 !important;
