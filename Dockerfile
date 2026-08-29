@@ -43,6 +43,10 @@ ENV ASPNETCORE_ENVIRONMENT=Production
 
 ENV DATA_PROTECTION_PATH=/data/dataprotection
 
+# Render must attach a persistent disk at /data for these keys to survive
+# container replacement and preserve authentication cookies.
+VOLUME ["/data"]
+
 # Create data protection directory with proper permissions
 RUN mkdir -p /data/dataprotection && \
     chmod 755 /data/dataprotection

@@ -206,7 +206,7 @@
         height: 3.5rem !important;
         min-height: 0 !important;
         z-index: 5000 !important;
-        pointer-events: auto !important;
+        pointer-events: none !important;
         background: transparent !important;
     }
 
@@ -239,6 +239,11 @@
         background-position: center !important;
         background-size: 1.25rem 1.25rem !important;
         box-shadow: 0 2px 7px rgba(0,0,0,0.40) !important;
+    }
+
+    .navbar-toggler:focus-visible {
+        outline: 2px solid #8dbbff !important;
+        outline-offset: 2px !important;
     }
 
 

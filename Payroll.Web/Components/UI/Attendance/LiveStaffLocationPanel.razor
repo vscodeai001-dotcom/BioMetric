@@ -2033,6 +2033,25 @@
         }
     }
 
+    [JSInvokable]
+    public async Task AttendanceChanged()
+    {
+        if (disposed)
+            return;
+
+        try
+        {
+            await RefreshLocations();
+            await RefreshSelectedEmployeePunchAuditsSilently();
+            await LoadSelectedEmployeeHistory();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Admin attendance update failed: {ex}");
+        }
+    }
+
     private string PlaybackDistanceText
     {
         get
@@ -2077,25 +2096,6 @@
          * After this, GPS updates arrive through SignalR.
          */
         await RefreshLocations();
-
-        /*
-         * Register this admin component with the existing
-         * AttendanceRefresh SignalR connection.
-         */
-        liveLocationSignalRReference =
-            DotNetObjectReference.Create(this);
-
-        try
-        {
-            await JSRuntime.InvokeVoidAsync(
-                "attendanceRefresh.register",
-                liveLocationSignalRReference);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"Unable to register admin live location SignalR listener: {ex}");
-        }
 
         /*
          * Keep the existing timer only for:
@@ -2232,6 +2232,24 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && liveLocationSignalRReference == null && !disposed)
+        {
+            liveLocationSignalRReference =
+                DotNetObjectReference.Create(this);
+
+            try
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "attendanceRefresh.register",
+                    liveLocationSignalRReference);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"Unable to register admin live location SignalR listener: {ex}");
+            }
+        }
+
         if (!mapNeedsUpdate)
             return;
 

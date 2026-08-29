@@ -53,6 +53,20 @@ Environment.SetEnvironmentVariable(
     "DOTNET_USE_POLLING_FILE_WATCHER",
     "true");
 
+// Use the platform-provided port through ASPNETCORE_URLS and clear the
+// base image default so Kestrel does not report a conflicting port source.
+var platformPort = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(platformPort))
+{
+    Environment.SetEnvironmentVariable(
+        "ASPNETCORE_URLS",
+        $"http://0.0.0.0:{platformPort}");
+}
+
+Environment.SetEnvironmentVariable(
+    "ASPNETCORE_HTTP_PORTS",
+    null);
+
 var builder =
     WebApplication.CreateBuilder(options);
 
