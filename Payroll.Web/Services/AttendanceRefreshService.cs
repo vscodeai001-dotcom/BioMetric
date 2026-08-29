@@ -114,5 +114,144 @@ namespace Payroll.Web.Services
                 null,
                 "GLOBAL");
         }
+
+
+        /*
+         * ==========================================================
+         * LEAVE REQUEST CHANGES
+         * ==========================================================
+         *
+         * Notify when leave requests are created, updated, or deleted.
+         */
+
+        public async Task NotifyLeaveChangedAsync(
+            int? employeeId = null,
+            DateTime? leaveDate = null,
+            string? action = null)
+        {
+            await _hub.Clients.All.SendAsync(
+                "LeaveChanged",
+                new
+                {
+                    EmployeeId = employeeId,
+                    LeaveDate = leaveDate?.ToString("yyyy-MM-dd"),
+                    Action = action ?? "MODIFIED",
+                    Timestamp = DateTime.UtcNow
+                });
+        }
+
+
+        /*
+         * ==========================================================
+         * SALARY ADVANCE CHANGES
+         * ==========================================================
+         *
+         * Notify when salary advances are created or deleted.
+         */
+
+        public async Task NotifyAdvanceChangedAsync(
+            int? employeeId = null,
+            string? action = null)
+        {
+            await _hub.Clients.All.SendAsync(
+                "AdvanceChanged",
+                new
+                {
+                    EmployeeId = employeeId,
+                    Action = action ?? "MODIFIED",
+                    Timestamp = DateTime.UtcNow
+                });
+        }
+
+
+        /*
+         * ==========================================================
+         * PUNCH CHANGES (Manual/Correction)
+         * ==========================================================
+         *
+         * Notify when punches are added, edited, or deleted.
+         */
+
+        public async Task NotifyPunchChangedAsync(
+            int? employeeId = null,
+            DateOnly? date = null,
+            string? action = null)
+        {
+            await _hub.Clients.All.SendAsync(
+                "PunchChanged",
+                new
+                {
+                    EmployeeId = employeeId,
+                    Date = date?.ToString("yyyy-MM-dd"),
+                    Action = action ?? "MODIFIED",
+                    Timestamp = DateTime.UtcNow
+                });
+        }
+
+
+        /*
+         * ==========================================================
+         * EMPLOYEE DATA CHANGES
+         * ==========================================================
+         *
+         * Notify when employee records are updated.
+         */
+
+        public async Task NotifyEmployeeChangedAsync(
+            int? employeeId = null,
+            string? action = null)
+        {
+            await _hub.Clients.All.SendAsync(
+                "EmployeeChanged",
+                new
+                {
+                    EmployeeId = employeeId,
+                    Action = action ?? "MODIFIED",
+                    Timestamp = DateTime.UtcNow
+                });
+        }
+
+
+        /*
+         * ==========================================================
+         * EXIT/RESIGNATION CHANGES
+         * ==========================================================
+         *
+         * Notify when exit or resignation data is modified.
+         */
+
+        public async Task NotifyExitChangedAsync(
+            int? employeeId = null,
+            string? action = null)
+        {
+            await _hub.Clients.All.SendAsync(
+                "ExitChanged",
+                new
+                {
+                    EmployeeId = employeeId,
+                    Action = action ?? "MODIFIED",
+                    Timestamp = DateTime.UtcNow
+                });
+        }
+
+
+        /*
+         * ==========================================================
+         * BULK REFRESH FOR GLOBAL CRUD
+         * ==========================================================
+         *
+         * Notify all clients to refresh when major operations occur.
+         */
+
+        public async Task NotifyGlobalRefreshAsync(string? reason = null)
+        {
+            await _hub.Clients.All.SendAsync(
+                "GlobalRefresh",
+                new
+                {
+                    Reason = reason ?? "DATA_MODIFIED",
+                    Timestamp = DateTime.UtcNow
+                });
+        }
     }
 }

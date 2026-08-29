@@ -6,6 +6,7 @@
 @using global::Payroll.Shared
 @using global::Payroll.Shared.Data
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject AttendanceRefreshService AttendanceRefresh
 @inject ILogger<MyLeaveRequest> _logger
 @inject IToastService toastService
 @inject NavigationManager Navigation
@@ -171,6 +172,8 @@ else
         {
             await using var dbContext = await DbFactory.CreateDbContextAsync();
             int successfullyAddedCount = 0;
+            var firstLeaveDate = (DateTime?)null;
+            var lastLeaveDate = (DateTime?)null;
 
             for (DateTime day = startDate; day <= endDate; day = day.AddDays(1))
             {
@@ -191,12 +194,40 @@ else
                     Notes = newLeaveRequest.Notes
                 };
                 dbContext.LeaveRequests.Add(newEntry);
+                
+                if (firstLeaveDate == null)
+                    firstLeaveDate = day;
+                lastLeaveDate = day;
+                
                 successfullyAddedCount++;
             }
 
             if (successfullyAddedCount > 0)
             {
                 await dbContext.SaveChangesAsync();
+
+                // ================================================================
+                // BROADCAST REAL-TIME LEAVE SUBMISSIONS TO ALL CONNECTED CLIENTS
+                // Admin dashboard should refresh immediately to show pending requests
+                // ================================================================
+                try
+                {
+                    if (firstLeaveDate.HasValue)
+                    {
+                        await AttendanceRefresh.NotifyLeaveChangedAsync(
+                            linkedEmployee!.EmployeeID,
+                            firstLeaveDate,
+                            "SUBMITTED");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to broadcast leave submission for EmployeeId={EmployeeId}",
+                        linkedEmployee!.EmployeeID);
+                }
+                
                 toastService.ShowSuccess($"{successfullyAddedCount} leave request(s) submitted successfully!");
                 Navigation.NavigateTo("/my-leave-history");
             }

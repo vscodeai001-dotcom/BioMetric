@@ -4,6 +4,7 @@
 @using System.Globalization
 @inject IToastService toastService
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject AttendanceRefreshService AttendanceRefresh
 
 <details class="mb-4 border rounded p-3">
     <summary class="fw-bold text-primary" style="cursor:pointer;">
@@ -71,8 +72,6 @@
             return;
         }
 
-        // We invoke the Save method on the parent (SalaryAdvancePage)
-        // The parent page will handle setting IsSaving=true/false
         try
         {
             await using var dbContext = await DbFactory.CreateDbContextAsync();
@@ -80,6 +79,20 @@
             await dbContext.SaveChangesAsync();
 
             toastService.ShowSuccess("Advance saved successfully.");
+            
+            // ================================================================
+            // BROADCAST REAL-TIME ADVANCE CREATION TO ALL CONNECTED CLIENTS
+            // ================================================================
+            try
+            {
+                await AttendanceRefresh.NotifyAdvanceChangedAsync(
+                    NewAdvance.EmployeeID,
+                    "CREATED");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Failed to broadcast advance creation: {ex.Message}");
+            }
             
             // Reset form
             NewAdvance = new SalaryAdvance() { AdvanceDate = DateTime.Now.Date, AdvanceType = "General" };

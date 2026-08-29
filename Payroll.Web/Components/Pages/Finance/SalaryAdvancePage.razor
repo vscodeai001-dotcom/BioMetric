@@ -7,6 +7,7 @@
 @using Microsoft.EntityFrameworkCore
 @using global::Payroll.Web.Components.UI.Finance
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject AttendanceRefreshService AttendanceRefresh
 @inject IJSRuntime JSRuntime
 @inject ILogger<SalaryAdvancePage> _logger
 @inject NavigationManager Navigation
@@ -220,10 +221,30 @@ else
             try
             {
                 await using var dbContext = await DbFactory.CreateDbContextAsync();
+                var employeeId = advanceToDelete.EmployeeID;
+                
                 dbContext.SalaryAdvances.Remove(advanceToDelete);
                 await dbContext.SaveChangesAsync();
 
                 toastService.ShowSuccess("Advance deleted.");
+
+                // ================================================================
+                // BROADCAST REAL-TIME ADVANCE DELETION TO ALL CONNECTED CLIENTS
+                // ================================================================
+                try
+                {
+                    await AttendanceRefresh.NotifyAdvanceChangedAsync(
+                        employeeId,
+                        "DELETED");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to broadcast advance deletion for EmployeeId={EmployeeId}",
+                        employeeId);
+                }
+                
                 await LoadData();
             }
             catch (Exception ex)

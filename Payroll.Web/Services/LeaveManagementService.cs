@@ -20,6 +20,7 @@ namespace Payroll.Web.Services
         private readonly ILogger<LeaveManagementService> _logger;
         private readonly UserManager<IdentityUser> _userManager;
         private readonly AttendanceCalculatorService _attendanceCalculator;
+        private readonly AttendanceRefreshService _refreshService;
 
         public LeaveManagementService(
             IDbContextFactory<AppDbContext> dbFactory,
@@ -27,7 +28,8 @@ namespace Payroll.Web.Services
             IEmailSender emailSender,
             ILogger<LeaveManagementService> logger,
             UserManager<IdentityUser> userManager,
-            AttendanceCalculatorService attendanceCalculator)
+            AttendanceCalculatorService attendanceCalculator,
+            AttendanceRefreshService refreshService)
         {
             _dbFactory = dbFactory;
             _auditService = auditService;
@@ -35,6 +37,7 @@ namespace Payroll.Web.Services
             _logger = logger;
             _userManager = userManager;
             _attendanceCalculator = attendanceCalculator;
+            _refreshService = refreshService;
         }
 
         // --- 1. LOAD DATA ---
@@ -97,6 +100,24 @@ namespace Payroll.Web.Services
                 "LeaveRequest",
                 newRequest.LeaveRequestID.ToString(),
                 $"Admin added approved leave ({newRequest.LeaveType}) for EmpID: {newRequest.EmployeeID}");
+
+            // ================================================================
+            // BROADCAST REAL-TIME LEAVE UPDATE TO ALL CONNECTED CLIENTS
+            // ================================================================
+            try
+            {
+                await _refreshService.NotifyLeaveChangedAsync(
+                    newRequest.EmployeeID,
+                    newRequest.LeaveDate,
+                    "CREATED");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to broadcast leave creation for EmployeeId={EmployeeId}",
+                    newRequest.EmployeeID);
+            }
         }
 
         // --- 3. UPDATE STATUS (Approve/Revoke) ---
@@ -143,6 +164,24 @@ namespace Payroll.Web.Services
 
             if (emp != null)
                 await SendStatusEmailAsync(dbReq, emp, approved ? "Approved" : "Pending (Revoked)");
+
+            // ================================================================
+            // BROADCAST REAL-TIME LEAVE STATUS UPDATE TO ALL CONNECTED CLIENTS
+            // ================================================================
+            try
+            {
+                await _refreshService.NotifyLeaveChangedAsync(
+                    dbReq.EmployeeID,
+                    dbReq.LeaveDate,
+                    approved ? "APPROVED" : "REVOKED");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to broadcast leave status update for EmployeeId={EmployeeId}",
+                    dbReq.EmployeeID);
+            }
         }
 
         // --- 4. DELETE REQUEST ---
@@ -154,6 +193,7 @@ namespace Payroll.Web.Services
 
             var emp = await dbContext.Employees.FindAsync(req.EmployeeID);
             var affectedDate = req.LeaveDate?.Date;
+            var employeeId = req.EmployeeID;
 
             var reqCopy = new LeaveRequest
             {
@@ -181,6 +221,24 @@ namespace Payroll.Web.Services
 
             if (emp != null)
                 await SendStatusEmailAsync(reqCopy, emp, "Denied/Deleted");
+
+            // ================================================================
+            // BROADCAST REAL-TIME LEAVE DELETION TO ALL CONNECTED CLIENTS
+            // ================================================================
+            try
+            {
+                await _refreshService.NotifyLeaveChangedAsync(
+                    employeeId,
+                    affectedDate,
+                    "DELETED");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to broadcast leave deletion for EmployeeId={EmployeeId}",
+                    employeeId);
+            }
         }
 
         // --- 5. DAILY ATTENDANCE SYNCHRONIZATION ---
