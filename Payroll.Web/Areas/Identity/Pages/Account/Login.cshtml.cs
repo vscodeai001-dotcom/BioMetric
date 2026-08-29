@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 using Payroll.Shared.Data;
+using Payroll.Web.Services;
 
 namespace Payroll.Web.Areas.Identity.Pages.Account
 {
@@ -53,6 +54,9 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         private readonly ILogger<LoginModel>
             _logger;
 
+        private readonly NotificationService
+            _notificationService;
+
 
         // ============================================================
         // CONSTRUCTOR
@@ -62,12 +66,14 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             SignInManager<IdentityUser> signInManager,
             UserManager<IdentityUser> userManager,
             IDbContextFactory<AppDbContext> dbFactory,
-            ILogger<LoginModel> logger)
+            ILogger<LoginModel> logger,
+            NotificationService notificationService)
         {
             _signInManager = signInManager;
             _userManager = userManager;
             _dbFactory = dbFactory;
             _logger = logger;
+            _notificationService = notificationService;
         }
 
 
@@ -226,7 +232,6 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     user,
                     "SuperAdmin");
 
-
             var isEmployeeOnly =
                 isEmployee &&
                 !isAdmin &&
@@ -359,32 +364,22 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 if (lockResult ==
                     EmployeeLockResult.AlreadyActive)
                 {
-                    // ------------------------------------------------
-                    // IMPORTANT:
-                    //
-                    // Password is correct.
-                    //
-                    // This is NOT an invalid login.
-                    // Tell the employee exactly what is happening.
-                    // ------------------------------------------------
-
-                    ShowForceLogout = true;
-
-                    ModelState.AddModelError(
-                        string.Empty,
-                        AlreadyLoggedInMessage);
-
-                    ModelState.AddModelError(
-                        string.Empty,
-                        ForceLogoutInstruction);
-
-
                     _logger.LogWarning(
-                        "EMPLOYEE LOGIN BLOCKED. EXISTING SESSION EXISTS. UserId={UserId}",
+                        "EMPLOYEE LOGIN TAKING OVER EXISTING SESSION. UserId={UserId}",
                         user.Id);
 
+                    if (!await ReplaceAndInvalidateEmployeeSessionAsync(
+                            user,
+                            deviceId))
+                    {
+                        ModelState.AddModelError(
+                            string.Empty,
+                            "The existing session could not be replaced. Please try again.");
 
-                    return Page();
+                        return Page();
+                    }
+
+                    ForceLogoutExisting = true;
                 }
 
 
@@ -411,52 +406,13 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     user.Id);
 
 
-                var replaced =
-                    await ForceReplaceEmployeeLockAsync(
-                        user.Id,
-                        deviceId);
-
-
-                if (!replaced)
+                if (!await ReplaceAndInvalidateEmployeeSessionAsync(
+                        user,
+                        deviceId))
                 {
                     ModelState.AddModelError(
                         string.Empty,
                         "The existing session could not be replaced. Please try again.");
-
-                    return Page();
-                }
-
-
-                // ----------------------------------------------------
-                // CRITICAL:
-                //
-                // Change SecurityStamp so existing Identity cookies
-                // become invalid.
-                //
-                // Program.cs below sets validation interval to zero,
-                // so Identity checks the stamp on every request.
-                // ----------------------------------------------------
-
-                var stampResult =
-                    await _userManager.UpdateSecurityStampAsync(
-                        user);
-
-
-                if (!stampResult.Succeeded)
-                {
-                    _logger.LogError(
-                        "SECURITY STAMP UPDATE FAILED DURING FORCE LOGIN. UserId={UserId}",
-                        user.Id);
-
-
-                    await RemoveEmployeeLockAsync(
-                        user.Id,
-                        deviceId);
-
-
-                    ModelState.AddModelError(
-                        string.Empty,
-                        "The existing session could not be logged out safely. Please try again.");
 
                     return Page();
                 }
@@ -533,6 +489,35 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     Path = "/"
                 });
 
+            var httpContext = HttpContext;
+            var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "Unavailable";
+            var forwardedIp = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(forwardedIp))
+                ipAddress = forwardedIp.Split(',')[0].Trim();
+
+            var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+            if (string.IsNullOrWhiteSpace(userAgent))
+                userAgent = "Unavailable";
+
+            try
+            {
+                await _notificationService.NotifyAdminsEmployeeLoginAsync(
+                    user.UserName ?? user.Email ?? user.Id,
+                    user.Email ?? email,
+                    ipAddress,
+                    userAgent,
+                    DateTime.UtcNow,
+                    ForceLogoutExisting,
+                    "GPS coordinates will be available after device tracking starts");
+            }
+            catch (Exception notificationEx)
+            {
+                _logger.LogWarning(
+                    notificationEx,
+                    "Employee login succeeded but admin notification failed. UserId={UserId}",
+                    user.Id);
+            }
+
 
             // ========================================================
             // SUCCESS
@@ -553,6 +538,29 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         // ============================================================
         // EMPLOYEE LOCK RESULT
         // ============================================================
+
+        private async Task<bool> ReplaceAndInvalidateEmployeeSessionAsync(
+            IdentityUser user,
+            string deviceId)
+        {
+            var replaced = await ForceReplaceEmployeeLockAsync(
+                user.Id,
+                deviceId);
+
+            if (!replaced)
+                return false;
+
+            var stampResult = await _userManager.UpdateSecurityStampAsync(user);
+            if (stampResult.Succeeded)
+                return true;
+
+            _logger.LogError(
+                "SECURITY STAMP UPDATE FAILED DURING EMPLOYEE SESSION REPLACEMENT. UserId={UserId}",
+                user.Id);
+
+            await RemoveEmployeeLockAsync(user.Id, deviceId);
+            return false;
+        }
 
         private enum EmployeeLockResult
         {

@@ -1,7 +1,10 @@
 ﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Payroll.Shared.Data;
+using Payroll.Web.Hubs;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Payroll.Web.Services
@@ -9,11 +12,17 @@ namespace Payroll.Web.Services
     public class NotificationService
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
+        private readonly IHubContext<AttendanceRefreshHub> _hub;
+        private readonly UserManager<IdentityUser> _userManager;
        
-        public NotificationService(IDbContextFactory<AppDbContext> dbFactory)
+        public NotificationService(
+            IDbContextFactory<AppDbContext> dbFactory,
+            IHubContext<AttendanceRefreshHub> hub,
+            UserManager<IdentityUser> userManager)
         {
             _dbFactory = dbFactory;
-            
+            _hub = hub;
+            _userManager = userManager;
         }
 
         public async Task SendNotificationAsync(string userId, string title, string message, string? url = null)
@@ -33,7 +42,48 @@ namespace Payroll.Web.Services
             db.Notifications.Add(notification);
             await db.SaveChangesAsync();
 
-            
+            await _hub.Clients.User(userId).SendAsync("NotificationChanged");
+        }
+
+        public async Task NotifyAdminsEmployeeLoginAsync(
+            string employeeName,
+            string email,
+            string ipAddress,
+            string userAgent,
+            DateTime loginTimeUtc,
+            bool replacedExistingSession,
+            string? gpsDetails = null)
+        {
+            var title = replacedExistingSession
+                ? "Employee session replaced"
+                : "Employee login detected";
+
+            var message =
+                $"Employee: {employeeName} ({email}); " +
+                $"Time UTC: {loginTimeUtc:yyyy-MM-dd HH:mm:ss}; " +
+                $"IP: {ipAddress}; " +
+                $"GPS: {gpsDetails ?? "Pending from device"}; " +
+                $"Device: {userAgent}";
+
+            if (message.Length > 500)
+                message = message[..500];
+
+            var adminUsers = await _userManager.GetUsersInRoleAsync("Admin");
+            var superAdminUsers = await _userManager.GetUsersInRoleAsync("SuperAdmin");
+            var adminIds = adminUsers
+                .Concat(superAdminUsers)
+                .Select(u => u.Id)
+                .Distinct()
+                .ToList();
+
+            foreach (var adminId in adminIds)
+            {
+                await SendNotificationAsync(
+                    adminId,
+                    title,
+                    message,
+                    "/");
+            }
         }
 
         public async Task MarkAsReadAsync(int notificationId)

@@ -786,3 +786,125 @@ body.dark .btn > span {
     body.dark .text-muted {
         color: #adb5bd !important; /* Lighter grey for readability */
     }
+
+/* ============================================================
+   FINAL DARK MODE SURFACE PASS
+   ============================================================ */
+
+body.dark .bg-white,
+body.dark .bg-light-subtle,
+body.dark .bg-body,
+body.dark .bg-body-tertiary {
+    background-color: #202832 !important;
+    color: #f3f6fa !important;
+}
+
+body.dark .card,
+body.dark .card-body,
+body.dark .modal-content,
+body.dark .list-group-item {
+    color: #f3f6fa !important;
+    border-color: #3a4654 !important;
+}
+
+body.dark .card-header,
+body.dark .card-footer {
+    background-color: #252e38 !important;
+    color: #f8fafc !important;
+    border-color: #3a4654 !important;
+}
+
+body.dark .card h1,
+body.dark .card h2,
+body.dark .card h3,
+body.dark .card h4,
+body.dark .card h5,
+body.dark .card h6,
+body.dark .card strong,
+body.dark .card label,
+body.dark .modal-content h1,
+body.dark .modal-content h2,
+body.dark .modal-content h3,
+body.dark .modal-content h4,
+body.dark .modal-content h5,
+body.dark .modal-content h6 {
+    color: #f8fafc !important;
+}
+
+body.dark .card p,
+body.dark .card small,
+body.dark .card .text-muted,
+body.dark .modal-content p,
+body.dark .modal-content small,
+body.dark .modal-content .text-muted {
+    color: #b8c3d0 !important;
+}
+
+body.dark .alert-danger {
+    background-color: #54232d !important;
+    border-color: #9b4655 !important;
+    color: #ffd9df !important;
+}
+
+body.dark .alert-danger h1,
+body.dark .alert-danger h2,
+body.dark .alert-danger h3,
+body.dark .alert-danger h4,
+body.dark .alert-danger h5,
+body.dark .alert-danger h6,
+body.dark .alert-danger p,
+body.dark .alert-danger strong,
+body.dark .alert-danger hr {
+    color: #ffd9df !important;
+    border-color: #9b4655 !important;
+}
+
+body.dark .alert-info,
+body.dark .alert-warning,
+body.dark .alert-success {
+    color: #f3f6fa !important;
+    border-color: #536579 !important;
+}
+
+body.dark .table,
+body.dark .table td,
+body.dark .table th {
+    color: #edf2f7 !important;
+    border-color: #3b4653 !important;
+}
+
+body.dark .table td,
+body.dark .table th,
+body.dark .table-responsive {
+    background-color: #1c242d !important;
+}
+
+body.dark .table-striped > tbody > tr:nth-of-type(odd) > *,
+body.dark .table-striped > tbody > tr:nth-of-type(even) > * {
+    background-color: #222c36 !important;
+    color: #edf2f7 !important;
+}
+
+body.dark .table-hover > tbody > tr:hover > * {
+    background-color: #2c3947 !important;
+    color: #ffffff !important;
+}
+
+body.dark .nav-tabs .nav-link,
+body.dark .form-check-label,
+body.dark .form-text {
+    color: #c5cfda !important;
+}
+
+body.dark .nav-tabs .nav-link.active {
+    background-color: #273544 !important;
+    color: #ffffff !important;
+    border-color: #5d82ad #5d82ad #273544 !important;
+}
+
+/* Printable payslips intentionally remain white documents. */
+body.dark .payslip-container.bg-white,
+body.dark .payslip-container.bg-white * {
+    background-color: #ffffff !important;
+    color: #212529 !important;
+}

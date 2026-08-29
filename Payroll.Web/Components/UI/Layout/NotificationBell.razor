@@ -1,10 +1,11 @@
 ﻿@using global::Payroll.Shared.Data
 @using global::Payroll.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
-@implements IDisposable
+@implements IAsyncDisposable
 @inject NavigationManager Navigation
 @inject NotificationService NoteService
 @inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JSRuntime
 
 <div class="dropdown d-inline-block me-2">
     @* --- FIX: Removed 'btn-link', added explicit color style --- *@
@@ -69,6 +70,7 @@
     private int unreadCount => notifications.Count(n => !n.IsRead);
     private string userId = "";
     private Timer? timer;
+    private DotNetObjectReference<NotificationBell>? dotNetReference;
 
     protected override async Task OnInitializedAsync()
     {
@@ -89,6 +91,24 @@
                 }, null, 0, 15000);
             }
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || string.IsNullOrEmpty(userId))
+            return;
+
+        dotNetReference = DotNetObjectReference.Create(this);
+        await JSRuntime.InvokeVoidAsync(
+            "attendanceRefresh.register",
+            dotNetReference);
+    }
+
+    [JSInvokable]
+    public async Task NotificationChanged()
+    {
+        await FetchNotifications();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task FetchNotifications()
@@ -126,5 +146,22 @@
         return date.ToLocalTime().ToString("dd-MMM");
     }
 
-    public void Dispose() => timer?.Dispose();
+    public async ValueTask DisposeAsync()
+    {
+        timer?.Dispose();
+
+        if (dotNetReference != null)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "attendanceRefresh.unregister",
+                    dotNetReference);
+            }
+            catch { }
+
+            dotNetReference.Dispose();
+            dotNetReference = null;
+        }
+    }
 }

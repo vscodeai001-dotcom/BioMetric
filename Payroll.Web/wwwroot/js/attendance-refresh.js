@@ -356,6 +356,16 @@
                 }
             );
 
+            connection.on(
+                "NotificationChanged",
+                async function (data) {
+                    await notifyListeners(
+                        "NotificationChanged",
+                        data
+                    );
+                }
+            );
+
 
             /*
              * ==========================================================
