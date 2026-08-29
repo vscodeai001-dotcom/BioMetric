@@ -103,6 +103,8 @@
     private bool userIsSuperAdmin;
     private bool geoTrackingEnabled;
     private int employeeId;
+    private string? themeUserId;
+    private string? persistedTheme;
 
     protected override async Task OnInitializedAsync()
     {
@@ -111,15 +113,25 @@
         var authState =
             await AuthState.GetAuthenticationStateAsync();
 
-        var userId =
+        themeUserId =
             authState.User.FindFirst(
                 System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
-        if (!string.IsNullOrWhiteSpace(userId))
+        if (!string.IsNullOrWhiteSpace(themeUserId))
         {
-            var storedTheme = await Theme.GetThemeAsync(userId);
-            if (!string.IsNullOrWhiteSpace(storedTheme))
-                Theme.SetTheme(storedTheme);
+            try
+            {
+                persistedTheme = await Theme.GetThemeAsync(themeUserId);
+                if (!string.IsNullOrWhiteSpace(persistedTheme))
+                    Theme.SetTheme(persistedTheme);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Unable to load persisted theme for user {UserId}; using browser theme.",
+                    themeUserId);
+            }
         }
 
         userIsSuperAdmin =
@@ -137,9 +149,13 @@
 
         try
         {
-            var savedTheme =
-                await JSRuntime.InvokeAsync<string>(
+            var savedTheme = persistedTheme;
+
+            if (string.IsNullOrWhiteSpace(savedTheme))
+            {
+                savedTheme = await JSRuntime.InvokeAsync<string>(
                     "themeInterop.applySavedTheme");
+            }
 
             Theme.SetTheme(savedTheme);
 
@@ -232,8 +248,21 @@
             authState.User.FindFirst(
                 System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
-        if (!string.IsNullOrWhiteSpace(userId) && Theme != null)
-            await Theme.SaveThemeAsync(userId, newTheme);
+        if (!string.IsNullOrWhiteSpace(themeUserId) && Theme != null)
+        {
+            try
+            {
+                await Theme.SaveThemeAsync(themeUserId, newTheme);
+                persistedTheme = newTheme;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Unable to persist theme for user {UserId}; browser theme remains active.",
+                    themeUserId);
+            }
+        }
 
         await JSRuntime.InvokeVoidAsync(
             "themeInterop.setThemeOnBody",

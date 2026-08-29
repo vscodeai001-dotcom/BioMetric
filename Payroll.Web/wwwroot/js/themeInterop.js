@@ -2063,6 +2063,8 @@ window.updateAdminLiveStaffMap =
                     circle: null,
                     markers: {},
                     lines: {},
+                    trails: {},
+                    trailPoints: {},
                     labels: {},
                     lastOfficeRadius: 0,
                     historyRoute: null,
@@ -2127,6 +2129,13 @@ window.updateAdminLiveStaffMap =
                         catch { }
 
                         try {
+                            if (state.trails[id]) {
+                                state.map.removeLayer(state.trails[id]);
+                            }
+                        }
+                        catch { }
+
+                        try {
                             if (
                                 state.labels[id]
                             ) {
@@ -2139,6 +2148,8 @@ window.updateAdminLiveStaffMap =
 
                         delete state.markers[id];
                         delete state.lines[id];
+                        delete state.trails[id];
+                        delete state.trailPoints[id];
                         delete state.labels[id];
                     }
                 }
@@ -2174,6 +2185,24 @@ window.updateAdminLiveStaffMap =
                         lat,
                         lng
                     ];
+
+                    const isSelected =
+                        Number(selectedId) === employeeId;
+
+                    if (!Array.isArray(state.trailPoints[employeeId])) {
+                        state.trailPoints[employeeId] = [];
+                    }
+
+                    const points = state.trailPoints[employeeId];
+                    const previousPoint = points[points.length - 1];
+                    if (!previousPoint ||
+                        previousPoint[0] !== position[0] ||
+                        previousPoint[1] !== position[1]) {
+                        points.push(position);
+                        if (points.length > 60) {
+                            points.shift();
+                        }
+                    }
 
                     const withinRange =
                         Boolean(
@@ -2267,6 +2296,52 @@ window.updateAdminLiveStaffMap =
                             employeeId
                         ].setIcon(
                             icon
+                        );
+                    }
+
+                    if (points.length > 1) {
+                        if (!state.trails[employeeId]) {
+                            state.trails[employeeId] = L.polyline(
+                                points,
+                                {
+                                    color: markerColor,
+                                    weight: isSelected ? 5 : 3,
+                                    opacity: isSelected ? .9 : .45,
+                                    dashArray: isSelected ? null : '5,7'
+                                }
+                            ).addTo(state.map);
+                        }
+                        else {
+                            state.trails[employeeId].setLatLngs(points);
+                            state.trails[employeeId].setStyle({
+                                color: markerColor,
+                                weight: isSelected ? 5 : 3,
+                                opacity: isSelected ? .9 : .45,
+                                dashArray: isSelected ? null : '5,7'
+                            });
+                        }
+                    }
+
+                    state.markers[employeeId].setOpacity(
+                        Number(selectedId) > 0 && !isSelected ? 0 : 1
+                    );
+
+                    if (state.lines[employeeId]) {
+                        state.lines[employeeId].setStyle({
+                            color: markerColor,
+                            opacity: Number(selectedId) > 0 && !isSelected ? 0 : .8
+                        });
+                    }
+
+                    if (state.trails[employeeId]) {
+                        state.trails[employeeId].setStyle({
+                            opacity: Number(selectedId) > 0 && !isSelected ? 0 : (isSelected ? .9 : .45)
+                        });
+                    }
+
+                    if (state.labels[employeeId]) {
+                        state.labels[employeeId].setOpacity(
+                            Number(selectedId) > 0 && !isSelected ? 0 : .95
                         );
                     }
 
@@ -2415,10 +2490,7 @@ window.updateAdminLiveStaffMap =
                         );
                     }
 
-                    if (
-                        Number(selectedId) ===
-                        employeeId
-                    ) {
+                    if (isSelected) {
                         state.markers[
                             employeeId
                         ].openPopup();

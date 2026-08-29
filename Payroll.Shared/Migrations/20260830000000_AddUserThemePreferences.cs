@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Payroll.Shared.Migrations;
 
+[Migration("20260830000000_AddUserThemePreferences")]
 public partial class AddUserThemePreferences : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
