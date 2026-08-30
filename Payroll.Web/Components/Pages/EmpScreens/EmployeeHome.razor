@@ -71,6 +71,40 @@
     .employee-summary-card {
         min-height: 205px;
     }
+
+    .employee-dashboard-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr);
+        gap: 1rem;
+        align-items: start;
+    }
+
+    .employee-dashboard-summary {
+        grid-column: 1;
+        margin-bottom: 0 !important;
+    }
+
+    .employee-dashboard-quick {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+    }
+
+    .employee-dashboard-applications {
+        grid-column: 1;
+    }
+
+    @@media (max-width: 991.98px) {
+        .employee-dashboard-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .employee-dashboard-summary,
+        .employee-dashboard-quick,
+        .employee-dashboard-applications {
+            grid-column: 1;
+            grid-row: auto;
+        }
+    }
 </style>
 
 <AuthorizeView>
@@ -104,7 +138,8 @@
 }
 else
 {
-    <div class="row g-4 mb-4 align-items-start employee-overview-row">
+    <div class="employee-dashboard-layout">
+    <div class="row g-4 align-items-start employee-overview-row employee-dashboard-summary">
 
         @* ============================================================
            1. SALARY CARD
@@ -228,7 +263,7 @@ else
 
         @if (featureSettings?.EmployeeCanViewAttendance == true)
         {
-            <div class="col-md-12 col-xl-4">
+            <div class="employee-dashboard-quick">
 
                 @if (linkedEmployee != null)
                 {
@@ -261,6 +296,7 @@ else
        4. APPLICATION GRID
        ============================================================ *@
 
+    <div class="employee-dashboard-applications">
     <h5 class="fw-bold text-secondary mb-3">
         Applications
     </h5>
@@ -504,6 +540,8 @@ else
             </div>
         </div>
 
+    </div>
+    </div>
     </div>
 }
 
