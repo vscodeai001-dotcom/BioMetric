@@ -52,11 +52,14 @@ namespace Payroll.Web.Services
             string userAgent,
             DateTime loginTimeUtc,
             bool replacedExistingSession,
-            string? gpsDetails = null)
+            string? gpsDetails = null,
+            bool blockedExistingSession = false)
         {
-            var title = replacedExistingSession
-                ? "Employee session replaced"
-                : "Employee login detected";
+            var title = blockedExistingSession
+                ? "Blocked login attempt"
+                : replacedExistingSession
+                    ? "Employee session replaced"
+                    : "Employee login detected";
 
             var message =
                 $"Employee: {employeeName} ({email}); " +

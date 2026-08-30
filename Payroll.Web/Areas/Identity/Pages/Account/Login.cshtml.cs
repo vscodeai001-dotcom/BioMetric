@@ -32,7 +32,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             "Invalid email or password.";
 
         private const string AlreadyLoggedInMessage =
-            "This employee is already logged in on another device or browser.";
+            "This account is already logged in on another device or browser.";
 
         private const string ForceLogoutInstruction =
             "Log out from the existing session before continuing on this device.";
@@ -232,10 +232,10 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     user,
                     "SuperAdmin");
 
-            var isEmployeeOnly =
-                isEmployee &&
-                !isAdmin &&
-                !isSuperAdmin;
+            var hasKnownRole =
+                isEmployee ||
+                isAdmin ||
+                isSuperAdmin;
 
 
             // ========================================================
@@ -284,59 +284,13 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
 
             _logger.LogInformation(
-                "LOGIN PASSWORD VERIFIED. UserId={UserId}, EmployeeOnly={EmployeeOnly}",
+                "LOGIN PASSWORD VERIFIED. UserId={UserId}, KnownRole={KnownRole}",
                 user.Id,
-                isEmployeeOnly);
+                hasKnownRole);
 
 
             // ========================================================
-            // ADMIN / SUPERADMIN
-            //
-            // No single-session restriction.
-            // ========================================================
-
-            if (!isEmployeeOnly)
-            {
-                try
-                {
-                    await _signInManager.SignInAsync(
-                        user,
-                        Input.RememberMe);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(
-                        ex,
-                        "ADMIN/SUPERADMIN SIGN-IN FAILED. UserId={UserId}",
-                        user.Id);
-
-                    ModelState.AddModelError(
-                        string.Empty,
-                        "Unable to sign in. Please try again.");
-
-                    return Page();
-                }
-
-
-                _logger.LogInformation(
-                    "ADMIN/SUPERADMIN LOGIN SUCCESS. UserId={UserId}",
-                    user.Id);
-
-
-                if (
-                    !string.IsNullOrWhiteSpace(ReturnUrl) &&
-                    ReturnUrl != "/" &&
-                    Url.IsLocalUrl(ReturnUrl))
-                {
-                    return LocalRedirect(ReturnUrl);
-                }
-
-                return LocalRedirect("/");
-            }
-
-
-            // ========================================================
-            // EMPLOYEE LOGIN
+            // SINGLE SESSION FOR ALL ROLES
             // ========================================================
 
             var deviceId =
@@ -364,22 +318,16 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 if (lockResult ==
                     EmployeeLockResult.AlreadyActive)
                 {
-                    _logger.LogWarning(
-                        "EMPLOYEE LOGIN TAKING OVER EXISTING SESSION. UserId={UserId}",
-                        user.Id);
+                    ShowForceLogout = true;
+                    ModelState.AddModelError(
+                        string.Empty,
+                        $"{AlreadyLoggedInMessage} {ForceLogoutInstruction}");
 
-                    if (!await ReplaceAndInvalidateEmployeeSessionAsync(
-                            user,
-                            deviceId))
-                    {
-                        ModelState.AddModelError(
-                            string.Empty,
-                            "The existing session could not be replaced. Please try again.");
+                    await NotifyBlockedLoginAsync(
+                        user,
+                        email);
 
-                        return Page();
-                    }
-
-                    ForceLogoutExisting = true;
+                    return Page();
                 }
 
 
@@ -402,7 +350,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             else
             {
                 _logger.LogWarning(
-                    "EMPLOYEE FORCE LOGIN REQUEST. UserId={UserId}",
+                    "FORCE LOGIN REQUEST. UserId={UserId}",
                     user.Id);
 
 
@@ -534,6 +482,39 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 "/employee-home");
         }
 
+
+        private async Task NotifyBlockedLoginAsync(
+            IdentityUser user,
+            string email)
+        {
+            try
+            {
+                var ipAddress =
+                    HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unavailable";
+                var forwardedIp =
+                    Request.Headers["X-Forwarded-For"].FirstOrDefault();
+
+                if (!string.IsNullOrWhiteSpace(forwardedIp))
+                    ipAddress = forwardedIp.Split(',')[0].Trim();
+
+                await _notificationService.NotifyAdminsEmployeeLoginAsync(
+                    user.UserName ?? user.Email ?? user.Id,
+                    user.Email ?? email,
+                    ipAddress,
+                    Request.Headers.UserAgent.ToString(),
+                    DateTime.UtcNow,
+                    replacedExistingSession: false,
+                    gpsDetails: "BLOCKED: another active device session exists",
+                    blockedExistingSession: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Blocked login notification failed. UserId={UserId}",
+                    user.Id);
+            }
+        }
 
         // ============================================================
         // EMPLOYEE LOCK RESULT
