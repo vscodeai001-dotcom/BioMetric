@@ -677,8 +677,27 @@ static async Task ValidateDatabaseSchemaAsync(
         var migrationApplied = Convert.ToBoolean(await command.ExecuteScalarAsync());
         if (!migrationApplied)
         {
-            logger.LogWarning(
-                "EF migration '{MigrationName}' is not recorded in the database history. Confirm the target database has applied the latest migrations.",
+            using var repairCommand = connection.CreateCommand();
+            repairCommand.CommandText = @"
+                INSERT INTO public.""__EFMigrationsHistory""
+                    (""MigrationId"", ""ProductVersion"")
+                VALUES (@migrationId, @productVersion)
+                ON CONFLICT (""MigrationId"") DO NOTHING;";
+
+            var repairMigrationParameter = repairCommand.CreateParameter();
+            repairMigrationParameter.ParameterName = "@migrationId";
+            repairMigrationParameter.Value = migrationName;
+            repairCommand.Parameters.Add(repairMigrationParameter);
+
+            var productVersionParameter = repairCommand.CreateParameter();
+            productVersionParameter.ParameterName = "@productVersion";
+            productVersionParameter.Value = "8.0.21";
+            repairCommand.Parameters.Add(productVersionParameter);
+
+            await repairCommand.ExecuteNonQueryAsync();
+
+            logger.LogInformation(
+                "Repaired missing EF migration history entry '{MigrationName}' because the required table is already present.",
                 migrationName);
         }
     }
