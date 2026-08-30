@@ -206,6 +206,28 @@
 
     private int _refreshVersion = 0;
 
+    private static TimeSpan GetDisplayScheduledDuration(
+        TimeOnly? start,
+        TimeOnly? end,
+        int breakMinutes)
+    {
+        if (!start.HasValue || !end.HasValue)
+            return TimeSpan.Zero;
+
+        var startDateTime = DateTime.Today.Add(start.Value.ToTimeSpan());
+        var endDateTime = DateTime.Today.Add(end.Value.ToTimeSpan());
+
+        if (endDateTime <= startDateTime)
+            endDateTime = endDateTime.AddDays(1);
+
+        var duration = endDateTime - startDateTime -
+                       TimeSpan.FromMinutes(Math.Max(0, breakMinutes));
+
+        return duration > TimeSpan.Zero
+            ? duration
+            : TimeSpan.Zero;
+    }
+
     // ============================================================
     // AUTOMATIC PUNCH PROCESSING STATE
     // ============================================================
@@ -665,6 +687,14 @@
                             var isWeeklyOffWorked =
                                 ds.Status == "Weekly Off (Worked)";
 
+                            var displayScheduledDuration =
+                                isWeeklyOffWorked
+                                    ? GetDisplayScheduledDuration(
+                                        sStart,
+                                        sEnd,
+                                        emp?.StandardBreakMinutes ?? 0)
+                                    : ds.ScheduledShiftDuration;
+
                             // ------------------------------------------------
                             // PENALTY BREAKDOWN
                             // ------------------------------------------------
@@ -699,15 +729,13 @@
                                         ds.Status,
 
                                     ShiftStart =
-                                        isWeeklyOffWorked ? null : sStart,
+                                        sStart,
 
                                     ShiftEnd =
-                                        isWeeklyOffWorked ? null : sEnd,
+                                        sEnd,
 
                                     ScheduledShiftDuration =
-                                        isWeeklyOffWorked
-                                            ? TimeSpan.Zero
-                                            : ds.ScheduledShiftDuration,
+                                        displayScheduledDuration,
 
                                     TotalPenalty =
                                         ds.TotalPenaltyDuration,
