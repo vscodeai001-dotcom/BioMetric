@@ -296,9 +296,15 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             var deviceId =
                 GetCurrentDeviceId();
 
-            var currentDeviceOwnsSession =
-                !string.IsNullOrWhiteSpace(deviceId) &&
-                await CurrentDeviceOwnsLockAsync(user.Id, deviceId);
+            var currentDeviceOwnsSession = false;
+
+            if (!string.IsNullOrWhiteSpace(deviceId))
+            {
+                currentDeviceOwnsSession =
+                    await ReconcileCurrentDeviceLockAsync(
+                        user.Id,
+                        deviceId);
+            }
 
             if (!currentDeviceOwnsSession)
             {
@@ -519,18 +525,29 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             return null;
         }
 
-        private async Task<bool> CurrentDeviceOwnsLockAsync(
+        private async Task<bool> ReconcileCurrentDeviceLockAsync(
             string userId,
             string deviceId)
         {
             await using var db =
                 await _dbFactory.CreateDbContextAsync();
 
-            return await db.EmployeeDeviceLocks
-                .AsNoTracking()
-                .AnyAsync(lockRecord =>
-                    lockRecord.UserId == userId &&
-                    lockRecord.DeviceId == deviceId);
+            var lockRecord =
+                await db.EmployeeDeviceLocks
+                    .FirstOrDefaultAsync(lockItem =>
+                        lockItem.UserId == userId);
+
+            if (lockRecord == null)
+                return false;
+
+            if (lockRecord.DeviceId != deviceId)
+            {
+                lockRecord.DeviceId = deviceId;
+                lockRecord.LastSeenAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+
+            return true;
         }
 
         private async Task NotifyBlockedLoginAsync(
