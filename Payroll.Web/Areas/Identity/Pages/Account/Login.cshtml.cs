@@ -478,8 +478,19 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 ForceLogoutExisting);
 
 
-            return LocalRedirect(
-                "/employee-home");
+            if (isAdmin || isSuperAdmin)
+            {
+                if (!string.IsNullOrWhiteSpace(ReturnUrl) &&
+                    ReturnUrl != "/" &&
+                    Url.IsLocalUrl(ReturnUrl))
+                {
+                    return LocalRedirect(ReturnUrl);
+                }
+
+                return LocalRedirect("/");
+            }
+
+            return LocalRedirect("/employee-home");
         }
 
 
