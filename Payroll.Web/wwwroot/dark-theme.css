@@ -1178,3 +1178,18 @@ body.dark .identity-theme-toggle {
     border-color: #465464 !important;
     color: #f3f6fa !important;
 }
+
+body.dark .user-creation-form .form-control {
+    background-color: #151c25 !important;
+    color: #f3f6fa !important;
+    border-color: #344150 !important;
+}
+
+body.dark .user-creation-form .form-control:-webkit-autofill,
+body.dark .user-creation-form .form-control:-webkit-autofill:hover,
+body.dark .user-creation-form .form-control:-webkit-autofill:focus {
+    -webkit-text-fill-color: #f3f6fa !important;
+    -webkit-box-shadow: 0 0 0 1000px #151c25 inset !important;
+    box-shadow: 0 0 0 1000px #151c25 inset !important;
+    caret-color: #f3f6fa !important;
+}
