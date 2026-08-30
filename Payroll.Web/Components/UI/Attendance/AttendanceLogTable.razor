@@ -1,6 +1,29 @@
 ﻿@using global::Payroll.Web.Components.Pages.Attendance
 @using global::Payroll.Web.Models
 
+<style>
+    .raw-punches-cell {
+        width: 18rem;
+        max-width: 18rem;
+        padding: .25rem !important;
+    }
+
+    .raw-punches-scroll {
+        max-width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: thin;
+        cursor: ew-resize;
+    }
+
+    .raw-punches-scroll:focus,
+    .raw-punches-scroll:hover {
+        outline: 1px solid rgba(13, 110, 253, .35);
+        outline-offset: 1px;
+        scroll-behavior: smooth;
+    }
+</style>
+
 @if (IsLoading)
 {
     <p><em>Loading data...</em></p>
@@ -206,10 +229,11 @@ else
                 @* ------------------------------------------------
                            RAW PUNCHES
                            ------------------------------------------------ *@
-                <td class="small text-muted text-truncate"
-                    style="max-width: 150px;"
-                    title="@record.Punches">
-                    @record.Punches
+                <td class="small text-muted raw-punches-cell"
+                    title="Use the horizontal scrollbar to view all punches">
+                    <div class="raw-punches-scroll" tabindex="0">
+                        @record.Punches
+                    </div>
                 </td>
 
                 @* ------------------------------------------------

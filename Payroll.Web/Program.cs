@@ -376,9 +376,9 @@ builder.Services.AddIdentity<
 //         v
 // Device B becomes the active session
 //
-// ValidationInterval = Zero means the old Identity cookie
-// is checked against the current security stamp on every
-// request.
+// Validate periodically so normal circuit reconnects do not
+// force a login, while security-stamp changes still invalidate
+// a replaced session promptly.
 //
 // ============================================================
 
@@ -387,7 +387,18 @@ builder.Services.Configure<
     options =>
     {
         options.ValidationInterval =
-            TimeSpan.Zero;
+            TimeSpan.FromMinutes(5);
+    });
+
+builder.Services.ConfigureApplicationCookie(
+    options =>
+    {
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy =
+            CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
     });
 
 

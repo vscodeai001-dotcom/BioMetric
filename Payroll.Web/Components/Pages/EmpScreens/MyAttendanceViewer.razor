@@ -133,6 +133,23 @@ else
     }
 }
 
+<style>
+    .employee-raw-punches {
+        max-width: 18rem;
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: thin;
+        cursor: ew-resize;
+    }
+
+    .employee-raw-punches:focus,
+    .employee-raw-punches:hover {
+        outline: 1px solid rgba(13, 110, 253, .35);
+        outline-offset: 1px;
+        scroll-behavior: smooth;
+    }
+</style>
+
 <AttendanceRefreshListener
     OnAttendanceChanged="LoadLogsAsync" />
 
