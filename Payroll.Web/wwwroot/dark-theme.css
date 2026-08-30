@@ -1073,6 +1073,18 @@ body.dark .table-danger .text-danger {
     color: #ffffff !important;
 }
 
+body.dark .leave-history-table .auto-lop-row > td,
+body.dark .leave-history-table .auto-lop-row > th {
+    background-color: #542b38 !important;
+    color: #ffe0e7 !important;
+    border-color: #784354 !important;
+}
+
+body.dark .leave-history-table .auto-lop-row .badge.bg-danger {
+    background-color: #d6335c !important;
+    color: #ffffff !important;
+}
+
 body.dark .badge.bg-light,
 body.dark .badge.bg-white {
     background-color: #344252 !important;

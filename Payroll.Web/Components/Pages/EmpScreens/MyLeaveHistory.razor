@@ -51,7 +51,7 @@ else
     }
     else
     {
-        <div class="table-responsive">
+        <div class="table-responsive leave-history-table">
             <table class="table table-sm table-striped table-hover align-middle">
                 <thead class="table-dark">
                     <tr>
@@ -65,7 +65,7 @@ else
                 <tbody>
                     @foreach (var leave in leaveHistory.OrderByDescending(p => p.LeaveDate))
                     {
-                        <tr class="@(leave.LeaveType == "Loss of Pay (Auto)" ? "table-danger" : "")">
+                        <tr class="@(leave.LeaveType == "Loss of Pay (Auto)" ? "auto-lop-row" : "")">
                             <td>@leave.LeaveDate?.ToString("dd-MMM-yyyy")</td>
                             <td>@leave.LeaveType</td>
                             <td>@(leave.IsHalfDay ? "Yes" : "No")</td>
