@@ -177,7 +177,11 @@ if (string.IsNullOrWhiteSpace(connectionString))
 
 builder.Services.AddDbContextFactory<AppDbContext>(
     options =>
-        options.UseNpgsql(connectionString));
+        options.UseNpgsql(
+            connectionString,
+            npgsqlOptions =>
+                npgsqlOptions.MigrationsAssembly(
+                    typeof(AppDbContext).Assembly.GetName().Name)));
 
 
 // ============================================================
@@ -737,7 +741,7 @@ try
                 AppDbContext>();
 
 
-    db.Database.Migrate();
+    await db.Database.MigrateAsync();
 
     await ValidateDatabaseSchemaAsync(
         db,
