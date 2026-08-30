@@ -742,6 +742,24 @@ public class GeoLocationService
 
         db.AttendanceLogs.Add(log);
 
+        if (sessionId.HasValue &&
+            sessionId.Value != Guid.Empty)
+        {
+            db.EmployeeLocationHistory.Add(
+                new EmployeeLocationHistory
+                {
+                    EmployeeId = employeeId,
+                    SessionId = sessionId.Value,
+                    Latitude = lat,
+                    Longitude = lon,
+                    AccuracyMeters = safeAccuracy,
+                    DistanceFromOfficeMeters = NormalizeDistance(distance),
+                    AllowedRadiusMeters = company.GeoRadiusMeters,
+                    IsWithinAllowedRadius = true,
+                    RecordedAtUtc = auditTimeUtc
+                });
+        }
+
         await db.SaveChangesAsync();
 
         var success = new GeoPunchResult
@@ -767,6 +785,11 @@ public class GeoLocationService
 
         try
         {
+            await _refreshService.NotifyDataChangedAsync(
+                employeeId,
+                DateOnly.FromDateTime(log.PunchTime.Date),
+                "MOBILE_PUNCH");
+
             await _refreshService
                 .NotifyAttendanceChangedAsync(
                     employeeId,

@@ -62,13 +62,23 @@ public sealed class LocationHistoryService
         var localDate =
             DateTime.SpecifyKind(
                 date.Date,
-                DateTimeKind.Local);
+                DateTimeKind.Unspecified);
+
+        var indiaTimeZone =
+            TimeZoneInfo.FindSystemTimeZoneById(
+                OperatingSystem.IsWindows()
+                    ? "India Standard Time"
+                    : "Asia/Kolkata");
 
         var start =
-            localDate.ToUniversalTime();
+            TimeZoneInfo.ConvertTimeToUtc(
+                localDate,
+                indiaTimeZone);
 
         var end =
-            localDate.AddDays(1).ToUniversalTime();
+            TimeZoneInfo.ConvertTimeToUtc(
+                localDate.AddDays(1),
+                indiaTimeZone);
 
         await using var db =
             await _dbFactory.CreateDbContextAsync();
