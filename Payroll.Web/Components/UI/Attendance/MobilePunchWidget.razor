@@ -484,6 +484,7 @@
     private bool isWithinRadius;
     private bool mapNeedsUpdate;
     private bool mapReady;
+    private bool mapRetryScheduled;
     private bool locationSettingsLoaded;
     private bool automaticTrackingCompleted;
     private bool automaticTrackingStarting;
@@ -558,7 +559,7 @@
 
         try
         {
-            await JSRuntime.InvokeVoidAsync(
+            var mapUpdated = await JSRuntime.InvokeAsync<bool>(
                 "updateGeoMap",
                 mapId,
                 officeLatitude,
@@ -568,19 +569,54 @@
                 radius,
                 isWithinRadius);
 
-            mapReady = true;
+            mapReady = mapUpdated;
+            mapNeedsUpdate = !mapUpdated;
+
+            if (!mapUpdated)
+                ScheduleMapRetry();
         }
         catch (Exception ex)
         {
             mapNeedsUpdate = true;
             mapReady = false;
             Console.Error.WriteLine($"Map update failed: {ex}");
+            ScheduleMapRetry();
         }
 
         if (mapReady)
         {
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private void ScheduleMapRetry()
+    {
+        if (mapRetryScheduled)
+            return;
+
+        mapRetryScheduled = true;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(2000, automaticLocationCts.Token);
+
+                if (hasLocation && !mapReady)
+                    await InvokeAsync(StateHasChanged);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Map retry failed: {ex}");
+            }
+            finally
+            {
+                mapRetryScheduled = false;
+            }
+        });
     }
 
     private async Task EnsureAutomaticTrackingAsync()

@@ -1427,7 +1427,7 @@ window.loadPayrollLeaflet =
                         css.rel = 'stylesheet';
 
                         css.href =
-                            'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+                            'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
 
                         css.dataset.payrollLeaflet =
                             '1';
@@ -1443,7 +1443,7 @@ window.loadPayrollLeaflet =
                         );
 
                     script.src =
-                        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                        'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
 
                     script.onload =
                         function () {
@@ -1452,6 +1452,7 @@ window.loadPayrollLeaflet =
 
                     script.onerror =
                         function () {
+                            window.payrollLeafletPromise = null;
                             reject(
                                 new Error(
                                     'Unable to load map library.'
@@ -1505,7 +1506,7 @@ window.updateGeoMap = async function (
             "Employee geo map: invalid coordinates."
         );
 
-        return;
+        return false;
     }
 
     // --------------------------------------------------------
@@ -1521,7 +1522,7 @@ window.updateGeoMap = async function (
             mapId
         );
 
-        return;
+        return false;
     }
 
     try {
@@ -1915,6 +1916,8 @@ window.updateGeoMap = async function (
             700
         );
 
+        return true;
+
     }
     catch (error) {
 
@@ -1923,6 +1926,7 @@ window.updateGeoMap = async function (
             error
         );
 
+        return false;
     }
 };
 
