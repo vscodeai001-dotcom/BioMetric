@@ -1,28 +1,13 @@
 ﻿@using global::Payroll.Web.Components.Pages.Attendance
 @using global::Payroll.Web.Models
-@using Microsoft.JSInterop
-@inject IJSRuntime JSRuntime
 
 <style>
     .raw-punches-cell {
         width: 18rem;
         max-width: 18rem;
         padding: .25rem !important;
-    }
-
-    .raw-punches-scroll {
-        max-width: 100%;
-        overflow-x: auto;
-        white-space: nowrap;
-        scrollbar-width: thin;
-        cursor: ew-resize;
-    }
-
-    .raw-punches-scroll:focus,
-    .raw-punches-scroll:hover {
-        outline: 1px solid rgba(13, 110, 253, .35);
-        outline-offset: 1px;
-        scroll-behavior: smooth;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 </style>
 
@@ -36,7 +21,7 @@ else if (Logs == null || !Logs.Any())
 }
 else
 {
-    <div class="table-responsive attendance-horizontal-scroll">
+    <div class="table-responsive">
         <table class="table table-sm table-striped table-bordered mt-3"
                style="font-size: 0.85em; white-space: nowrap;">
 
@@ -138,7 +123,14 @@ else
                                         }
                             else
                             {
-                                <span>-</span>
+                                @if (record.ScheduledShiftDuration > TimeSpan.Zero)
+                                {
+                                    <span>@FormatTimeSpan(record.ScheduledShiftDuration)</span>
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
                             }
                         </td>
 
@@ -232,10 +224,8 @@ else
                            RAW PUNCHES
                            ------------------------------------------------ *@
                 <td class="small text-muted raw-punches-cell"
-                    title="Use the horizontal scrollbar to view all punches">
-                    <div class="raw-punches-scroll" tabindex="0">
-                        @record.Punches
-                    </div>
+                    title="@record.Punches">
+                    @record.Punches
                 </td>
 
                 @* ------------------------------------------------
@@ -266,15 +256,6 @@ else
 
     [Parameter]
     public EventCallback<AttendanceLogDto> OnCorrect { get; set; }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            await JSRuntime.InvokeVoidAsync(
-                "enableAttendanceTableEdgeScroll");
-        }
-    }
 
     private bool CanCorrect(string status) =>
         status == "Absent" ||

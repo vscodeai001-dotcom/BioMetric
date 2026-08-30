@@ -298,7 +298,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
 
             _logger.LogInformation(
-                "EMPLOYEE LOGIN ATTEMPT. UserId={UserId}, ForceLogout={ForceLogout}",
+                "LOGIN ATTEMPT. UserId={UserId}, ForceLogout={ForceLogout}",
                 user.Id,
                 ForceLogoutExisting);
 
