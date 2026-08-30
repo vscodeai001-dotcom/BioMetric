@@ -576,6 +576,23 @@
                     error
                 );
 
+                // Some older Blazor circuits cannot bind the optional
+                // event payload. Retry the same callback without it so a
+                // realtime refresh is not lost.
+                if (typeof data !== "undefined") {
+                    try {
+                        await listener.invokeMethodAsync(
+                            methodName
+                        );
+                    }
+                    catch (fallbackError) {
+                        console.warn(
+                            "Attendance refresh fallback failed:",
+                            fallbackError
+                        );
+                    }
+                }
+
             }
         }
     }

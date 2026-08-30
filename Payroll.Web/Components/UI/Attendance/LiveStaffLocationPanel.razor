@@ -2226,6 +2226,7 @@
                 // lightweight in-process sync also recovers an event missed
                 // while the admin circuit or connection was starting.
                 await RefreshLocations();
+                await RefreshSelectedEmployeePunchAuditsSilently();
 
                 /*
                  * Existing history playback functionality.
