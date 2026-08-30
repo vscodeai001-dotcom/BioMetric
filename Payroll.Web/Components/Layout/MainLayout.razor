@@ -154,8 +154,12 @@
             if (string.IsNullOrWhiteSpace(savedTheme))
             {
                 savedTheme = await JSRuntime.InvokeAsync<string>(
-                    "themeInterop.applySavedTheme");
+                    "themeInterop.loadTheme");
             }
+
+            await JSRuntime.InvokeVoidAsync(
+                "themeInterop.setThemeOnBody",
+                savedTheme);
 
             Theme.SetTheme(savedTheme);
 
