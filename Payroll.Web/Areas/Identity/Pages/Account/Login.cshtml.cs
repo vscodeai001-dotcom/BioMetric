@@ -294,7 +294,13 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             // ========================================================
 
             var deviceId =
-                Guid.NewGuid().ToString("N");
+                GetCurrentDeviceId();
+
+            if (string.IsNullOrWhiteSpace(deviceId) ||
+                !await CurrentDeviceOwnsLockAsync(user.Id, deviceId))
+            {
+                deviceId = Guid.NewGuid().ToString("N");
+            }
 
 
             _logger.LogInformation(
@@ -493,6 +499,33 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             return LocalRedirect("/employee-home");
         }
 
+
+        private string? GetCurrentDeviceId()
+        {
+            if (Request.Cookies.TryGetValue(
+                    DeviceCookieName,
+                    out var deviceId) &&
+                !string.IsNullOrWhiteSpace(deviceId))
+            {
+                return deviceId.Trim();
+            }
+
+            return null;
+        }
+
+        private async Task<bool> CurrentDeviceOwnsLockAsync(
+            string userId,
+            string deviceId)
+        {
+            await using var db =
+                await _dbFactory.CreateDbContextAsync();
+
+            return await db.EmployeeDeviceLocks
+                .AsNoTracking()
+                .AnyAsync(lockRecord =>
+                    lockRecord.UserId == userId &&
+                    lockRecord.DeviceId == deviceId);
+        }
 
         private async Task NotifyBlockedLoginAsync(
             IdentityUser user,
