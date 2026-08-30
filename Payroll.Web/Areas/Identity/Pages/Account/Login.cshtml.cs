@@ -296,11 +296,16 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             var deviceId =
                 GetCurrentDeviceId();
 
-            if (string.IsNullOrWhiteSpace(deviceId) ||
-                !await CurrentDeviceOwnsLockAsync(user.Id, deviceId))
+            var currentDeviceOwnsSession =
+                !string.IsNullOrWhiteSpace(deviceId) &&
+                await CurrentDeviceOwnsLockAsync(user.Id, deviceId);
+
+            if (!currentDeviceOwnsSession)
             {
                 deviceId = Guid.NewGuid().ToString("N");
             }
+
+            deviceId ??= Guid.NewGuid().ToString("N");
 
 
             _logger.LogInformation(
@@ -313,7 +318,8 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             // NORMAL LOGIN
             // ========================================================
 
-            if (!ForceLogoutExisting)
+            if (!ForceLogoutExisting &&
+                !currentDeviceOwnsSession)
             {
                 var lockResult =
                     await TryAcquireEmployeeLockAsync(
