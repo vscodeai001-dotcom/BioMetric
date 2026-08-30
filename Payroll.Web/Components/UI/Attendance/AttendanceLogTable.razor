@@ -1,5 +1,7 @@
 ﻿@using global::Payroll.Web.Components.Pages.Attendance
 @using global::Payroll.Web.Models
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
 
 <style>
     .raw-punches-cell {
@@ -34,7 +36,7 @@ else if (Logs == null || !Logs.Any())
 }
 else
 {
-    <div class="table-responsive">
+    <div class="table-responsive attendance-horizontal-scroll">
         <table class="table table-sm table-striped table-bordered mt-3"
                style="font-size: 0.85em; white-space: nowrap;">
 
@@ -264,6 +266,15 @@ else
 
     [Parameter]
     public EventCallback<AttendanceLogDto> OnCorrect { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "enableAttendanceTableEdgeScroll");
+        }
+    }
 
     private bool CanCorrect(string status) =>
         status == "Absent" ||
