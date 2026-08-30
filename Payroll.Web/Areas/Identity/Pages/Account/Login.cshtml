@@ -21,14 +21,15 @@
                     </div>
 
                     <div class="form-floating mb-3">
-                        <input asp-for="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="Password" />
+                        <input asp-for="Input.Password" type="password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="Password" />
                         <label asp-for="Input.Password">Password</label>
                         <span asp-validation-for="Input.Password" class="text-danger"></span>
                     </div>
 
                     <div class="form-check mb-3">
-                        <input asp-for="Input.RememberMe" class="form-check-input" />
-                        <label asp-for="Input.RememberMe" class="form-check-label"></label>
+                        <input type="hidden" name="Input.RememberMe" value="false" />
+                        <input id="rememberMe" name="Input.RememberMe" type="checkbox" class="form-check-input" value="true" checked="@(Model.Input.RememberMe ? "checked" : null)" />
+                        <label for="rememberMe" class="form-check-label">Remember me</label>
                     </div>
 
                     @if (Model.ShowForceLogout)
@@ -49,6 +50,3 @@
     </div>
 </div>
 
-@section Scripts {
-    <partial name="_ValidationScriptsPartial" />
-}
