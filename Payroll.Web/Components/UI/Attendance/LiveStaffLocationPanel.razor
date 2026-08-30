@@ -365,9 +365,21 @@
                     <small class="text-muted">GPS validation and attendance punch audit</small>
                 </div>
                 <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <button type="button" class="btn btn-outline-primary btn-sm"
+                            title="Previous day" aria-label="Previous day"
+                            @onclick="() => ChangeAuditDateByDays(-1)"
+                            disabled="@punchAuditLoading">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
                     <input type="date" class="form-control form-control-sm history-date-input"
                            value="@punchAuditDate.ToString("yyyy-MM-dd")"
                            @onchange="ChangePunchAuditDate" />
+                    <button type="button" class="btn btn-outline-primary btn-sm"
+                            title="Next day" aria-label="Next day"
+                            @onclick="() => ChangeAuditDateByDays(1)"
+                            disabled="@punchAuditLoading">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
                     <button type="button" class="btn btn-outline-primary btn-sm"
                             @onclick="LoadSelectedEmployeePunchAudits"
                             disabled="@punchAuditLoading">
@@ -509,11 +521,26 @@
                 </div>
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm"
+                            title="Previous day" aria-label="Previous day"
+                            @onclick="() => ChangeHistoryDateByDays(-1)"
+                            disabled="@historyLoading">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
 
                     <input type="date"
                            class="form-control form-control-sm history-date-input"
                            value="@historyDate.ToString("yyyy-MM-dd")"
                            @onchange="ChangeHistoryDate" />
+
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm"
+                            title="Next day" aria-label="Next day"
+                            @onclick="() => ChangeHistoryDateByDays(1)"
+                            disabled="@historyLoading">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
 
                     <button type="button"
                             class="btn btn-outline-primary btn-sm"
@@ -2036,7 +2063,7 @@
     }
 
     [JSInvokable]
-    public async Task AttendanceChanged()
+    public async Task AttendanceChanged(object? data = null)
     {
         if (disposed)
             return;
@@ -2607,6 +2634,15 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    private async Task ChangeAuditDateByDays(int days)
+    {
+        await ChangePunchAuditDate(
+            new ChangeEventArgs
+            {
+                Value = punchAuditDate.Date.AddDays(days).ToString("yyyy-MM-dd")
+            });
+    }
+
     private async Task ChangeHistoryDate(ChangeEventArgs e)
     {
         if (!DateTime.TryParse(e.Value?.ToString(), out var date)) return;
@@ -2620,6 +2656,15 @@
         await LoadSelectedEmployeePunchAudits();
         mapNeedsUpdate = true;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ChangeHistoryDateByDays(int days)
+    {
+        await ChangeHistoryDate(
+            new ChangeEventArgs
+            {
+                Value = historyDate.Date.AddDays(days).ToString("yyyy-MM-dd")
+            });
     }
 
     private void OpenPunchAudit(GeoPunchAudit audit) => selectedPunchAudit = audit;

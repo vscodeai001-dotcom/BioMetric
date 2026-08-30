@@ -69,7 +69,7 @@
     // ============================================================
 
     [JSInvokable]
-    public async Task AttendanceChanged()
+    public async Task AttendanceChanged(object? data = null)
     {
         if (_disposed)
             return;
@@ -124,7 +124,7 @@
     // ============================================================
 
     [JSInvokable]
-    public async Task RegularizationChanged()
+    public async Task RegularizationChanged(object? data = null)
     {
         if (_disposed)
             return;

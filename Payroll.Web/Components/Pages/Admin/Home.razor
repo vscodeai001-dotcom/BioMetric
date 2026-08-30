@@ -25,8 +25,8 @@
         background: linear-gradient(135deg,#1e3c72 0%,#2a5298 100%);
         color: white;
         border-radius: 12px;
-        padding: 2rem;
-        margin-bottom: 2rem;
+        padding: 1rem 1.5rem;
+        margin-bottom: 1rem;
         box-shadow: 0 4px 20px rgba(30,60,114,.2);
         position: relative;
         overflow: hidden
@@ -42,22 +42,6 @@
             background: rgba(255,255,255,.1);
             border-radius: 50%
         }
-
-    .dashboard-refresh-btn {
-        min-width: 135px;
-        transition: all .2s ease
-    }
-
-        .dashboard-refresh-btn:disabled {
-            opacity: .85;
-            cursor: not-allowed
-        }
-
-    .dashboard-refresh-spinner {
-        width: .9rem;
-        height: .9rem;
-        border-width: 2px
-    }
 
     .kpi-card {
         background: white;
@@ -173,11 +157,6 @@ else
             <div>
                 <h2 class="fw-bold mb-1">Dashboard Overview</h2>
                 <p class="mb-0 opacity-75">Real-time insights for @DateTime.Now.ToString("dddd, dd MMMM yyyy")</p>
-            </div>
-            <div class="d-none d-md-block">
-                <button type="button" class="btn btn-light text-primary fw-bold shadow-sm dashboard-refresh-btn" onclick="window.location.reload();">
-                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh Data
-                </button>
             </div>
         </div>
 
