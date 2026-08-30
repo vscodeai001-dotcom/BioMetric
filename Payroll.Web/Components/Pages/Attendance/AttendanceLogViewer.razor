@@ -662,6 +662,9 @@
                                 (decimal)
                                 overtime.TotalHours;
 
+                            var isWeeklyOffWorked =
+                                ds.Status == "Weekly Off (Worked)";
+
                             // ------------------------------------------------
                             // PENALTY BREAKDOWN
                             // ------------------------------------------------
@@ -696,13 +699,15 @@
                                         ds.Status,
 
                                     ShiftStart =
-                                        sStart,
+                                        isWeeklyOffWorked ? null : sStart,
 
                                     ShiftEnd =
-                                        sEnd,
+                                        isWeeklyOffWorked ? null : sEnd,
 
                                     ScheduledShiftDuration =
-                                        ds.ScheduledShiftDuration,
+                                        isWeeklyOffWorked
+                                            ? TimeSpan.Zero
+                                            : ds.ScheduledShiftDuration,
 
                                     TotalPenalty =
                                         ds.TotalPenaltyDuration,
@@ -721,10 +726,14 @@
 
                                     ShiftWorkedDuration =
                                         TimeSpan.FromHours(
-                                              (double)standardHours),
+                                              isWeeklyOffWorked
+                                                  ? 0
+                                                  : (double)standardHours),
 
                                     FinalWorkedHours =
-                                        finalWorkedHours
+                                        isWeeklyOffWorked
+                                            ? (decimal)overtime.TotalHours
+                                            : finalWorkedHours
                                 };
 
                             // ------------------------------------------------

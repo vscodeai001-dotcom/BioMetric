@@ -292,8 +292,13 @@ else
 
             foreach (var ds in loadedSummaries)
             {
-                decimal workedHours = ds.EarnedStandardHours + (decimal)ds.TotalOvertimeDuration.TotalHours;
-                cumulative.TotalScheduledHours += ds.ScheduledShiftDuration;
+                var isWeeklyOffWorked = ds.Status == "Weekly Off (Worked)";
+                decimal workedHours = isWeeklyOffWorked
+                    ? (decimal)ds.TotalOvertimeDuration.TotalHours
+                    : ds.EarnedStandardHours + (decimal)ds.TotalOvertimeDuration.TotalHours;
+                cumulative.TotalScheduledHours += isWeeklyOffWorked
+                    ? TimeSpan.Zero
+                    : ds.ScheduledShiftDuration;
                 cumulative.TotalWorkedHours += workedHours;
                 cumulative.TotalOverallPenalty += ds.TotalPenaltyDuration;
                 cumulative.TotalOvertime += ds.TotalOvertimeDuration;
@@ -306,7 +311,9 @@ else
                 {
                     Date = ds.ShiftDate,
                     Status = ds.Status,
-                    ScheduledShiftDuration = ds.ScheduledShiftDuration,
+                    ScheduledShiftDuration = isWeeklyOffWorked
+                        ? TimeSpan.Zero
+                        : ds.ScheduledShiftDuration,
                     TotalPenalty = ds.TotalPenaltyDuration,
                     OvertimeDuration = ds.TotalOvertimeDuration,
                     FinalWorkedHours = workedHours,
