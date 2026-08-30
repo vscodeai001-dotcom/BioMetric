@@ -74,7 +74,7 @@
 
     .employee-dashboard-layout {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         gap: 1rem;
         align-items: start;
     }
@@ -93,18 +93,6 @@
         grid-column: 1;
     }
 
-    @@media (max-width: 991.98px) {
-        .employee-dashboard-layout {
-            grid-template-columns: 1fr;
-        }
-
-        .employee-dashboard-summary,
-        .employee-dashboard-quick,
-        .employee-dashboard-applications {
-            grid-column: 1;
-            grid-row: auto;
-        }
-    }
 </style>
 
 <AuthorizeView>
