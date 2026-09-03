@@ -121,6 +121,19 @@
             return;
         }
 
+        /*
+         * ============================================================
+         * AUTO-RESTART GPS WATCHER
+         * ============================================================
+         *
+         * If the component is created but the GPS watcher hasn't
+         * started, begin the startup process.
+         *
+         * This handles:
+         * 1. Initial page load
+         * 2. Circuit reconnect
+         * 3. Page navigation that recreates the component
+         */
         await StartTracking();
     }
 

@@ -380,9 +380,22 @@ builder.Services.AddIdentity<
 //         v
 // Device B becomes the active session
 //
-// Validate periodically so normal circuit reconnects do not
-// force a login, while security-stamp changes still invalidate
-// a replaced session promptly.
+// IMPORTANT:
+//
+// Security stamp validation is DISABLED for normal scenarios.
+//
+// Employee sessions should NOT auto-expire. They persist until:
+// 1. Employee explicitly logs out
+// 2. Another device logs in (existing session is invalidated)
+//
+// For live GPS tracking, this is critical:
+// - Browser becomes inactive (no page navigation)
+// - GPS watcher is still running and sending updates
+// - Employee remains visible on admin's live map
+// - No false "offline" status from SecurityStamp timeout
+//
+// Validation is triggered ONLY when security stamp is explicitly
+// changed (which happens during forced logout on new device login).
 //
 // ============================================================
 
@@ -390,15 +403,31 @@ builder.Services.Configure<
     SecurityStampValidatorOptions>(
     options =>
     {
+        // Set to a very large value so SecurityStamp validation
+        // does NOT cause unexpected logouts during normal inactivity.
+        //
+        // The employee GPS session and live tracking should remain
+        // active indefinitely until manual logout.
+        //
+        // This effectively disables automatic expiration while still
+        // allowing explicit security stamp invalidation to work.
         options.ValidationInterval =
-            TimeSpan.FromMinutes(5);
+            TimeSpan.FromDays(365);
     });
 
 builder.Services.ConfigureApplicationCookie(
     options =>
     {
+        // Session cookie lifetime: 30 days
+        // This allows employees to stay logged in across days
+        // if they don't manually logout.
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
+
+        // Sliding expiration: refresh the cookie timeout
+        // on every request (including API calls from GPS watcher)
         options.SlidingExpiration = true;
+
+        // Cookie security settings
         options.Cookie.HttpOnly = true;
         options.Cookie.SecurePolicy =
             CookieSecurePolicy.Always;

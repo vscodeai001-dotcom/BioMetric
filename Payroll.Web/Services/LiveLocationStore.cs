@@ -9,6 +9,34 @@ public static class LiveLocationStore
     public const int LiveTimeoutSeconds = 30;
     public const int StaleTimeoutSeconds = 120;
 
+    /*
+     * ============================================================
+     * GPS SESSION STATUS DEFINITION
+     * ============================================================
+     *
+     * LIVE (0-30 sec):
+     * - GPS update received within last 30 seconds
+     * - Real-time movement data available
+     *
+     * STALE (30-120 sec):
+     * - No GPS update for 30-120 seconds
+     * - GPS watcher may be paused or network delayed
+     * - Last known location is current
+     *
+     * OFFLINE (120+ sec):
+     * - No GPS update for 120+ seconds
+     * - GPS session may have been closed
+     * - Location data should NOT be displayed
+     *
+     * IMPORTANT:
+     * In-memory store only tracks the last UPDATE time.
+     * The database tracks session lifecycle (EndedAtUtc).
+     * Admins checking if employee is online should check:
+     * 1. Is there a live location in memory? (not older than 2 min)
+     * 2. Is the GPS session still active in database? (EndedAtUtc is null)
+     * ============================================================
+     */
+
     public static bool Update(
         int employeeId,
         double latitude,

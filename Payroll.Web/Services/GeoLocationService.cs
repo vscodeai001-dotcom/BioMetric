@@ -448,6 +448,24 @@ public class GeoLocationService
     // ================================================================
     // MARK SESSION TIMED OUT
     // ================================================================
+    //
+    // IMPORTANT SESSION TIMEOUT POLICY:
+    //
+    // GPS sessions should ONLY timeout after VERY long inactivity.
+    //
+    // Reasons:
+    // 1. Employee may have GPS disabled but still be logged in
+    // 2. Network interruptions are temporary
+    // 3. GPS watcher may be paused by browser power management
+    // 4. Employee is still working even without GPS updates
+    //
+    // Only mark a session as timed-out if:
+    // - No GPS update for 30 minutes (1800 seconds)
+    // - Session is still marked as active in database
+    //
+    // This allows the admin to manually log out an employee
+    // or for a new login to invalidate the old session.
+    // ================================================================
 
     public async Task MarkTimedOutSessionsAsync()
     {
@@ -456,9 +474,9 @@ public class GeoLocationService
             await using var db =
                 await _dbFactory.CreateDbContextAsync();
 
+            // Only timeout sessions with NO updates for 30 minutes
             var timeoutBefore =
-                DateTime.UtcNow.AddSeconds(
-                    -LiveLocationStore.StaleTimeoutSeconds);
+                DateTime.UtcNow.AddSeconds(-1800);
 
             var sessions = await db.EmployeeGpsSessions
                 .Where(x =>
@@ -475,6 +493,14 @@ public class GeoLocationService
             {
                 session.EndedAtUtc = now;
                 session.EndReason = "TIMED_OUT";
+
+                _logger.LogInformation(
+                    "GPS session timed out. EmployeeId={EmployeeId}, SessionId={SessionId}, " +
+                    "LastUpdate={LastUpdate}, Age={Age} minutes",
+                    session.EmployeeId,
+                    session.SessionId,
+                    session.LastUpdateAtUtc,
+                    (int)(now - session.LastUpdateAtUtc).TotalMinutes);
             }
 
             await db.SaveChangesAsync();
