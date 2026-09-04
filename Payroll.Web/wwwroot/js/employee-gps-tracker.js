@@ -261,6 +261,13 @@ window.EmployeeGpsTracker = (function () {
 
             const coords = position.coords;
 
+            // Store last location for forced updates
+            lastLocationData = {
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                accuracy: coords.accuracy
+            };
+
             console.log(
                 'GPS Update: ' +
                 'Lat=' + coords.latitude.toFixed(6) + ', ' +
