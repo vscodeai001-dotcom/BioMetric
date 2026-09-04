@@ -219,37 +219,101 @@ public class GpsSessionCleanupService : BackgroundService
             var timeoutBefore =
                 DateTime.UtcNow.AddSeconds(-NoUpdateTimeoutSeconds);
 
-            var sessionsToTimeout = await db.EmployeeGpsSessions
+            // ================================================================
+            // IMPORTANT FIX: Only timeout sessions if employee is NOT logged in
+            // ================================================================
+            // If employee is still logged in (has device lock), the session
+            // should remain ACTIVE even if no GPS updates received.
+            // This prevents false OFFLINE status for actively logged-in employees.
+            //
+            // Only mark as TIMED_OUT if:
+            // 1. No GPS updates for 30+ minutes AND
+            // 2. Employee is NOT logged in (device lock removed)
+            // ================================================================
+
+            var inactiveSessions = await db.EmployeeGpsSessions
                 .Where(s =>
                     s.EndedAtUtc == null &&
                     s.LastUpdateAtUtc <= timeoutBefore)
                 .ToListAsync(stoppingToken);
 
-            if (sessionsToTimeout.Count == 0)
+            if (inactiveSessions.Count == 0)
                 return;
 
+            // Get employee IDs from inactive sessions
+            var employeeIds = inactiveSessions
+                .Select(s => s.EmployeeId)
+                .Distinct()
+                .ToList();
+
+            // Get all employees and their AspNetUserIds
+            var employees = await db.Employees
+                .AsNoTracking()
+                .Where(e => employeeIds.Contains(e.EmployeeID))
+                .Select(e => new { e.EmployeeID, e.AspNetUserId })
+                .ToListAsync(stoppingToken);
+
+            // Get all UserIds with active device locks
+            var userIdsWithLocks = await db.EmployeeDeviceLocks
+                .AsNoTracking()
+                .Select(d => d.UserId)
+                .Distinct()
+                .ToListAsync(stoppingToken);
+
+            var sessionsToTimeout = new List<EmployeeGpsSession>();
             var now = DateTime.UtcNow;
 
-            foreach (var session in sessionsToTimeout)
+            // Check each inactive session
+            foreach (var session in inactiveSessions)
             {
-                session.EndedAtUtc = now;
-                session.EndReason = "TIMED_OUT";
+                // Find the employee's AspNetUserId
+                var employee = employees.FirstOrDefault(e => e.EmployeeID == session.EmployeeId);
 
-                _logger.LogInformation(
-                    "Marking GPS session as timed out. " +
-                    "EmployeeId={EmployeeId}, SessionId={SessionId}, " +
-                    "LastUpdate={LastUpdate}, Age={Age} minutes",
-                    session.EmployeeId,
-                    session.SessionId,
-                    session.LastUpdateAtUtc,
-                    (int)(now - session.LastUpdateAtUtc).TotalMinutes);
+                if (employee?.AspNetUserId == null)
+                    continue;
+
+                // Check if this employee has a device lock
+                var hasDeviceLock = userIdsWithLocks.Contains(employee.AspNetUserId);
+
+                // ONLY timeout if employee is NOT logged in
+                if (!hasDeviceLock)
+                {
+                    session.EndedAtUtc = now;
+                    session.EndReason = "TIMED_OUT";
+
+                    sessionsToTimeout.Add(session);
+
+                    _logger.LogInformation(
+                        "Marking GPS session as timed out (not logged in). " +
+                        "EmployeeId={EmployeeId}, SessionId={SessionId}, " +
+                        "LastUpdate={LastUpdate}, Age={Age} minutes",
+                        session.EmployeeId,
+                        session.SessionId,
+                        session.LastUpdateAtUtc,
+                        (int)(now - session.LastUpdateAtUtc).TotalMinutes);
+                }
+                else
+                {
+                    // Employee is still logged in - KEEP session active
+                    _logger.LogInformation(
+                        "Keeping GPS session ACTIVE (employee still logged in). " +
+                        "EmployeeId={EmployeeId}, SessionId={SessionId}, " +
+                        "LastUpdate={LastUpdate}, Age={Age} minutes",
+                        session.EmployeeId,
+                        session.SessionId,
+                        session.LastUpdateAtUtc,
+                        (int)(now - session.LastUpdateAtUtc).TotalMinutes);
+                }
             }
 
-            await db.SaveChangesAsync(stoppingToken);
+            if (sessionsToTimeout.Count > 0)
+            {
+                await db.SaveChangesAsync(stoppingToken);
 
-            _logger.LogInformation(
-                "Marked {Count} GPS sessions as timed out",
-                sessionsToTimeout.Count);
+                _logger.LogInformation(
+                    "Marked {Count} GPS sessions as timed out",
+                    sessionsToTimeout.Count);
+            }
         }
         catch (Exception ex)
         {
