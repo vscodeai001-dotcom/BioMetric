@@ -1,4 +1,5 @@
 using Payroll.AttendanceService;
+using Payroll.AttendanceService.Services;
 using Payroll.Shared.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -21,8 +22,9 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(connectionString), ServiceLifetime.Transient);
 
-        // 5. Register the actual Worker Logic
+        // 5. Register Background Services
         services.AddHostedService<Worker>();
+        services.AddHostedService<GpsSessionCleanupService>();
     })
     .Build();
 
