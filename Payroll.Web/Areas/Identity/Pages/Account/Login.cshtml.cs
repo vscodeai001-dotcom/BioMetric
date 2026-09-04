@@ -57,6 +57,9 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         private readonly NotificationService
             _notificationService;
 
+        private readonly GeoLocationService
+            _geoLocationService;
+
 
         // ============================================================
         // CONSTRUCTOR
@@ -67,13 +70,15 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             UserManager<IdentityUser> userManager,
             IDbContextFactory<AppDbContext> dbFactory,
             ILogger<LoginModel> logger,
-            NotificationService notificationService)
+            NotificationService notificationService,
+            GeoLocationService geoLocationService)
         {
             _signInManager = signInManager;
             _userManager = userManager;
             _dbFactory = dbFactory;
             _logger = logger;
             _notificationService = notificationService;
+            _geoLocationService = geoLocationService;
         }
 
 
@@ -597,6 +602,49 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             if (!replaced)
                 return false;
+
+            // ============================================================
+            // END GPS SESSION FOR FORCE LOGOUT
+            // ============================================================
+            //
+            // When forcing logout, we need to:
+            // 1. End any active GPS session in the database
+            // 2. Remove it from the in-memory live location store
+            // 3. This ensures the admin dashboard immediately shows offline
+            // ============================================================
+
+            try
+            {
+                var activeSession = await _geoLocationService
+                    .GetActiveGpsSessionAsync(
+                        int.Parse(user.Id));
+
+                if (activeSession != null && activeSession.SessionId != Guid.Empty)
+                {
+                    await _geoLocationService.EndGpsSessionAsync(
+                        activeSession.EmployeeId,
+                        activeSession.SessionId,
+                        "FORCE_LOGGED_OUT");
+
+                    LiveLocationStore.Remove(
+                        activeSession.EmployeeId,
+                        activeSession.SessionId);
+
+                    _logger.LogInformation(
+                        "GPS session ended for force logout. UserId={UserId}, SessionId={SessionId}",
+                        user.Id,
+                        activeSession.SessionId);
+                }
+            }
+            catch (Exception gpsEx)
+            {
+                _logger.LogWarning(
+                    gpsEx,
+                    "Failed to end GPS session during force logout. UserId={UserId}",
+                    user.Id);
+
+                // GPS cleanup failure should not block session replacement
+            }
 
             var stampResult = await _userManager.UpdateSecurityStampAsync(user);
             if (stampResult.Succeeded)
