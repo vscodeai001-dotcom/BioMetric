@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Payroll.Web.Services;
+using Payroll.Web.Hubs;
 
 namespace Payroll.Web.Controllers;
 
@@ -24,13 +26,16 @@ namespace Payroll.Web.Controllers;
 public sealed class EmployeeLocationController : ControllerBase
 {
     private readonly GeoLocationService _geoLocationService;
+    private readonly IHubContext<AttendanceRefreshHub> _attendanceHub;
     private readonly ILogger<EmployeeLocationController> _logger;
 
     public EmployeeLocationController(
         GeoLocationService geoLocationService,
+        IHubContext<AttendanceRefreshHub> attendanceHub,
         ILogger<EmployeeLocationController> logger)
     {
         _geoLocationService = geoLocationService;
+        _attendanceHub = attendanceHub;
         _logger = logger;
     }
 
@@ -43,7 +48,8 @@ public sealed class EmployeeLocationController : ControllerBase
     /// 3. Browser has lost connection to server
     /// 4. Tab is inactive (background tracking)
     /// 
-    /// The endpoint updates the in-memory location store and database session.
+    /// The endpoint updates the in-memory location store and database session,
+    /// then broadcasts the update via SignalR so admin dashboards refresh immediately.
     /// </summary>
     [HttpPost("update")]
     public async Task<IActionResult> UpdateLocation(
@@ -169,15 +175,8 @@ public sealed class EmployeeLocationController : ControllerBase
             }
 
             // ============================================================
-            // SAVE LOCATION HISTORY (Optional - less frequent than updates)
+            // SAVE LOCATION HISTORY
             // ============================================================
-
-            // Note: You may want to throttle this to every 10-30 seconds
-            // to avoid excessive database writes. The JavaScript GPS tracker
-            // already sends updates every 5 seconds minimum, but the
-            // Blazor component only saves history every 10 seconds.
-            
-            // For now, we'll save on every API call. Adjust as needed.
 
             try
             {
@@ -200,6 +199,42 @@ public sealed class EmployeeLocationController : ControllerBase
                     request.EmployeeId);
 
                 // Continue anyway - session update succeeded
+            }
+
+            // ============================================================
+            // BROADCAST LOCATION UPDATE VIA SIGNALR
+            // ============================================================
+            // This ensures admin dashboards refresh immediately when
+            // GPS updates arrive via HTTP API (not just Blazor JSInterop)
+            // ============================================================
+
+            try
+            {
+                await _attendanceHub.Clients.All.SendAsync(
+                    "LocationChanged",
+                    new
+                    {
+                        EmployeeId = request.EmployeeId,
+                        Latitude = request.Latitude,
+                        Longitude = request.Longitude,
+                        AccuracyMeters = accuracy,
+                        DistanceMeters = distanceResult.DistanceMeters,
+                        AllowedRadiusMeters = distanceResult.AllowedRadiusMeters,
+                        IsWithinAllowedRadius = distanceResult.IsWithinAllowedRadius,
+                        SessionId = sessionId,
+                        LastUpdatedUtc = DateTime.UtcNow,
+                        Source = "HttpAPI"
+                    });
+            }
+            catch (Exception signalREx)
+            {
+                _logger.LogWarning(
+                    signalREx,
+                    "Failed to broadcast GPS location via SignalR. " +
+                    "EmployeeId={EmployeeId}",
+                    request.EmployeeId);
+
+                // Continue anyway - location is still updated
             }
 
             _logger.LogInformation(
