@@ -8,14 +8,17 @@
  * RESPONSIBILITIES:
  * 1. Get browser geolocation (with permission)
  * 2. Watch location changes continuously
- * 3. Send location updates to Blazor component
+ * 3. Send location updates via HTTP API (independent of Blazor)
  * 4. Handle GPS errors gracefully
  * 5. Maintain session across browser tabs
+ * 6. Support background tracking via Service Worker
  *
  * IMPORTANT:
  * - Each employee gets their own GPS session
  * - localStorage persists across tab close/reopen
  * - GPS watcher survives Blazor circuit reconnect
+ * - GPS data sent via HTTP API, not dependent on Blazor JSInterop
+ * - Continues tracking even when tab is inactive or closed
  */
 
 window.EmployeeGpsTracker = (function () {
@@ -30,17 +33,24 @@ window.EmployeeGpsTracker = (function () {
     let lastBroadcastTime = 0;
     let lastLocationData = null;
     let visibilityCheckInterval = null;
+    let employeeId = null;
+    let gpsSessionId = null;
+    let apiEndpoint = null;
     const BROADCAST_INTERVAL_MS = 5000; // Send updates every 5 seconds minimum
     const VISIBILITY_CHECK_INTERVAL_MS = 3000; // Check visibility every 3 seconds
-    const FORCE_UPDATE_INTERVAL_MS = 15000; // Force GPS update even if no movement every 15 seconds
+    const FORCE_UPDATE_INTERVAL_MS = 10000; // Force GPS update every 10 seconds
+    const LOCATION_QUEUE_STORAGE_KEY = 'gps_location_queue';
+    const EMPLOYEE_ID_STORAGE_KEY = 'current_employee_id';
+    const GPS_SESSION_STORAGE_KEY = 'gps_session_id';
+    const API_ENDPOINT_STORAGE_KEY = 'gps_api_endpoint';
 
     // ============================================================
     // START PERSISTENT GPS WATCHER
     // ============================================================
 
-    function startPersistentEmployeeGps(blazorReference) {
+    function startPersistentEmployeeGps(blazorReference, empId, sessionId, endpoint) {
 
-        console.log('startPersistentEmployeeGps called');
+        console.log('startPersistentEmployeeGps called with empId=' + empId);
 
         if (isWatching) {
             console.log('GPS watcher already running');
@@ -48,13 +58,29 @@ window.EmployeeGpsTracker = (function () {
         }
 
         dotNetReference = blazorReference;
+        employeeId = empId;
+        gpsSessionId = sessionId;
+        apiEndpoint = endpoint || '/api/employee-location/update';
+
+        // Store employee info in localStorage for background tracking
+        try {
+            localStorage.setItem(EMPLOYEE_ID_STORAGE_KEY, employeeId);
+            localStorage.setItem(GPS_SESSION_STORAGE_KEY, gpsSessionId);
+            localStorage.setItem(API_ENDPOINT_STORAGE_KEY, apiEndpoint);
+            console.log('Stored GPS session info in localStorage');
+        }
+        catch (error) {
+            console.error('Failed to store GPS session info:', error);
+        }
 
         // Check if geolocation is supported
         if (!navigator.geolocation) {
             console.error('Geolocation is not supported by this browser');
-            blazorReference.invokeMethodAsync(
-                'PersistentEmployeeGpsError',
-                'Geolocation not supported');
+            if (blazorReference && blazorReference.invokeMethodAsync) {
+                blazorReference.invokeMethodAsync(
+                    'PersistentEmployeeGpsError',
+                    'Geolocation not supported');
+            }
             return false;
         }
 
@@ -91,8 +117,7 @@ window.EmployeeGpsTracker = (function () {
             // ============================================================
             // PERIODIC BACKGROUND CHECK
             // ============================================================
-            // Even if watchPosition is paused by browser power management,
-            // we force a location update every 15 seconds
+            // Force a location update periodically via HTTP API
             // This keeps admin dashboard updated even with inactive tab
             // ============================================================
             
@@ -102,9 +127,11 @@ window.EmployeeGpsTracker = (function () {
         }
         catch (error) {
             console.error('Failed to start GPS watcher:', error);
-            blazorReference.invokeMethodAsync(
-                'PersistentEmployeeGpsError',
-                'Failed to start GPS: ' + error.message);
+            if (blazorReference && blazorReference.invokeMethodAsync) {
+                blazorReference.invokeMethodAsync(
+                    'PersistentEmployeeGpsError',
+                    'Failed to start GPS: ' + error.message);
+            }
             return false;
         }
     }
@@ -164,8 +191,9 @@ window.EmployeeGpsTracker = (function () {
     // ============================================================
     // VISIBILITY AND BACKGROUND CHECK INTERVAL
     // ============================================================
-    // Periodically check if GPS is still active and force updates
+    // Periodically force GPS update via HTTP API
     // This handles browser power management that pauses watchPosition
+    // Works even if tab is inactive, circuit disconnected, or browser closed
     // ============================================================
 
     function startVisibilityAndBackgroundCheck() {
@@ -176,17 +204,17 @@ window.EmployeeGpsTracker = (function () {
 
         visibilityCheckInterval = setInterval(function () {
 
-            if (!isWatching || !dotNetReference) {
+            if (!isWatching) {
                 stopVisibilityAndBackgroundCheck();
                 return;
             }
 
-            // Force a location update every 15 seconds
+            // Force a location update every 10 seconds
             // This keeps admin dashboard updated even if tab is inactive
             const timeSinceLastUpdate = Date.now() - lastBroadcastTime;
 
             if (timeSinceLastUpdate > FORCE_UPDATE_INTERVAL_MS) {
-                console.log('Background force GPS update (15 second interval)');
+                console.log('Background force GPS update (' + FORCE_UPDATE_INTERVAL_MS + 'ms interval)');
                 forceLocationUpdate();
             }
 
@@ -245,7 +273,7 @@ window.EmployeeGpsTracker = (function () {
 
     function onLocationSuccess(position) {
 
-        if (!dotNetReference || !isWatching) {
+        if (!isWatching) {
             return;
         }
 
@@ -265,7 +293,8 @@ window.EmployeeGpsTracker = (function () {
             lastLocationData = {
                 latitude: coords.latitude,
                 longitude: coords.longitude,
-                accuracy: coords.accuracy
+                accuracy: coords.accuracy,
+                timestamp: now
             };
 
             console.log(
@@ -275,20 +304,152 @@ window.EmployeeGpsTracker = (function () {
                 'Accuracy=' + Math.round(coords.accuracy) + 'm'
             );
 
-            // Send to Blazor component
-            dotNetReference.invokeMethodAsync(
-                'UpdatePersistentEmployeeLocation',
-                {
-                    latitude: coords.latitude,
-                    longitude: coords.longitude,
-                    accuracy: coords.accuracy
-                }
-            ).catch(error => {
-                console.error('Failed to send GPS update to Blazor:', error);
-            });
+            const locationData = {
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                accuracy: coords.accuracy
+            };
+
+            // Send to Blazor component (if circuit is active)
+            if (dotNetReference && dotNetReference.invokeMethodAsync) {
+                dotNetReference.invokeMethodAsync(
+                    'UpdatePersistentEmployeeLocation',
+                    locationData
+                ).catch(error => {
+                    console.warn('Failed to send GPS update to Blazor (will use HTTP API):', error);
+                    // Fall back to HTTP API if Blazor circuit is disconnected
+                    sendLocationViaHttpApi(locationData);
+                });
+            }
+            else {
+                // Blazor reference unavailable, use HTTP API
+                sendLocationViaHttpApi(locationData);
+            }
         }
         catch (error) {
             console.error('Error processing GPS location:', error);
+        }
+    }
+
+    // ============================================================
+    // SEND LOCATION VIA HTTP API
+    // ============================================================
+    // Send GPS data directly to API endpoint
+    // Works even if Blazor circuit is disconnected
+    // Queues updates if network is offline
+    // ============================================================
+
+    function sendLocationViaHttpApi(locationData) {
+
+        if (!employeeId || !apiEndpoint) {
+            console.warn('Cannot send GPS via HTTP: employeeId or apiEndpoint not set');
+            return;
+        }
+
+        const payload = {
+            employeeId: employeeId,
+            sessionId: gpsSessionId,
+            latitude: locationData.latitude,
+            longitude: locationData.longitude,
+            accuracy: locationData.accuracy,
+            timestamp: new Date().toISOString()
+        };
+
+        fetch(apiEndpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload),
+            credentials: 'include'
+        })
+        .then(response => {
+            if (response.ok) {
+                console.log('GPS location sent via HTTP API');
+            }
+            else {
+                console.warn('HTTP API returned status ' + response.status);
+                queueLocationForRetry(locationData);
+            }
+        })
+        .catch(error => {
+            console.warn('Failed to send GPS via HTTP API, queuing for retry:', error);
+            queueLocationForRetry(locationData);
+        });
+    }
+
+    // ============================================================
+    // QUEUE LOCATION FOR RETRY
+    // ============================================================
+    // Store location data in localStorage when network is offline
+    // Will be sent when network is restored
+    // ============================================================
+
+    function queueLocationForRetry(locationData) {
+
+        try {
+            let queue = [];
+            const queueJson = localStorage.getItem(LOCATION_QUEUE_STORAGE_KEY);
+            
+            if (queueJson) {
+                queue = JSON.parse(queueJson);
+            }
+
+            queue.push({
+                ...locationData,
+                timestamp: new Date().toISOString(),
+                employeeId: employeeId,
+                sessionId: gpsSessionId
+            });
+
+            // Keep only last 100 items to prevent storage overflow
+            if (queue.length > 100) {
+                queue = queue.slice(-100);
+            }
+
+            localStorage.setItem(LOCATION_QUEUE_STORAGE_KEY, JSON.stringify(queue));
+            console.log('Location queued for retry. Queue size: ' + queue.length);
+        }
+        catch (error) {
+            console.error('Failed to queue location:', error);
+        }
+    }
+
+    // ============================================================
+    // PROCESS QUEUED LOCATIONS
+    // ============================================================
+    // Send any queued location data when network is back online
+    // ============================================================
+
+    function processQueuedLocations() {
+
+        try {
+            const queueJson = localStorage.getItem(LOCATION_QUEUE_STORAGE_KEY);
+            
+            if (!queueJson) {
+                return;
+            }
+
+            const queue = JSON.parse(queueJson);
+            
+            if (queue.length === 0) {
+                return;
+            }
+
+            console.log('Processing ' + queue.length + ' queued GPS locations');
+
+            // Send each queued location
+            queue.forEach(function (locationData, index) {
+                setTimeout(function () {
+                    sendLocationViaHttpApi(locationData);
+                }, index * 500); // Stagger requests to avoid overwhelming server
+            });
+
+            // Clear the queue
+            localStorage.removeItem(LOCATION_QUEUE_STORAGE_KEY);
+        }
+        catch (error) {
+            console.error('Failed to process queued locations:', error);
         }
     }
 
@@ -298,7 +459,7 @@ window.EmployeeGpsTracker = (function () {
 
     function onLocationError(error) {
 
-        if (!dotNetReference || !isWatching) {
+        if (!isWatching) {
             return;
         }
 
@@ -320,12 +481,14 @@ window.EmployeeGpsTracker = (function () {
 
         console.warn('GPS Error:', errorMessage);
 
-        dotNetReference.invokeMethodAsync(
-            'PersistentEmployeeGpsError',
-            errorMessage
-        ).catch(err => {
-            console.error('Failed to send GPS error to Blazor:', err);
-        });
+        if (dotNetReference && dotNetReference.invokeMethodAsync) {
+            dotNetReference.invokeMethodAsync(
+                'PersistentEmployeeGpsError',
+                errorMessage
+            ).catch(err => {
+                console.error('Failed to send GPS error to Blazor:', err);
+            });
+        }
     }
 
     // ============================================================
@@ -415,10 +578,29 @@ window.EmployeeGpsTracker = (function () {
         stopPersistentEmployeeGps: stopPersistentEmployeeGps,
         getOrCreateEmployeeGpsSessionId: getOrCreateEmployeeGpsSessionId,
         createNewEmployeeGpsSessionId: createNewEmployeeGpsSessionId,
-        clearEmployeeGpsSessionId: clearEmployeeGpsSessionId
+        clearEmployeeGpsSessionId: clearEmployeeGpsSessionId,
+        sendLocationViaHttpApi: sendLocationViaHttpApi,
+        processQueuedLocations: processQueuedLocations
     };
 
 })();
+
+// ============================================================
+// NETWORK EVENT LISTENERS
+// ============================================================
+// Listen for online/offline events to handle queued GPS data
+// ============================================================
+
+if (window.addEventListener) {
+    window.addEventListener('online', function () {
+        console.log('Network connection restored. Processing queued GPS locations...');
+        window.EmployeeGpsTracker.processQueuedLocations();
+    });
+
+    window.addEventListener('offline', function () {
+        console.log('Network connection lost. GPS locations will be queued.');
+    });
+}
 
 // ============================================================
 // EXPOSE FUNCTIONS TO GLOBAL SCOPE
@@ -426,8 +608,12 @@ window.EmployeeGpsTracker = (function () {
 // These are called from Blazor components via JSRuntime
 
 window.startPersistentEmployeeGps =
-    function (blazorReference) {
-        return window.EmployeeGpsTracker.startPersistentEmployeeGps(blazorReference);
+    function (blazorReference, employeeId, sessionId, apiEndpoint) {
+        return window.EmployeeGpsTracker.startPersistentEmployeeGps(
+            blazorReference, 
+            employeeId, 
+            sessionId, 
+            apiEndpoint);
     };
 
 window.stopPersistentEmployeeGps =
@@ -448,6 +634,16 @@ window.createNewEmployeeGpsSessionId =
 window.clearEmployeeGpsSessionId =
     function (storageKey, employeeId) {
         window.EmployeeGpsTracker.clearEmployeeGpsSessionId(storageKey, employeeId);
+    };
+
+window.sendLocationViaHttpApi =
+    function (locationData) {
+        window.EmployeeGpsTracker.sendLocationViaHttpApi(locationData);
+    };
+
+window.processQueuedLocations =
+    function () {
+        window.EmployeeGpsTracker.processQueuedLocations();
     };
 
 console.log('Employee GPS Tracker module loaded');

@@ -186,11 +186,20 @@
              * The GPS watcher has its own internal state tracking.
              * If it's already running from a previous circuit,
              * this will reuse that instance.
+             * 
+             * Parameters:
+             * 1. dotNetReference: For Blazor JSInterop callbacks
+             * 2. employeeId: Employee ID for API calls
+             * 3. sessionId: Unique session identifier
+             * 4. apiEndpoint: HTTP API endpoint for GPS updates (when circuit disconnected)
              */
             var gpsStarted =
                 await JSRuntime.InvokeAsync<bool>(
                     "startPersistentEmployeeGps",
-                    dotNetReference);
+                    dotNetReference,
+                    EmployeeId,
+                    liveLocationSessionId.ToString("D"),
+                    "/api/employee-location/update");
 
             if (!gpsStarted)
             {
