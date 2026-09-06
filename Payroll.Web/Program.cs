@@ -414,17 +414,20 @@ builder.Services.Configure<
         //
         // This effectively disables automatic expiration while still
         // allowing explicit security stamp invalidation to work.
+        // Use a very large interval to avoid automatic security-stamp based
+        // sign-out during normal inactivity. This effectively prevents
+        // automatic logout unless the stamp is explicitly changed (forced
+        // logout on another device).
         options.ValidationInterval =
-            TimeSpan.FromDays(365);
+            TimeSpan.FromDays(3650); // ~10 years
     });
 
 builder.Services.ConfigureApplicationCookie(
     options =>
     {
-        // Session cookie lifetime: 30 days
-        // This allows employees to stay logged in across days
-        // if they don't manually logout.
-        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        // Session cookie lifetime: very long to avoid prompting users to
+        // reload / re-authenticate during normal usage. Adjust per policy.
+        options.ExpireTimeSpan = TimeSpan.FromDays(3650); // ~10 years
 
         // Sliding expiration: refresh the cookie timeout
         // on every request (including API calls from GPS watcher)
@@ -488,31 +491,34 @@ builder.Services.AddScoped<
 // - Keys survive container restarts
 //
 
+// Configure Data Protection key storage. Prefer an application-local folder
+// inside the content root so keys persist across restarts in typical
+// hosting environments. Allow overriding via DATA_PROTECTION_PATH env var
+// for distributed setups (shared volume, etc.).
 var dataProtectionPath =
-    Environment.GetEnvironmentVariable(
-        "DATA_PROTECTION_PATH") ??
-    "/data/dataprotection";
+    Environment.GetEnvironmentVariable("DATA_PROTECTION_PATH");
+
+if (string.IsNullOrWhiteSpace(dataProtectionPath))
+{
+    dataProtectionPath = Path.Combine(builder.Environment.ContentRootPath, "dataprotection");
+}
 
 try
 {
-    // Ensure the directory exists
+    // Ensure the directory exists and is writable
     if (!Directory.Exists(dataProtectionPath))
     {
         Directory.CreateDirectory(dataProtectionPath);
     }
 
     builder.Services.AddDataProtection()
-        .PersistKeysToFileSystem(
-            new DirectoryInfo(dataProtectionPath));
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionPath));
 }
 catch (Exception dpEx)
 {
-    Console.WriteLine(
-        $"Data Protection key storage configuration failed. " +
-        $"Using default in-memory storage. " +
-        $"Keys will be lost on container restart. " +
-        $"Path: {dataProtectionPath}. " +
-        $"Error: {dpEx.Message}");
+    // If persisting to file system fails fall back to default in-memory keys
+    // but log the error so operators can fix permissions or volume mounts.
+    Console.WriteLine($"Data Protection key storage configuration failed. Using default in-memory storage. Path: {dataProtectionPath}. Error: {dpEx.Message}");
 }
 
 

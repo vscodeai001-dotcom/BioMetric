@@ -55,6 +55,7 @@ public sealed class EmployeeLocationController : ControllerBase
     public async Task<IActionResult> UpdateLocation(
         [FromBody] LocationUpdateRequest request)
     {
+        _logger.LogDebug("Received GPS update: EmployeeId={EmployeeId}, SessionId={SessionId}", request.EmployeeId, request.SessionId);
         if (request == null)
         {
             return BadRequest("Location data is required.");
