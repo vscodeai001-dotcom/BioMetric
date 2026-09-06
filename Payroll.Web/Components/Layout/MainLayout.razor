@@ -161,6 +161,12 @@
                 "themeInterop.setThemeOnBody",
                 savedTheme);
 
+            // Keep the browser preference synchronized with the authenticated
+            // theme (including a theme loaded from the user's persisted profile).
+            await JSRuntime.InvokeVoidAsync(
+                "themeInterop.saveTheme",
+                savedTheme);
+
             Theme.SetTheme(savedTheme);
 
             await InvokeAsync(
