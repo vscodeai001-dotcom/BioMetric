@@ -81,6 +81,10 @@
 
                     // Dispatch event for admin UI to update status/age indicators
                     window.dispatchEvent(new CustomEvent('location-health-updated', { detail: data }));
+
+                    // Also notify registered Blazor listeners so components refresh lightweight state
+                    await notifyViewer();
+                    await notifyListeners('LocationChanged', null);
                 }
             );
 
@@ -665,6 +669,36 @@
             );
     }
 
+    // Allow Blazor components to register for periodic LocationHealth bridge
+    function registerLocationHealth(dotNetReference) {
+        try {
+            const handler = function (ev) {
+                try {
+                    const detail = ev.detail;
+                    // invoke .NET LocationChanged to trigger lightweight refresh
+                    dotNetReference.invokeMethodAsync('LocationChanged', null).catch(function () { });
+                }
+                catch (e) { }
+            };
+
+            window.addEventListener('location-health-updated', handler);
+
+            // store handler on the dotNetReference so unregister can remove
+            dotNetReference._locationHealthHandler = handler;
+        }
+        catch (e) { }
+    }
+
+    function unregisterLocationHealth(dotNetReference) {
+        try {
+            if (dotNetReference && dotNetReference._locationHealthHandler) {
+                window.removeEventListener('location-health-updated', dotNetReference._locationHealthHandler);
+                dotNetReference._locationHealthHandler = null;
+            }
+        }
+        catch (e) { }
+    }
+
 
     return {
 
@@ -683,5 +717,7 @@
             unregister
 
     };
+
+
 
 })();

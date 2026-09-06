@@ -50,6 +50,95 @@ window.EmployeeGpsTracker = (function () {
     const IDB_DB_NAME = 'gps-tracker-db';
     const IDB_STORE_NAME = 'queuedLocations';
 
+    // IndexedDB helpers
+    function idbOpen() {
+        return new Promise(function (resolve, reject) {
+            try {
+                const req = indexedDB.open(IDB_DB_NAME, 1);
+
+                req.onupgradeneeded = function (ev) {
+                    const db = ev.target.result;
+                    if (!db.objectStoreNames.contains(IDB_STORE_NAME)) {
+                        db.createObjectStore(IDB_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                    }
+                };
+
+                req.onsuccess = function () { resolve(req.result); };
+                req.onerror = function (e) { reject(e); };
+            }
+            catch (e) { reject(e); }
+        });
+    }
+
+    function idbAddLocation(record) {
+        return idbOpen().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                try {
+                    const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
+                    const store = tx.objectStore(IDB_STORE_NAME);
+                    store.add(record);
+                    tx.oncomplete = function () { resolve(true); };
+                    tx.onerror = function (e) { reject(e); };
+                }
+                catch (e) { reject(e); }
+            });
+        });
+    }
+
+    function idbGetAllAndClear() {
+        return idbOpen().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                try {
+                    const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
+                    const store = tx.objectStore(IDB_STORE_NAME);
+                    const req = store.getAll();
+                    req.onsuccess = function () {
+                        const items = req.result || [];
+                        const clearReq = store.clear();
+                        clearReq.onsuccess = function () { resolve(items); };
+                        clearReq.onerror = function (e) { reject(e); };
+                    };
+                    req.onerror = function (e) { reject(e); };
+                }
+                catch (e) { reject(e); }
+            });
+        });
+    }
+
+    // Keepalive control
+    function startKeepalive() {
+        try {
+            if (keepaliveInterval !== null) return;
+            const keepaliveUrl = '/api/employee-location/keepalive';
+            keepaliveInterval = setInterval(function () {
+                try {
+                    const url = keepaliveUrl + '?_=' + Date.now();
+                    fetch(url, {
+                        method: 'GET',
+                        credentials: 'include',
+                        cache: 'no-store'
+                    }).catch(function () { });
+                }
+                catch (e) { }
+            }, KEEPALIVE_INTERVAL_MS);
+            console.log('GPS keepalive started');
+        }
+        catch (e) {
+            console.error('Failed to start keepalive:', e);
+        }
+    }
+
+    function stopKeepalive() {
+        try {
+            if (keepaliveInterval !== null) {
+                clearInterval(keepaliveInterval);
+                keepaliveInterval = null;
+                console.log('GPS keepalive stopped');
+            }
+        }
+        catch (e) { }
+    }
+
     // ============================================================
     // START PERSISTENT GPS WATCHER
     // ============================================================

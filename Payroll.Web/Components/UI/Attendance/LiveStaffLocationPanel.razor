@@ -2263,6 +2263,15 @@
                 Console.Error.WriteLine(
                     $"Unable to register admin live location SignalR listener: {ex}");
             }
+
+            // Register to receive periodic location health updates (lightweight)
+            try
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "attendanceRefresh.registerLocationHealth",
+                    liveLocationSignalRReference);
+            }
+            catch { }
         }
 
         if (!mapNeedsUpdate)
@@ -3421,6 +3430,14 @@
             catch
             {
             }
+
+            try
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "attendanceRefresh.unregisterLocationHealth",
+                    liveLocationSignalRReference);
+            }
+            catch { }
 
             liveLocationSignalRReference.Dispose();
 
