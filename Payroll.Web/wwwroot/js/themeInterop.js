@@ -2461,6 +2461,86 @@ window.destroyGeoMap =
 
 window.adminLiveMaps = {};
 
+/*
+ * Visually fan out co-located admin staff markers without changing their
+ * actual GPS coordinates. Routes and journey calculations continue to use
+ * the real position.
+ */
+window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selectedId) {
+    const items = [];
+    const byId = {};
+    const useCollisionOffsets = Number(selectedId) <= 0;
+
+    (Array.isArray(liveStaff) ? liveStaff : []).forEach(function (x) {
+        const employeeId = Number(x.employeeId);
+        const lat = Number(x.latitude);
+        const lng = Number(x.longitude);
+        if (!Number.isFinite(employeeId) || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const item = { employeeId, lat, lng, offsetX: 0, offsetY: 0 };
+        items.push(item);
+        byId[employeeId] = item;
+    });
+
+    if (!useCollisionOffsets || items.length < 2) return byId;
+
+    // Group staff whose map markers would visually collide.
+    const collisionMeters = 45;
+    const parent = items.map(function (_, i) { return i; });
+    function find(i) {
+        while (parent[i] !== i) {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        return i;
+    }
+    function union(a, b) {
+        const ra = find(a), rb = find(b);
+        if (ra !== rb) parent[rb] = ra;
+    }
+
+    for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+            const d = window.payrollHaversineMeters(
+                [items[i].lat, items[i].lng],
+                [items[j].lat, items[j].lng]
+            );
+            if (d <= collisionMeters) union(i, j);
+        }
+    }
+
+    const groups = {};
+    items.forEach(function (item, index) {
+        const root = find(index);
+        if (!groups[root]) groups[root] = [];
+        groups[root].push(item);
+    });
+
+    Object.keys(groups).forEach(function (root) {
+        const group = groups[root];
+        if (group.length < 2) return;
+
+        // Stable employee-ID ordering prevents markers from swapping places.
+        group.sort(function (a, b) { return a.employeeId - b.employeeId; });
+        const center = [group[0].lat, group[0].lng];
+        const centerPoint = map.latLngToLayerPoint(center);
+        const count = group.length;
+        const radius = count <= 2 ? 28 : count <= 4 ? 34 : count <= 7 ? 40 : 46;
+
+        group.forEach(function (item, index) {
+            const angle = (-Math.PI / 2) + (index * (Math.PI * 2 / count));
+            const point = L.point(
+                centerPoint.x + Math.cos(angle) * radius,
+                centerPoint.y + Math.sin(angle) * radius
+            );
+            const display = map.layerPointToLatLng(point);
+            item.offsetX = display.lng - item.lng;
+            item.offsetY = display.lat - item.lat;
+        });
+    });
+
+    return byId;
+};
+
 window.updateAdminLiveStaffMap =
     async function (
         mapId,
@@ -2564,6 +2644,7 @@ window.updateAdminLiveStaffMap =
                     trails: {},
                     trailPoints: {},
                     labels: {},
+                    collisionConnectors: {},
                     lastOfficeRadius: 0,
                     historyRoute: null,
                     historyMarkers: [],
@@ -2657,6 +2738,13 @@ window.updateAdminLiveStaffMap =
                         delete state.trails[id];
                         delete state.trailPoints[id];
                         delete state.labels[id];
+                        try {
+                            if (state.collisionConnectors[id]) {
+                                state.map.removeLayer(state.collisionConnectors[id]);
+                            }
+                        }
+                        catch { }
+                        delete state.collisionConnectors[id];
                         try { state.roadRouteLines[id] && state.map.removeLayer(state.roadRouteLines[id]); } catch { }
                         try { state.roadRouteCasings[id] && state.map.removeLayer(state.roadRouteCasings[id]); } catch { }
                         try { state.routeStates[id]?.controller?.abort(); } catch { }
@@ -2681,6 +2769,13 @@ window.updateAdminLiveStaffMap =
             const membershipChanged =
                 state.lastStaffSignature !== staffSignature ||
                 state.lastSelectedId !== Number(selectedId);
+
+            const markerDisplayPositions =
+                window.payrollBuildAdminMarkerDisplayPositions(
+                    state.map,
+                    liveStaff,
+                    selectedId
+                );
 
             liveStaff.forEach(
                 function (x) {
@@ -2710,6 +2805,14 @@ window.updateAdminLiveStaffMap =
                         lat,
                         lng
                     ];
+
+                    const displayItem = markerDisplayPositions[employeeId];
+                    const displayPosition = displayItem
+                        ? [
+                            lat + Number(displayItem.offsetY || 0),
+                            lng + Number(displayItem.offsetX || 0)
+                        ]
+                        : position.slice();
 
                     if (!state.routeStates[employeeId]) {
                         state.routeStates[employeeId] = {};
@@ -2812,7 +2915,7 @@ window.updateAdminLiveStaffMap =
                             employeeId
                         ] =
                             L.marker(
-                                position,
+                                displayPosition,
                                 {
                                     icon: icon
                                 }
@@ -2851,13 +2954,22 @@ window.updateAdminLiveStaffMap =
                         window.payrollSmoothMoveMarker(
                             state.markers[employeeId],
                             'admin:' + mapId + ':' + employeeId,
-                            position,
+                            displayPosition,
                             moveDuration,
                             function (animatedPosition) {
                                 try {
+                                    // GPS, routes and distances remain anchored to the
+                                    // real coordinate. Only the visual marker is offset.
                                     if (state.lines[employeeId]) {
                                         state.lines[employeeId].setLatLngs([
                                             office,
+                                            position
+                                        ]);
+                                    }
+
+                                    if (state.collisionConnectors[employeeId]) {
+                                        state.collisionConnectors[employeeId].setLatLngs([
+                                            position,
                                             animatedPosition
                                         ]);
                                     }
@@ -2866,7 +2978,7 @@ window.updateAdminLiveStaffMap =
                                         state.labels[employeeId].setLatLng(
                                             window.getAdminLineMidpoint(
                                                 office,
-                                                animatedPosition
+                                                position
                                             )
                                         );
                                     }
@@ -2906,6 +3018,42 @@ window.updateAdminLiveStaffMap =
                     state.markers[employeeId].setOpacity(
                         Number(selectedId) > 0 && !isSelected ? 0 : 1
                     );
+
+                    const hasCollisionOffset =
+                        Math.abs(Number(displayItem?.offsetX || 0)) > 0 ||
+                        Math.abs(Number(displayItem?.offsetY || 0)) > 0;
+
+                    if (hasCollisionOffset) {
+                        if (!state.collisionConnectors[employeeId]) {
+                            state.collisionConnectors[employeeId] = L.polyline(
+                                [position, displayPosition],
+                                {
+                                    color: markerColor,
+                                    weight: 2,
+                                    opacity: .72,
+                                    dashArray: '3,4',
+                                    lineCap: 'round'
+                                }
+                            ).addTo(state.map);
+                        }
+                        else {
+                            state.collisionConnectors[employeeId].setLatLngs([
+                                position,
+                                displayPosition
+                            ]);
+                            state.collisionConnectors[employeeId].setStyle({
+                                color: markerColor,
+                                opacity: .72
+                            });
+                        }
+                    }
+                    else if (state.collisionConnectors[employeeId]) {
+                        try {
+                            state.map.removeLayer(state.collisionConnectors[employeeId]);
+                        }
+                        catch { }
+                        delete state.collisionConnectors[employeeId];
+                    }
 
                     if (state.lines[employeeId]) {
                         state.lines[employeeId].setStyle({

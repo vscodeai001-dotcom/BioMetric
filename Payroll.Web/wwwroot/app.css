@@ -695,3 +695,110 @@ body.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
         min-height: 42px;
     }
 }
+
+/* =========================================================
+   IDENTITY LOGIN / REGISTER THEME SURFACE
+   Keeps ASP.NET Identity pages visually consistent with the
+   authenticated application's selected theme.
+   ========================================================= */
+.identity-header {
+    position: relative;
+    z-index: 10;
+}
+
+.identity-actions {
+    gap: .7rem;
+}
+
+.identity-actions a {
+    font-weight: 600;
+    padding: .45rem .55rem;
+    border-radius: .55rem;
+}
+
+.identity-actions a:hover,
+.identity-actions a:focus-visible {
+    background: var(--app-surface-muted);
+    color: var(--app-accent) !important;
+}
+
+.identity-theme-toggle {
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    cursor: pointer;
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+}
+
+.identity-theme-toggle:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 14px rgba(23, 105, 224, .12);
+}
+
+.identity-theme-toggle:active {
+    transform: translateY(0) scale(.96);
+}
+
+.identity-theme-toggle span {
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.identity-login-shell {
+    max-width: 430px;
+    margin: 0 auto;
+}
+
+.identity-login-card {
+    overflow: hidden;
+    border: 1px solid var(--app-border) !important;
+    border-radius: 18px !important;
+    background: var(--app-surface) !important;
+    color: var(--app-text) !important;
+    box-shadow: 0 16px 42px rgba(31, 41, 55, .10) !important;
+}
+
+.identity-login-card .card-body {
+    background: transparent !important;
+}
+
+.identity-login-card h1,
+.identity-login-card .form-check-label {
+    color: var(--app-text) !important;
+}
+
+.identity-login-card .form-control {
+    background: var(--app-surface) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
+.identity-login-card .form-control::placeholder {
+    color: var(--app-text-muted) !important;
+}
+
+.identity-login-card .form-control:focus {
+    border-color: var(--app-accent) !important;
+    box-shadow: 0 0 0 .2rem rgba(23, 105, 224, .14) !important;
+}
+
+@media (max-width: 575.98px) {
+    .identity-header {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .identity-actions {
+        gap: .25rem;
+    }
+
+    .identity-actions a {
+        padding: .4rem .35rem;
+        font-size: .9rem;
+    }
+
+    .identity-theme-toggle {
+        width: 2.15rem;
+        height: 2.15rem;
+    }
+}
