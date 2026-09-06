@@ -2477,7 +2477,15 @@ window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selec
         const lat = Number(x.latitude);
         const lng = Number(x.longitude);
         if (!Number.isFinite(employeeId) || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        const item = { employeeId, lat, lng, offsetX: 0, offsetY: 0 };
+        const item = {
+            employeeId,
+            lat,
+            lng,
+            offsetX: 0,
+            offsetY: 0,
+            cardOffsetX: 0,
+            cardOffsetY: 0
+        };
         items.push(item);
         byId[employeeId] = item;
     });
@@ -2527,6 +2535,17 @@ window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selec
         const count = group.length;
         const radius = count <= 2 ? 28 : count <= 4 ? 34 : count <= 7 ? 40 : 46;
 
+        /*
+         * Marker positions stay close to the real GPS point.
+         *
+         * Rich employee cards are intentionally given their own display
+         * positions.  This is the important separation: two employees at
+         * the same GPS point must never render two cards on top of each
+         * other.
+         */
+        const cardGap = 250;
+        const cardTopOffset = 18;
+
         group.forEach(function (item, index) {
             const angle = (-Math.PI / 2) + (index * (Math.PI * 2 / count));
             const point = L.point(
@@ -2536,6 +2555,40 @@ window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selec
             const display = map.layerPointToLatLng(point);
             item.offsetX = display.lng - item.lng;
             item.offsetY = display.lat - item.lat;
+
+            let cardX = centerPoint.x;
+            let cardY = centerPoint.y - cardTopOffset;
+
+            if (count === 2) {
+                cardX += index === 0 ? -cardGap / 2 : cardGap / 2;
+            }
+            else if (count === 3) {
+                if (index === 0) {
+                    cardX -= cardGap / 2;
+                    cardY -= 78;
+                }
+                else if (index === 1) {
+                    cardX += cardGap / 2;
+                    cardY -= 78;
+                }
+                else {
+                    cardY += 62;
+                }
+            }
+            else {
+                const columns = Math.min(2, count);
+                const column = index % columns;
+                const row = Math.floor(index / columns);
+                cardX += (column === 0 ? -1 : 1) * (cardGap / 2);
+                cardY += row * 138;
+            }
+
+            const cardDisplay = map.layerPointToLatLng(
+                L.point(cardX, cardY)
+            );
+
+            item.cardOffsetX = cardDisplay.lng - item.lng;
+            item.cardOffsetY = cardDisplay.lat - item.lat;
         });
     });
 
@@ -2850,6 +2903,13 @@ window.updateAdminLiveStaffMap =
                         ]
                         : position.slice();
 
+                    const cardDisplayPosition = displayItem
+                        ? [
+                            lat + Number(displayItem.cardOffsetY || 0),
+                            lng + Number(displayItem.cardOffsetX || 0)
+                        ]
+                        : displayPosition.slice();
+
                     if (!state.routeStates[employeeId]) {
                         state.routeStates[employeeId] = {};
                     }
@@ -3011,11 +3071,20 @@ window.updateAdminLiveStaffMap =
                                     }
 
                                     if (state.labels[employeeId]) {
-                                        // Keep the employee's rich label attached to the
-                                        // same collision-aware visual marker. Never move
-                                        // it to the route midpoint, otherwise co-located
-                                        // employees' labels collapse into one another.
-                                        state.labels[employeeId].setLatLng(animatedPosition);
+                                        /*
+                                         * Keep each rich card attached to its own
+                                         * collision-free card position.  The card
+                                         * follows the animated employee marker but
+                                         * retains its separate screen-space offset.
+                                         */
+                                        const labelPosition = displayItem
+                                            ? [
+                                                animatedPosition[0] + Number(displayItem.cardOffsetY || 0) - Number(displayItem.offsetY || 0),
+                                                animatedPosition[1] + Number(displayItem.cardOffsetX || 0) - Number(displayItem.offsetX || 0)
+                                            ]
+                                            : animatedPosition;
+
+                                        state.labels[employeeId].setLatLng(labelPosition);
                                     }
                                 }
                                 catch { }
@@ -3190,7 +3259,7 @@ window.updateAdminLiveStaffMap =
 
                     if (!state.labels[employeeId]) {
                         state.labels[employeeId] = L.marker(
-                            displayPosition,
+                            cardDisplayPosition,
                             {
                                 icon: cardIcon,
                                 interactive: false,
@@ -3200,7 +3269,7 @@ window.updateAdminLiveStaffMap =
                         ).addTo(state.map);
                     }
                     else {
-                        state.labels[employeeId].setLatLng(displayPosition);
+                        state.labels[employeeId].setLatLng(cardDisplayPosition);
                         state.labels[employeeId].setIcon(cardIcon);
                     }
 
@@ -3271,7 +3340,7 @@ window.updateAdminLiveStaffMap =
                                 iconSize: [224, 124],
                                 iconAnchor: [112, 136]
                             }));
-                            state.labels[employeeId].setLatLng(displayPosition);
+                            state.labels[employeeId].setLatLng(cardDisplayPosition);
                         }
                         state.markers[employeeId].bindPopup(
                             `<div style="min-width:210px"><strong>${name}</strong>` +
