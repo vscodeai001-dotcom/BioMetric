@@ -2,6 +2,7 @@
 @using global::Payroll.Shared.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.JSInterop
+@using System.Text.Json
 @implements IAsyncDisposable
 
 @inject IJSRuntime JSRuntime
@@ -2044,13 +2045,121 @@
 
         try
         {
-            /*
-             * The server has already updated LiveLocationStore.
-             *
-             * Therefore get the latest in-memory snapshot.
-             *
-             * This is NOT a database query.
-             */
+            // If payload provided, update lightweight UI state directly to avoid
+            // showing "No live staff" when employees are actively tracked.
+            if (data != null)
+            {
+                try
+                {
+                    if (data is JsonElement je)
+                    {
+                        // LocationHealth payload contains { Timestamp, Items: [...] }
+                        if (je.ValueKind == JsonValueKind.Object && je.TryGetProperty("Items", out var items) && items.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var item in items.EnumerateArray())
+                            {
+                                var empId = item.TryGetProperty("EmployeeId", out var pEmp) && pEmp.TryGetInt32(out var eId) ? eId : 0;
+                                if (empId <= 0) continue;
+
+                                var lastUpdatedUtc = DateTime.UtcNow;
+                                if (item.TryGetProperty("LastUpdatedUtc", out var pLu) && pLu.ValueKind == JsonValueKind.String)
+                                {
+                                    DateTime.TryParse(pLu.GetString(), out lastUpdatedUtc);
+                                }
+
+                                var sessionStartedUtc = lastUpdatedUtc;
+                                if (item.TryGetProperty("SessionStartedUtc", out var pSs) && pSs.ValueKind == JsonValueKind.String)
+                                {
+                                    DateTime.TryParse(pSs.GetString(), out sessionStartedUtc);
+                                }
+
+                                var sessionId = Guid.Empty;
+                                if (item.TryGetProperty("SessionId", out var pSid) && pSid.ValueKind == JsonValueKind.String)
+                                {
+                                    Guid.TryParse(pSid.GetString(), out sessionId);
+                                }
+
+                                // Try to find existing location to preserve coordinates when possible
+                                var existing = locations.FirstOrDefault(x => x.EmployeeId == empId);
+
+                                var newLoc = new LiveEmployeeLocation
+                                {
+                                    EmployeeId = empId,
+                                    Latitude = existing?.Latitude ?? 0,
+                                    Longitude = existing?.Longitude ?? 0,
+                                    AccuracyMeters = existing?.AccuracyMeters ?? 0,
+                                    DistanceMeters = existing?.DistanceMeters ?? 0,
+                                    AllowedRadiusMeters = existing?.AllowedRadiusMeters ?? 0,
+                                    IsWithinAllowedRadius = existing?.IsWithinAllowedRadius ?? true,
+                                    LastUpdatedUtc = lastUpdatedUtc,
+                                    SessionStartedUtc = sessionStartedUtc,
+                                    SessionId = sessionId
+                                };
+
+                                // Upsert in local list
+                                locations.RemoveAll(x => x.EmployeeId == empId);
+                                locations.Add(newLoc);
+                            }
+
+                            lastRefresh = DateTime.Now;
+                            mapNeedsUpdate = true;
+                            await InvokeAsync(StateHasChanged);
+                            return;
+                        }
+
+                        // Single location update payload (LocationChanged)
+                        if (je.ValueKind == JsonValueKind.Object && je.TryGetProperty("EmployeeId", out var pE))
+                        {
+                            var empId = pE.TryGetInt32(out var eid) ? eid : 0;
+                            if (empId > 0)
+                            {
+                                var lat = je.TryGetProperty("Latitude", out var pLat) && pLat.TryGetDouble(out var dlat) ? dlat : 0;
+                                var lon = je.TryGetProperty("Longitude", out var pLon) && pLon.TryGetDouble(out var dlon) ? dlon : 0;
+                                var acc = je.TryGetProperty("AccuracyMeters", out var pAcc) && pAcc.TryGetDouble(out var dacc) ? dacc : 0;
+                                var dist = je.TryGetProperty("DistanceMeters", out var pDist) && pDist.TryGetDouble(out var ddist) ? ddist : 0;
+                                var allowed = je.TryGetProperty("AllowedRadiusMeters", out var pAllow) && pAllow.TryGetInt32(out var iallow) ? iallow : 0;
+                                var within = je.TryGetProperty("IsWithinAllowedRadius", out var pWithin) && pWithin.ValueKind == JsonValueKind.True;
+                                DateTime lastUpdated = DateTime.UtcNow;
+                                if (je.TryGetProperty("LastUpdatedUtc", out var pLu2) && pLu2.ValueKind == JsonValueKind.String)
+                                    DateTime.TryParse(pLu2.GetString(), out lastUpdated);
+                                var sessionId = Guid.Empty;
+                                if (je.TryGetProperty("SessionId", out var pSid2) && pSid2.ValueKind == JsonValueKind.String)
+                                    Guid.TryParse(pSid2.GetString(), out sessionId);
+
+                                var existing = locations.FirstOrDefault(x => x.EmployeeId == empId);
+
+                                var newLoc = new LiveEmployeeLocation
+                                {
+                                    EmployeeId = empId,
+                                    Latitude = lat,
+                                    Longitude = lon,
+                                    AccuracyMeters = acc,
+                                    DistanceMeters = dist,
+                                    AllowedRadiusMeters = allowed,
+                                    IsWithinAllowedRadius = within,
+                                    LastUpdatedUtc = lastUpdated,
+                                    SessionStartedUtc = existing?.SessionStartedUtc ?? lastUpdated,
+                                    SessionId = sessionId
+                                };
+
+                                locations.RemoveAll(x => x.EmployeeId == empId);
+                                locations.Add(newLoc);
+
+                                lastRefresh = DateTime.Now;
+                                mapNeedsUpdate = true;
+                                await InvokeAsync(StateHasChanged);
+                                return;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"LocationChanged payload processing failed: {ex}");
+                }
+            }
+
+            // Fallback to full refresh when no usable payload
             await RefreshLocations();
             await RefreshSelectedEmployeePunchAuditsSilently();
             await LoadSelectedEmployeeHistory();

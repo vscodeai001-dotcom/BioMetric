@@ -84,7 +84,7 @@
 
                     // Also notify registered Blazor listeners so components refresh lightweight state
                     await notifyViewer();
-                    await notifyListeners('LocationChanged', null);
+                    await notifyListeners('LocationChanged', data);
                 }
             );
 
