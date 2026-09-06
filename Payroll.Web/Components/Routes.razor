@@ -1,6 +1,34 @@
-﻿<Router AppAssembly="typeof(Program).Assembly">
+﻿@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+
+<Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
+        @*
+           Keep the existing root-role redirect inside the ONE active router.
+           App.razor used to contain a second static Router. That duplicate
+           router could leave the employee layout rendered from /employee-home
+           while the browser URL changed to /my-payslips, /my-bonuses, etc.
+
+           The redirect belongs here because Routes is the interactive router
+           used by the Blazor Web App.
+        *@
+        <AuthorizeView>
+            <Authorized>
+                @if (routeData.PageType ==
+                     typeof(global::Payroll.Web.Components.Pages.Admin.Home))
+                {
+                    <RoleBasedRedirectComponent />
+                }
+            </Authorized>
+        </AuthorizeView>
+
         <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
+
+    <NotFound>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <p role="alert">Sorry, there's nothing at this address.</p>
+        </LayoutView>
+    </NotFound>
 </Router>
