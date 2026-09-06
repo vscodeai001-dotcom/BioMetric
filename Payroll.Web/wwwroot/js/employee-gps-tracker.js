@@ -33,12 +33,16 @@ window.EmployeeGpsTracker = (function () {
     let lastBroadcastTime = 0;
     let lastLocationData = null;
     let visibilityCheckInterval = null;
+    let keepaliveInterval = null;
+    let beforeUnloadHandler = null;
+    let retryAttemptsMap = {};
     let employeeId = null;
     let gpsSessionId = null;
     let apiEndpoint = null;
     const BROADCAST_INTERVAL_MS = 5000; // Send updates every 5 seconds minimum
     const VISIBILITY_CHECK_INTERVAL_MS = 3000; // Check visibility every 3 seconds
     const FORCE_UPDATE_INTERVAL_MS = 10000; // Force GPS update every 10 seconds
+    const KEEPALIVE_INTERVAL_MS = 60 * 1000; // Send keepalive every 60s to prevent session expiry
     const LOCATION_QUEUE_STORAGE_KEY = 'gps_location_queue';
     const EMPLOYEE_ID_STORAGE_KEY = 'current_employee_id';
     const GPS_SESSION_STORAGE_KEY = 'gps_session_id';
@@ -100,6 +104,28 @@ window.EmployeeGpsTracker = (function () {
             lastBroadcastTime = 0;
             lastLocationData = null;
 
+            // Process any queued locations immediately when starting
+            processQueuedLocations();
+
+            // Start keepalive pings to prevent server session/cookie expiration
+            startKeepalive();
+
+            // Register a Service Worker (minimal) to enable Background Sync
+            try {
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.register('/service-worker.js')
+                        .then(function (reg) {
+                            console.log('ServiceWorker registered:', reg.scope);
+                        })
+                        .catch(function (err) {
+                            console.warn('ServiceWorker registration failed:', err);
+                        });
+                }
+            }
+            catch (e) {
+                // ignore
+            }
+
             console.log('GPS watcher started. WatcherId=' + gpsWatcherId);
 
             // ============================================================
@@ -122,6 +148,41 @@ window.EmployeeGpsTracker = (function () {
             // ============================================================
             
             startVisibilityAndBackgroundCheck();
+
+            // Attempt to flush queued locations when page is unloaded using sendBeacon
+            if (window.addEventListener) {
+                beforeUnloadHandler = function () {
+                    try {
+                        const queueJson = localStorage.getItem(LOCATION_QUEUE_STORAGE_KEY);
+                        if (queueJson && navigator.sendBeacon && apiEndpoint) {
+                            const blob = new Blob([queueJson], { type: 'application/json' });
+                            // Try to send queued locations to apiEndpoint using sendBeacon
+                            navigator.sendBeacon(apiEndpoint, blob);
+                        }
+                    }
+                    catch (e) {
+                        // ignore
+                    }
+                };
+    // Listen for messages from service worker
+    if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
+        navigator.serviceWorker.addEventListener('message', function (ev) {
+            try {
+                const data = ev.data;
+                if (!data) return;
+
+                if (data.type === 'PROCESS_GPS_QUEUE') {
+                    processQueuedLocations();
+                }
+            }
+            catch (e) {
+                // ignore
+            }
+        });
+    }
+
+                window.addEventListener('beforeunload', beforeUnloadHandler);
+            }
 
             return true;
         }
@@ -157,9 +218,16 @@ window.EmployeeGpsTracker = (function () {
         // Stop background checks
         stopVisibilityAndBackgroundCheck();
 
+        // Stop keepalive pings
+        stopKeepalive();
+
         // Remove event listeners
         if (document.removeEventListener) {
             document.removeEventListener('visibilitychange', onVisibilityChange);
+        }
+        if (beforeUnloadHandler && window.removeEventListener) {
+            window.removeEventListener('beforeunload', beforeUnloadHandler);
+            beforeUnloadHandler = null;
         }
 
         console.log('GPS watcher stopped');
@@ -241,7 +309,7 @@ window.EmployeeGpsTracker = (function () {
 
     function forceLocationUpdate() {
 
-        if (!navigator.geolocation || !isWatching || !dotNetReference) {
+        if (!navigator.geolocation || !isWatching) {
             return;
         }
 
@@ -355,27 +423,81 @@ window.EmployeeGpsTracker = (function () {
             timestamp: new Date().toISOString()
         };
 
-        fetch(apiEndpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload),
-            credentials: 'include'
-        })
-        .then(response => {
-            if (response.ok) {
-                console.log('GPS location sent via HTTP API');
+        const attemptSend = function (attempt) {
+            fetch(apiEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload),
+                credentials: 'include'
+            })
+            .then(response => {
+                if (response.ok) {
+                    console.log('GPS location sent via HTTP API');
+                    // reset attempts
+                    if (retryAttemptsMap && retryAttemptsMap[payload.timestamp]) {
+                        delete retryAttemptsMap[payload.timestamp];
+                    }
+                }
+                else {
+                    console.warn('HTTP API returned status ' + response.status);
+                    scheduleRetryOrQueue(locationData, attempt);
+                }
+            })
+            .catch(error => {
+                console.warn('Failed to send GPS via HTTP API, scheduling retry:', error);
+                scheduleRetryOrQueue(locationData, attempt);
+            });
+        };
+
+        attemptSend(0);
+    }
+
+    function scheduleRetryOrQueue(locationData, previousAttempt) {
+        try {
+            const key = (locationData && locationData.timestamp) ? locationData.timestamp : new Date().toISOString();
+            const attempts = (retryAttemptsMap[key] || 0) + 1;
+            retryAttemptsMap[key] = attempts;
+
+            // Exponential backoff up to 6 attempts (~ up to 64s)
+            if (attempts <= 6) {
+                const delay = Math.pow(2, attempts) * 1000;
+                setTimeout(function () {
+                    sendLocationViaHttpApi(locationData);
+                }, delay);
+                return;
             }
-            else {
-                console.warn('HTTP API returned status ' + response.status);
+
+            // If Background Sync is available, try to register a sync
+            try {
+                if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+                    navigator.serviceWorker.ready.then(function (reg) {
+                        if (reg.sync) {
+                            // save to queue first
+                            queueLocationForRetry(locationData);
+                            reg.sync.register('gps-location-sync').catch(function () {
+                                // ignore
+                            });
+                        }
+                        else {
+                            queueLocationForRetry(locationData);
+                        }
+                    }).catch(function () {
+                        queueLocationForRetry(locationData);
+                    });
+                }
+                else {
+                    queueLocationForRetry(locationData);
+                }
+            }
+            catch (e) {
                 queueLocationForRetry(locationData);
             }
-        })
-        .catch(error => {
-            console.warn('Failed to send GPS via HTTP API, queuing for retry:', error);
+        }
+        catch (e) {
             queueLocationForRetry(locationData);
-        });
+        }
     }
 
     // ============================================================

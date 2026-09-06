@@ -269,6 +269,19 @@ public sealed class EmployeeLocationController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Lightweight keepalive endpoint used by the browser to
+    /// touch the authenticated session without sending location data.
+    /// Accepts HEAD/GET requests and returns 200 OK so that client-side
+    /// keepalive pings refresh the authentication cookie sliding expiration.
+    /// </summary>
+    [HttpHead("keepalive")]
+    [HttpGet("keepalive")]
+    public IActionResult KeepAlive()
+    {
+        return Ok();
+    }
+
     // ============================================================
     // REQUEST / RESPONSE MODELS
     // ============================================================
