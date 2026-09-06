@@ -148,11 +148,10 @@ window.EmployeeGpsTracker = (function () {
         console.log('startPersistentEmployeeGps called with empId=' + empId);
 
         if (isWatching) {
-            // The GPS watcher belongs to the browser page, not to a
-            // particular Blazor circuit. A new circuit must be allowed
-            // to replace the old callback reference without creating a
-            // second geolocation watcher.
-            dotNetReference = blazorReference || dotNetReference;
+            // The GPS watcher belongs to the browser page, not the Blazor
+            // circuit. A reconnect/re-render may provide a new DotNetObjectReference.
+            // Rebind it without stopping the existing watcher.
+            dotNetReference = blazorReference || null;
             employeeId = empId;
             gpsSessionId = sessionId;
             apiEndpoint = endpoint || apiEndpoint || '/api/employee-location/update';
@@ -162,12 +161,10 @@ window.EmployeeGpsTracker = (function () {
                 localStorage.setItem(GPS_SESSION_STORAGE_KEY, gpsSessionId);
                 localStorage.setItem(API_ENDPOINT_STORAGE_KEY, apiEndpoint);
             }
-            catch (error) {
-                console.warn('Failed to refresh GPS session info in localStorage:', error);
-            }
+            catch (e) { }
 
             startKeepalive();
-            console.log('GPS watcher already running; Blazor callback rebound');
+            console.log('GPS watcher already running. Blazor reference rebound.');
             return true;
         }
 
@@ -340,6 +337,10 @@ window.EmployeeGpsTracker = (function () {
             beforeUnloadHandler = null;
         }
 
+        // A real logout must not leave old coordinates queued for a
+        // future authenticated session.
+        clearQueuedLocations();
+
         console.log('GPS watcher stopped');
     }
 
@@ -488,24 +489,12 @@ window.EmployeeGpsTracker = (function () {
                 accuracy: coords.accuracy
             };
 
-            // Send to Blazor component (if circuit is active)
-            if (dotNetReference && dotNetReference.invokeMethodAsync) {
-                dotNetReference.invokeMethodAsync(
-                    'UpdatePersistentEmployeeLocation',
-                    locationData
-                ).catch(error => {
-                    console.warn('Failed to send GPS update to Blazor (will use HTTP API):', error);
-                    // The circuit may have been disposed. Stop trying to
-                    // invoke that stale .NET reference until a new circuit
-                    // explicitly rebinds it. GPS itself keeps running.
-                    dotNetReference = null;
-                    sendLocationViaHttpApi(locationData);
-                });
-            }
-            else {
-                // Blazor reference unavailable, use HTTP API
-                sendLocationViaHttpApi(locationData);
-            }
+            // IMPORTANT:
+            //
+            // GPS delivery is HTTP-first and independent of the Blazor
+            // circuit. A disconnected/idle circuit must never stop location
+            // delivery to the server.
+            sendLocationViaHttpApi(locationData);
         }
         catch (error) {
             console.error('Error processing GPS location:', error);
@@ -823,18 +812,57 @@ window.EmployeeGpsTracker = (function () {
         });
     }
 
+
+    // ============================================================
+    // REBIND AFTER BLAZOR CIRCUIT RECONNECT
+    // ============================================================
+
+    function bindPersistentEmployeeGps(blazorReference, empId, sessionId, endpoint) {
+        return startPersistentEmployeeGps(
+            blazorReference,
+            empId,
+            sessionId,
+            endpoint);
+    }
+
+    function detachPersistentEmployeeGpsReference() {
+        // Do NOT stop geolocation. Only detach the circuit callback.
+        dotNetReference = null;
+    }
+
+    function clearQueuedLocations() {
+        try {
+            idbOpen().then(function (db) {
+                try {
+                    const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
+                    tx.objectStore(IDB_STORE_NAME).clear();
+                }
+                catch (e) { }
+            }).catch(function () { });
+        }
+        catch (e) { }
+
+        try {
+            localStorage.removeItem(LOCATION_QUEUE_STORAGE_KEY);
+        }
+        catch (e) { }
+    }
+
     // ============================================================
     // PUBLIC API
     // ============================================================
 
     return {
         startPersistentEmployeeGps: startPersistentEmployeeGps,
+        bindPersistentEmployeeGps: bindPersistentEmployeeGps,
+        detachPersistentEmployeeGpsReference: detachPersistentEmployeeGpsReference,
         stopPersistentEmployeeGps: stopPersistentEmployeeGps,
         getOrCreateEmployeeGpsSessionId: getOrCreateEmployeeGpsSessionId,
         createNewEmployeeGpsSessionId: createNewEmployeeGpsSessionId,
         clearEmployeeGpsSessionId: clearEmployeeGpsSessionId,
         sendLocationViaHttpApi: sendLocationViaHttpApi,
-        processQueuedLocations: processQueuedLocations
+        processQueuedLocations: processQueuedLocations,
+        forceLocationUpdate: forceLocationUpdate
     };
 
 })();
@@ -849,6 +877,13 @@ if (window.addEventListener) {
     window.addEventListener('online', function () {
         console.log('Network connection restored. Processing queued GPS locations...');
         window.EmployeeGpsTracker.processQueuedLocations();
+        window.EmployeeGpsTracker.forceLocationUpdate();
+    });
+
+    window.addEventListener('pageshow', function () {
+        // Browser restored the page from bfcache/sleep. Reuse the existing
+        // watcher and immediately request a fresh position.
+        window.EmployeeGpsTracker.forceLocationUpdate();
     });
 
     window.addEventListener('offline', function () {
@@ -864,10 +899,24 @@ if (window.addEventListener) {
 window.startPersistentEmployeeGps =
     function (blazorReference, employeeId, sessionId, apiEndpoint) {
         return window.EmployeeGpsTracker.startPersistentEmployeeGps(
-            blazorReference, 
-            employeeId, 
-            sessionId, 
+            blazorReference,
+            employeeId,
+            sessionId,
             apiEndpoint);
+    };
+
+window.bindPersistentEmployeeGps =
+    function (blazorReference, employeeId, sessionId, apiEndpoint) {
+        return window.EmployeeGpsTracker.bindPersistentEmployeeGps(
+            blazorReference,
+            employeeId,
+            sessionId,
+            apiEndpoint);
+    };
+
+window.detachPersistentEmployeeGpsReference =
+    function () {
+        window.EmployeeGpsTracker.detachPersistentEmployeeGpsReference();
     };
 
 window.stopPersistentEmployeeGps =

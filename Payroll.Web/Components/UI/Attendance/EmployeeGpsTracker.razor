@@ -1,4 +1,4 @@
-@using global::Payroll.Web.Services
+﻿@using global::Payroll.Web.Services
 @using global::Payroll.Web.Hubs
 @using Microsoft.JSInterop
 @using Microsoft.AspNetCore.SignalR
@@ -195,7 +195,7 @@
              */
             var gpsStarted =
                 await JSRuntime.InvokeAsync<bool>(
-                    "startPersistentEmployeeGps",
+                    "bindPersistentEmployeeGps",
                     dotNetReference,
                     EmployeeId,
                     liveLocationSessionId.ToString("D"),
@@ -645,19 +645,25 @@
         /*
          * IMPORTANT:
          *
-         * Circuit disposal != logout.
+         * Circuit disposal is NOT logout.
          *
-         * Do NOT stop the browser GPS watcher here. The watcher sends
-         * locations directly through the HTTP API when the Blazor
-         * circuit is unavailable, so stopping it here would terminate
-         * live tracking during navigation/reconnect/background changes.
+         * Never stop the browser GPS watcher and never remove the
+         * live location here. The browser-side tracker is deliberately
+         * independent from the Blazor circuit and the HTTP GPS endpoint
+         * continues to be the source of live-location updates.
          *
-         * Do NOT remove the live location here either. The employee is
-         * still authenticated and has not explicitly logged out.
-         *
-         * Actual GPS cleanup is performed only by StopTracking(), which
-         * is invoked by the real logout flow.
+         * If this component is recreated after reconnect/navigation,
+         * StartTracking() rebinds the new DotNet reference without
+         * creating another watcher.
          */
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "detachPersistentEmployeeGpsReference");
+        }
+        catch
+        {
+        }
 
         try
         {

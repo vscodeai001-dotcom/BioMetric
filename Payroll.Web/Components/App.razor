@@ -116,7 +116,33 @@
        BLAZOR SERVER
        ============================================================ *@
 
-    <script src="_framework/blazor.web.js?v=20260906-session-fix"></script>
+    <script src="_framework/blazor.web.js?v=20260906-persistent-reconnect" autostart="false"></script>
+
+    <script>
+        // Keep the Blazor circuit reconnecting for a long time.
+        // A transient connection problem must never become a forced reload.
+        Blazor.start({
+            circuit: {
+                reconnectionOptions: {
+                    maxRetries: 10000,
+                    retryIntervalMilliseconds: function (previousAttempts) {
+                        return Math.min(
+                            30000,
+                            Math.max(1000, (previousAttempts + 1) * 2000)
+                        );
+                    }
+                },
+                reconnectionHandler: {
+                    onConnectionDown: function (options, error) {
+                        console.warn('Blazor connection interrupted. Retrying without logout.', error);
+                    },
+                    onConnectionUp: function () {
+                        console.log('Blazor connection restored. Session remains active.');
+                    }
+                }
+            }
+        });
+    </script>
 
     <div id="components-reconnect-modal" aria-live="polite">
         <span class="components-reconnect-show">Connection interrupted. Reconnecting...</span>

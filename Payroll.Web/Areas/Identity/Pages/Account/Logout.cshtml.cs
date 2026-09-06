@@ -30,27 +30,25 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         private readonly IDbContextFactory<AppDbContext>
             _dbFactory;
 
-        private readonly ILogger<LogoutModel>
-            _logger;
-
         private readonly GeoLocationService
             _geoLocationService;
+
+        private readonly ILogger<LogoutModel>
+            _logger;
 
 
         public LogoutModel(
             SignInManager<IdentityUser> signInManager,
             UserManager<IdentityUser> userManager,
             IDbContextFactory<AppDbContext> dbFactory,
-            ILogger<LogoutModel> logger,
-            GeoLocationService geoLocationService)
+            GeoLocationService geoLocationService,
+            ILogger<LogoutModel> logger)
         {
             _signInManager = signInManager;
             _userManager = userManager;
             _dbFactory = dbFactory;
+            _geoLocationService = geoLocationService;
             _logger = logger;
-
-            _geoLocationService =
-                geoLocationService;
         }
 
 
@@ -85,6 +83,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 if (user != null)
                 {
                     await EndEmployeeGpsSessionAsync(user);
+
                     await ReleaseEmployeeDeviceLockAsync(
                         user);
                 }
@@ -136,6 +135,8 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         }
 
 
+
+
         // ============================================================
         // END EMPLOYEE GPS SESSION ON REAL LOGOUT
         // ============================================================
@@ -143,59 +144,66 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         private async Task EndEmployeeGpsSessionAsync(
             IdentityUser user)
         {
-            var isEmployee =
-                await _userManager.IsInRoleAsync(
-                    user,
-                    "Employee");
-
-            var isAdmin =
-                await _userManager.IsInRoleAsync(
-                    user,
-                    "Admin");
-
-            var isSuperAdmin =
-                await _userManager.IsInRoleAsync(
-                    user,
-                    "SuperAdmin");
-
-            // GPS tracking belongs to employee accounts.
-            if (!isEmployee || isAdmin || isSuperAdmin)
-                return;
-
-            if (!int.TryParse(
-                    user.Id,
-                    out var employeeId) ||
-                employeeId <= 0)
+            try
             {
-                return;
+                var isEmployee =
+                    await _userManager.IsInRoleAsync(
+                        user,
+                        "Employee");
+
+                if (!isEmployee)
+                {
+                    return;
+                }
+
+                await using var db =
+                    await _dbFactory.CreateDbContextAsync();
+
+                var employee =
+                    await db.Employees
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(
+                            e => e.AspNetUserId == user.Id);
+
+                if (employee == null)
+                {
+                    return;
+                }
+
+                var activeSession =
+                    await _geoLocationService
+                        .GetActiveGpsSessionAsync(
+                            employee.EmployeeID);
+
+                if (activeSession == null)
+                {
+                    return;
+                }
+
+                await _geoLocationService.EndGpsSessionAsync(
+                    employee.EmployeeID,
+                    activeSession.SessionId,
+                    "LOGGED_OUT");
+
+                LiveLocationStore.Remove(
+                    employee.EmployeeID,
+                    activeSession.SessionId);
+
+                _logger.LogInformation(
+                    "GPS SESSION ENDED DURING MANUAL LOGOUT. " +
+                    "EmployeeId={EmployeeId}, SessionId={SessionId}",
+                    employee.EmployeeID,
+                    activeSession.SessionId);
             }
-
-            var activeSession =
-                await _geoLocationService
-                    .GetActiveGpsSessionAsync(
-                        employeeId);
-
-            if (activeSession == null ||
-                activeSession.SessionId == Guid.Empty)
+            catch (Exception ex)
             {
-                return;
+                // GPS cleanup must never block the actual Identity logout.
+                _logger.LogWarning(
+                    ex,
+                    "GPS SESSION CLEANUP FAILED DURING MANUAL LOGOUT. UserId={UserId}",
+                    user.Id);
             }
-
-            await _geoLocationService.EndGpsSessionAsync(
-                activeSession.EmployeeId,
-                activeSession.SessionId,
-                "LOGGED_OUT");
-
-            LiveLocationStore.Remove(
-                activeSession.EmployeeId,
-                activeSession.SessionId);
-
-            _logger.LogInformation(
-                "GPS session ended during real logout. UserId={UserId}, SessionId={SessionId}",
-                user.Id,
-                activeSession.SessionId);
         }
-
 
         // ============================================================
         // RELEASE EMPLOYEE LOCK

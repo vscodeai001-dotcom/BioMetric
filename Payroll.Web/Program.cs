@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Server;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
@@ -138,7 +139,13 @@ builder.Host.UseWindowsService();
 // SIGNALR
 // ============================================================
 
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    // Keep the real-time channel tolerant of ordinary mobile/Wi-Fi
+    // interruptions. This does not affect authentication or business rules.
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+});
 
 builder.Services.AddSingleton<
     AttendanceRefreshService>();
@@ -578,16 +585,23 @@ builder.Services.AddSingleton<
 // ============================================================
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents(options =>
-    {
-        // A temporary network interruption or browser backgrounding
-        // must not be treated as a logout. Keep disconnected circuits
-        // available so an authenticated user can reconnect normally.
-        options.DisconnectedCircuitRetentionPeriod =
-            TimeSpan.FromHours(24);
+    .AddInteractiveServerComponents();
 
-        options.DisconnectedCircuitMaxRetained = 1000;
-    });
+// ============================================================
+// BLAZOR CIRCUIT RECONNECT RETENTION
+// ============================================================
+// A temporary connection interruption is NOT a logout.
+// Retain disconnected circuits long enough for normal browser,
+// Wi-Fi, VPN and background-tab interruptions to reconnect.
+// ============================================================
+
+builder.Services.Configure<CircuitOptions>(options =>
+{
+    options.DisconnectedCircuitRetentionPeriod =
+        TimeSpan.FromHours(24);
+
+    options.DisconnectedCircuitMaxRetained = 1000;
+});
 
 builder.Services.AddCascadingAuthenticationState();
 
