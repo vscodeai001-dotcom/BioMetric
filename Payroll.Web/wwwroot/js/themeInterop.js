@@ -2483,6 +2483,11 @@ window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selec
 
     if (!useCollisionOffsets || items.length < 2) return byId;
 
+    // A map created by Leaflet may not have a pixel origin until setView(),
+    // fitBounds(), or another view operation has run. Keep this helper safe
+    // even if it is ever called before the map's first view is established.
+    if (!map || !map._loaded) return byId;
+
     // Group staff whose map markers would visually collide.
     const collisionMeters = 45;
     const parent = items.map(function (_, i) { return i; });
@@ -2598,6 +2603,13 @@ window.updateAdminLiveStaffMap =
                             '© OpenStreetMap contributors'
                     }
                 ).addTo(map);
+
+                // Leaflet needs a real view before latLngToLayerPoint() can be
+                // used by the collision-position calculation below. Without
+                // this initial view, the first admin render can throw before
+                // employee/office markers are painted, leaving only the gray
+                // map surface and zoom controls visible.
+                map.setView(office, 17);
 
                 const officeIcon =
                     L.divIcon({
