@@ -31,7 +31,7 @@
           type="image/png"
           href="favicon.png" />
 
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <HeadOutlet />
 
 </head>
 
@@ -54,7 +54,7 @@
        themeInterop.js is loaded before Blazor starts.
        ============================================================ *@
 
-    <script src="/js/themeInterop.js?v=20260907-premium-journey-collision-fix"></script>
+    <script src="/js/themeInterop.js?v=20260907-admin-live-cards-final"></script>
 
     @* ============================================================
        EMPLOYEE GPS TRACKER
@@ -62,7 +62,7 @@
        Must load BEFORE Blazor starts so components can call it.
        ============================================================ *@
 
-    <script src="/js/employee-gps-tracker.js?v=20260906-smooth-gps"></script>
+    <script src="/js/employee-gps-tracker.js?v=20260906-persistent-gps"></script>
 
     @* ============================================================
        REAL-TIME ATTENDANCE REFRESH
@@ -79,23 +79,18 @@
     <script src="_framework/blazor.web.js?v=20260906-persistent-reconnect" autostart="false"></script>
 
     <script>
-        // Retry transient circuit interruptions for a bounded period.
-        // If the circuit cannot be recovered, reload the current URL to create
-        // a fresh circuit. Authentication is cookie-based and is not logged out by this reload.
+        // Keep the Blazor circuit reconnecting for a long time.
+        // A transient connection problem must never become a forced reload.
         Blazor.start({
             circuit: {
                 reconnectionOptions: {
-                    maxRetries: 7,
-                    retryIntervalMilliseconds:
-                        Array.prototype.at.bind([
-                            0,
-                            2000,
-                            5000,
-                            10000,
-                            15000,
+                    maxRetries: 10000,
+                    retryIntervalMilliseconds: function (previousAttempts) {
+                        return Math.min(
                             30000,
-                            30000
-                        ])
+                            Math.max(1000, (previousAttempts + 1) * 2000)
+                        );
+                    }
                 },
                 reconnectionHandler: {
                     onConnectionDown: function (options, error) {
@@ -112,7 +107,7 @@
     <div id="components-reconnect-modal" aria-live="polite">
         <span class="components-reconnect-show">Connection interrupted. Reconnecting...</span>
         <span class="components-reconnect-failed">Connection lost. Reload to continue.</span>
-        <span class="components-reconnect-rejected">Connection state lost. Reconnecting the current page...</span>
+        <span class="components-reconnect-rejected">Session ended. Reload to sign in again.</span>
     </div>
 
     <script>
@@ -137,15 +132,14 @@
                     var state = event.detail && event.detail.state;
 
                     if (state === 'failed') {
-                        if (window.__payrollCircuitReloading) return;
-                        window.__payrollCircuitReloading = true;
-
-                        console.warn(
-                            'Blazor circuit could not reconnect after the configured retries. Reloading the current page to create a fresh circuit.');
-
-                        window.setTimeout(function () {
-                            window.location.reload();
-                        }, 500);
+                        try {
+                            if (window.Blazor &&
+                                typeof window.Blazor.reconnect === 'function') {
+                                window.Blazor.reconnect();
+                            }
+                        } catch (error) {
+                            console.warn('Blazor reconnect retry failed.', error);
+                        }
                         return;
                     }
 
