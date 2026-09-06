@@ -1,4 +1,4 @@
-﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using global::Payroll.Shared.Data
 @using Microsoft.EntityFrameworkCore
 @using global::Payroll.Shared
@@ -534,7 +534,12 @@
             _logger.LogError(ex, "Failed to load pending leave count.");
             PendingLeaveCount = 0;
         }
-        // Force re-render of the NavMenu (where the count is displayed)
-        await InvokeAsync(StateHasChanged);
+        // Do NOT call StateHasChanged() here.
+        // This method is invoked from OnParametersSetAsync. Calling
+        // StateHasChanged from the parameter lifecycle creates a render
+        // -> OnParametersSetAsync -> StateHasChanged loop. Over time that
+        // can hammer the database and eventually make the Blazor circuit
+        // unresponsive, which matches the long-session navigation failure.
+        // Blazor automatically renders after OnParametersSetAsync completes.
     }
 }

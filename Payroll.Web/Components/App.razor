@@ -111,6 +111,54 @@
     </div>
 
     <script>
+        // A Blazor Server circuit can die permanently after an unhandled
+        // component exception, server restart, instance change, or a long
+        // disconnect. In that case the browser can still show the last
+        // rendered page and the address bar can change, but interactive
+        // menu clicks no longer reach the server.
+        //
+        // Never require the employee to discover this and press Refresh.
+        // If Blazor reports that the circuit was rejected, create a fresh
+        // circuit automatically while preserving the current URL.
+        (function () {
+            var reconnectModal =
+                document.getElementById('components-reconnect-modal');
+
+            if (!reconnectModal) return;
+
+            reconnectModal.addEventListener(
+                'components-reconnect-state-changed',
+                function (event) {
+                    var state = event.detail && event.detail.state;
+
+                    if (state === 'failed') {
+                        try {
+                            if (window.Blazor &&
+                                typeof window.Blazor.reconnect === 'function') {
+                                window.Blazor.reconnect();
+                            }
+                        } catch (error) {
+                            console.warn('Blazor reconnect retry failed.', error);
+                        }
+                        return;
+                    }
+
+                    if (state === 'rejected') {
+                        if (window.__payrollCircuitReloading) return;
+                        window.__payrollCircuitReloading = true;
+
+                        console.warn(
+                            'Blazor circuit was rejected. Reloading the current page to create a new circuit.');
+
+                        window.setTimeout(function () {
+                            window.location.reload();
+                        }, 250);
+                    }
+                });
+        })();
+    </script>
+
+    <script>
         (function () {
             function keepServerAwake() {
                 fetch('/health', {
