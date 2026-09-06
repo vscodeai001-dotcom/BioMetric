@@ -1,4 +1,4 @@
-﻿@using global::Payroll.Shared.Data
+@using global::Payroll.Shared.Data
 @using global::Payroll.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
 @implements IAsyncDisposable
@@ -69,7 +69,8 @@
     private List<Notification> notifications = new();
     private int unreadCount => notifications.Count(n => !n.IsRead);
     private string userId = "";
-    private Timer? timer;
+    private CancellationTokenSource? refreshCts;
+    private Task? refreshTask;
     private DotNetObjectReference<NotificationBell>? dotNetReference;
 
     protected override async Task OnInitializedAsync()
@@ -83,12 +84,12 @@
             if (!string.IsNullOrEmpty(userId))
             {
                 await FetchNotifications();
-                // Refresh every 15s
-                timer = new Timer(async (_) =>
-                {
-                    await FetchNotifications();
-                    await InvokeAsync(StateHasChanged);
-                }, null, 0, 15000);
+
+                // One sequential refresh loop. Using Timer with an async
+                // callback can overlap database calls when a query is slow,
+                // gradually increasing circuit/server work during long sessions.
+                refreshCts = new CancellationTokenSource();
+                refreshTask = RefreshLoopAsync(refreshCts.Token);
             }
         }
     }
@@ -109,6 +110,27 @@
     {
         await FetchNotifications();
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await FetchNotifications();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Notification refresh loop stopped: {ex}");
+        }
     }
 
     private async Task FetchNotifications()
@@ -148,7 +170,20 @@
 
     public async ValueTask DisposeAsync()
     {
-        timer?.Dispose();
+        try
+        {
+            refreshCts?.Cancel();
+        }
+        catch { }
+
+        if (refreshTask != null)
+        {
+            try { await refreshTask; } catch { }
+        }
+
+        refreshCts?.Dispose();
+        refreshCts = null;
+        refreshTask = null;
 
         if (dotNetReference != null)
         {

@@ -591,16 +591,17 @@ builder.Services.AddRazorComponents()
 // BLAZOR CIRCUIT RECONNECT RETENTION
 // ============================================================
 // A temporary connection interruption is NOT a logout.
-// Retain disconnected circuits long enough for normal browser,
-// Wi-Fi, VPN and background-tab interruptions to reconnect.
+// Retain disconnected circuits briefly for normal transient interruptions.
+// Authentication/session cookies are independent of circuit retention, so a
+// dead circuit is allowed to be evicted and recreated without forcing login.
 // ============================================================
 
 builder.Services.Configure<CircuitOptions>(options =>
 {
     options.DisconnectedCircuitRetentionPeriod =
-        TimeSpan.FromHours(24);
+        TimeSpan.FromMinutes(5);
 
-    options.DisconnectedCircuitMaxRetained = 1000;
+    options.DisconnectedCircuitMaxRetained = 100;
 });
 
 builder.Services.AddCascadingAuthenticationState();
