@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8" />
@@ -16,17 +16,6 @@
 </head>
 
 <body>
-    <!-- Apply the saved theme before the identity page paints. This keeps the login page
-         consistent with the dark/light theme used by the authenticated application. -->
-    <script>
-        (function () {
-            try {
-                var theme = localStorage.getItem('payroll_theme') || 'light';
-                if (theme === 'dark') document.body.classList.add('dark');
-            } catch (e) { }
-        })();
-    </script>
-
     <header class="identity-header">
         <a class="identity-brand" asp-area="" asp-page="/Index">Payroll.Web</a>
         <div class="identity-actions">
@@ -73,9 +62,7 @@
                     }
                 };
 
-                window.identityTheme.apply(
-                    document.body.classList.contains('dark') ? 'dark' : window.themeInterop.loadTheme()
-                );
+                window.identityTheme.apply(window.themeInterop.loadTheme());
             } catch (e) {
                 console.warn('Theme init failed', e);
             }

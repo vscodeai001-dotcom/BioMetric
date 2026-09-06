@@ -2421,6 +2421,7 @@
                     AllowedRadiusMeters = x.AllowedRadiusMeters,
                     IsWithinAllowedRadius = x.IsWithinAllowedRadius,
                     AccuracyMeters = x.AccuracyMeters,
+                    LastUpdatedUtc = x.LastUpdatedUtc,
                     SessionStartedUtc = x.SessionStartedUtc,
                     Status = GetLocationStatus(x).ToString()
                 })
@@ -3627,6 +3628,8 @@
         public bool IsWithinAllowedRadius { get; set; }
 
         public double AccuracyMeters { get; set; }
+
+        public DateTime LastUpdatedUtc { get; set; }
 
         public DateTime SessionStartedUtc { get; set; }
 
