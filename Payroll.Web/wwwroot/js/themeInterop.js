@@ -1620,6 +1620,156 @@ window.payrollCancelGeoAnimation =
     };
 
 // ============================================================
+// ROAD ROUTING + JOURNEY DETAILS
+// ============================================================
+// Presentation-only road routing. Existing GPS, attendance, session and
+// database flows remain unchanged. The routing URL is replaceable for a
+// production/self-hosted routing service.
+
+window.payrollRoutingServiceUrl = window.payrollRoutingServiceUrl || 'https://router.project-osrm.org';
+window.payrollJourneyState = window.payrollJourneyState || {};
+
+window.payrollHaversineMeters = function (a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return 0;
+    const v = [Number(a[0]), Number(a[1]), Number(b[0]), Number(b[1])];
+    if (!v.every(Number.isFinite)) return 0;
+    const R = 6371000;
+    const dLat = (v[2] - v[0]) * Math.PI / 180;
+    const dLon = (v[3] - v[1]) * Math.PI / 180;
+    const p1 = v[0] * Math.PI / 180;
+    const p2 = v[2] * Math.PI / 180;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+
+window.payrollFormatRouteDistance = function (meters) {
+    const m = Number(meters) || 0;
+    return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km`;
+};
+
+window.payrollFormatRouteDuration = function (seconds) {
+    const s = Math.max(0, Math.round(Number(seconds) || 0));
+    if (s < 60) return `${s}s`;
+    const minutes = Math.round(s / 60);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins ? `${hours}h ${mins}m` : `${hours}h`;
+};
+
+window.payrollFormatSpeed = function (metersPerSecond) {
+    const speed = Number(metersPerSecond);
+    if (!Number.isFinite(speed) || speed < 0.4) return 'Stopped';
+    const kmh = speed * 3.6;
+    return `${kmh.toFixed(kmh < 10 ? 1 : 0)} km/h`;
+};
+
+window.payrollEscapeHtml = function (value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+};
+
+window.payrollFetchRoadRoute = async function (from, to, options = {}) {
+    const a = [Number(from[0]), Number(from[1])];
+    const b = [Number(to[0]), Number(to[1])];
+    if (![...a, ...b].every(Number.isFinite)) return null;
+    const base = String(window.payrollRoutingServiceUrl || '').replace(/\/$/, '');
+    if (!base) return null;
+    const url = `${base}/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson&steps=true&annotations=false`;
+    const response = await fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store', signal: options.controller?.signal });
+    if (!response.ok) throw new Error(`Routing service HTTP ${response.status}`);
+    const data = await response.json();
+    if (data.code !== 'Ok' || !data.routes?.[0]) return null;
+    const route = data.routes[0];
+    const geometry = (route.geometry?.coordinates || [])
+        .filter(c => Array.isArray(c) && c.length >= 2)
+        .map(c => [Number(c[1]), Number(c[0])])
+        .filter(c => c.every(Number.isFinite));
+    if (geometry.length < 2) return null;
+    const steps = (route.legs || []).flatMap(leg => Array.isArray(leg.steps) ? leg.steps : [])
+        .filter(step => step && (step.name || step.ref));
+    return {
+        distanceMeters: Number(route.distance) || 0,
+        durationSeconds: Number(route.duration) || 0,
+        geometry,
+        steps,
+        generatedAt: Date.now()
+    };
+};
+
+window.payrollGetNextRoadName = function (route) {
+    const step = (route?.steps || []).find(s => String(s.name || '').trim());
+    if (!step) return 'Road route';
+    const name = String(step.name || '').trim();
+    const ref = String(step.ref || '').trim();
+    return ref && ref !== name ? `${name} (${ref})` : name;
+};
+
+window.payrollCreateJourneyOverlay = function (mapElement, className) {
+    if (!mapElement) return null;
+    if (!document.getElementById('payroll-journey-map-global-style')) {
+        const style = document.createElement('style');
+        style.id = 'payroll-journey-map-global-style';
+        style.textContent = '.admin-employee-label,.payroll-employee-name-label{background:rgba(10,18,30,.92)!important;color:#fff!important;border:1px solid rgba(255,255,255,.18)!important;border-radius:10px!important;box-shadow:0 5px 14px rgba(0,0,0,.25)!important;font-size:11px!important;font-weight:800!important;padding:4px 8px!important}.admin-distance-label{background:rgba(13,110,253,.94)!important;color:#fff!important;border:0!important;border-radius:9px!important;font-weight:800!important;padding:3px 7px!important}';
+        document.head.appendChild(style);
+    }
+    let overlay = mapElement.querySelector(`.${className}`);
+    if (overlay) return overlay;
+    mapElement.style.position = 'relative';
+    overlay = document.createElement('div');
+    overlay.className = className;
+    overlay.style.cssText = 'position:absolute;left:10px;top:10px;z-index:1000;min-width:210px;max-width:min(330px,calc(100% - 20px));padding:10px 12px;border-radius:14px;background:rgba(10,18,30,.90);backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(0,0,0,.28);color:#fff;font-size:11px;line-height:1.25;pointer-events:none';
+    mapElement.appendChild(overlay);
+    return overlay;
+};
+
+window.payrollRenderJourneyOverlay = function (overlay, data) {
+    if (!overlay) return;
+    const name = window.payrollEscapeHtml(data.name || 'Employee');
+    const road = window.payrollEscapeHtml(data.road || 'Calculating road route...');
+    const distance = window.payrollFormatRouteDistance(data.distanceMeters);
+    const eta = data.durationSeconds > 0 ? window.payrollFormatRouteDuration(data.durationSeconds) : 'Calculating...';
+    const speed = window.payrollFormatSpeed(data.speedMps);
+    const accuracy = Number(data.accuracyMeters) > 0 ? `±${Math.round(Number(data.accuracyMeters))} m` : 'Unknown';
+    const elapsed = data.journeyStartedAt ? window.payrollFormatRouteDuration((Date.now() - data.journeyStartedAt) / 1000) : '0s';
+    const status = data.arrived ? 'ARRIVED AT OFFICE' : 'LIVE JOURNEY';
+    const statusColor = data.arrived ? '#43d17a' : '#58a6ff';
+    overlay.innerHTML =
+        `<div style="font-weight:800;font-size:13px;margin-bottom:6px">${name}</div>` +
+        `<div style="display:flex;gap:10px;flex-wrap:wrap"><b style="color:${statusColor}">● ${status}</b><span>To Office</span></div>` +
+        `<div style="margin-top:7px;display:grid;grid-template-columns:1fr 1fr;gap:5px 12px">` +
+        `<span>Remaining<br><b>${distance}</b></span><span>ETA<br><b>${eta}</b></span>` +
+        `<span>Speed<br><b>${speed}</b></span><span>Accuracy<br><b>${accuracy}</b></span>` +
+        `<span>Journey<br><b>${elapsed}</b></span><span>Route<br><b>Road</b></span></div>` +
+        `<div style="margin-top:7px;opacity:.78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${road}</div>`;
+};
+
+window.payrollRequestJourneyRoute = async function (state, from, to, options = {}) {
+    if (!state) return null;
+    state.routeState = state.routeState || {};
+    const rs = state.routeState;
+    const now = Date.now();
+    const minMove = Number(options.minMoveMeters) || 20;
+    const minInterval = Number(options.minIntervalMs) || 20000;
+    const moved = rs.lastRoutedPosition ? window.payrollHaversineMeters(rs.lastRoutedPosition, from) : Infinity;
+    if (rs.pending) return rs.route || null;
+    if (rs.route && now - (rs.lastRequestedAt || 0) < minInterval) return rs.route;
+    rs.pending = true;
+    rs.lastRequestedAt = now;
+    rs.controller?.abort();
+    rs.controller = new AbortController();
+    try {
+        const route = await window.payrollFetchRoadRoute(from, to, { controller: rs.controller });
+        if (route) { rs.route = route; rs.lastRoutedPosition = [from[0], from[1]]; }
+        return route || rs.route || null;
+    } catch (error) {
+        if (error?.name !== 'AbortError') console.warn('Road route unavailable:', error);
+        return rs.route || null;
+    } finally { rs.pending = false; }
+};
+
+// ============================================================
 // EMPLOYEE GEO MAP
 // FINAL ROBUST VERSION
 // ============================================================
@@ -1634,7 +1784,10 @@ window.updateGeoMap = async function (
     userLat,
     userLng,
     radius,
-    isWithin
+    isWithin,
+    employeeName,
+    sessionStartedIso,
+    accuracyMeters
 ) {
     const officeLatitude = Number(officeLat);
     const officeLongitude = Number(officeLng);
@@ -1849,32 +2002,19 @@ window.updateGeoMap = async function (
             userMarker.bindPopup(
                 "<b>YOU</b><br>Current location"
             );
+            userMarker.bindTooltip(employeeName || 'You', {
+                permanent: true, direction: 'top', offset: [0, -30], className: 'payroll-employee-name-label'
+            });
 
             // ------------------------------------------------
             // ROUTE LINE
             // ------------------------------------------------
 
-            const routeLine =
-                L.polyline(
-                    [
-                        office,
-                        user
-                    ],
-                    {
-                        color:
-                            "#0d6efd",
+            const routeLine = L.polyline([office, user], { color: "#0d6efd", weight: 3, opacity: 0.9, dashArray: "7,7" }).addTo(map);
 
-                        weight:
-                            3,
-
-                        opacity:
-                            0.9,
-
-                        dashArray:
-                            "7,7"
-                    }
-                )
-                    .addTo(map);
+            const roadRouteCasing = L.polyline([office, user], { color: '#ffffff', weight: 8, opacity: .78, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+            const roadRouteLine = L.polyline([office, user], { color: '#1688ff', weight: 5, opacity: .98, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+            const journeyOverlay = window.payrollCreateJourneyOverlay(mapElement, 'payroll-employee-journey-overlay');
 
             // ------------------------------------------------
             // GEOFENCE CIRCLE
@@ -1924,8 +2064,17 @@ window.updateGeoMap = async function (
                 userMarker:
                     userMarker,
 
-                routeLine:
-                    routeLine,
+                routeLine: routeLine,
+                roadRouteCasing: roadRouteCasing,
+                roadRouteLine: roadRouteLine,
+                journeyOverlay: journeyOverlay,
+                routeState: {},
+                journeyStartedAt: (sessionStartedIso && !Number.isNaN(Date.parse(sessionStartedIso))) ? Date.parse(sessionStartedIso) : Date.now(),
+                employeeName: employeeName || 'You',
+                lastRawPosition: user.slice(),
+                lastRawPositionAt: Date.now(),
+                speedMps: 0,
+                lastAccuracyMeters: 0,
 
                 radiusCircle:
                     radiusCircle,
@@ -1969,6 +2118,35 @@ window.updateGeoMap = async function (
             user[1] = Number(pendingEmployeePoint.longitude);
             delete window.payrollGeoLivePending[mapId];
         }
+
+        mapData.employeeName = employeeName || mapData.employeeName || 'You';
+        try { mapData.userMarker.getTooltip()?.setContent(mapData.employeeName); } catch { }
+        if (sessionStartedIso && !Number.isNaN(Date.parse(sessionStartedIso))) mapData.journeyStartedAt = Date.parse(sessionStartedIso);
+        mapData.lastAccuracyMeters = Number(accuracyMeters) || mapData.lastAccuracyMeters || 0;
+
+        const rawNow = Date.now();
+        if (mapData.lastRawPosition) {
+            const seconds = Math.max(.25, (rawNow - (mapData.lastRawPositionAt || rawNow)) / 1000);
+            mapData.speedMps = Math.min(55, window.payrollHaversineMeters(mapData.lastRawPosition, user) / seconds);
+        }
+        mapData.lastRawPosition = user.slice();
+        mapData.lastRawPositionAt = rawNow;
+
+        const employeeRoute = await window.payrollRequestJourneyRoute(mapData, user, office, { minMoveMeters: 20, minIntervalMs: 18000 });
+        if (employeeRoute?.geometry?.length > 1) {
+            mapData.roadRouteCasing.setLatLngs(employeeRoute.geometry);
+            mapData.roadRouteLine.setLatLngs(employeeRoute.geometry);
+            mapData.routeLine.setStyle({ opacity: 0 });
+        } else {
+            mapData.routeLine.setStyle({ opacity: .9 });
+        }
+        const employeeRemaining = employeeRoute?.distanceMeters || window.payrollHaversineMeters(user, office);
+        window.payrollRenderJourneyOverlay(mapData.journeyOverlay, {
+            name: mapData.employeeName, distanceMeters: employeeRemaining,
+            durationSeconds: employeeRoute?.durationSeconds || 0, speedMps: mapData.speedMps,
+            accuracyMeters: mapData.lastAccuracyMeters, journeyStartedAt: mapData.journeyStartedAt,
+            road: window.payrollGetNextRoadName(employeeRoute), arrived: employeeRemaining <= Math.max(25, allowedRadius)
+        });
 
         const employeeAnimationKey =
             'employee:' + mapId;
@@ -2184,8 +2362,28 @@ window.updateEmployeeLiveGeoMap =
 
         const office =
             mapData.office ||
-            [mapData.officeMarker.getLatLng().lat,
-             mapData.officeMarker.getLatLng().lng];
+            [mapData.officeMarker.getLatLng().lat, mapData.officeMarker.getLatLng().lng];
+
+        if (mapData.lastRawPosition) {
+            const seconds = Math.max(.25, (now - (mapData.lastRawPositionAt || now)) / 1000);
+            mapData.speedMps = Math.min(55, window.payrollHaversineMeters(mapData.lastRawPosition, target) / seconds);
+        }
+        mapData.lastRawPosition = target.slice();
+        mapData.lastRawPositionAt = now;
+
+        window.payrollRequestJourneyRoute(mapData, target, office, { minMoveMeters: 20, minIntervalMs: 18000 }).then(function(route) {
+            if (route?.geometry?.length > 1) {
+                mapData.roadRouteCasing?.setLatLngs(route.geometry);
+                mapData.roadRouteLine?.setLatLngs(route.geometry);
+                mapData.routeLine?.setStyle({ opacity: 0 });
+            }
+            const remaining = route?.distanceMeters || window.payrollHaversineMeters(target, office);
+            window.payrollRenderJourneyOverlay(mapData.journeyOverlay, {
+                name: mapData.employeeName || 'You', distanceMeters: remaining, durationSeconds: route?.durationSeconds || 0,
+                speedMps: mapData.speedMps, accuracyMeters: mapData.lastAccuracyMeters, journeyStartedAt: mapData.journeyStartedAt,
+                road: window.payrollGetNextRoadName(route), arrived: remaining <= Math.max(25, Number(mapData.radius) || 100)
+            });
+        }).catch(function() {});
 
         window.payrollSmoothMoveMarker(
             mapData.userMarker,
@@ -2194,12 +2392,15 @@ window.updateEmployeeLiveGeoMap =
             duration,
             function (position) {
                 try {
-                    mapData.routeLine.setLatLngs([
-                        office,
-                        position
-                    ]);
-                }
-                catch { }
+                    mapData.routeLine.setLatLngs([office, position]);
+                    const route = mapData.routeState?.route;
+                    const remaining = route?.distanceMeters || window.payrollHaversineMeters(position, office);
+                    window.payrollRenderJourneyOverlay(mapData.journeyOverlay, {
+                        name: mapData.employeeName || 'You', distanceMeters: remaining, durationSeconds: route?.durationSeconds || 0,
+                        speedMps: mapData.speedMps, accuracyMeters: mapData.lastAccuracyMeters, journeyStartedAt: mapData.journeyStartedAt,
+                        road: window.payrollGetNextRoadName(route), arrived: remaining <= Math.max(25, Number(mapData.radius) || 100)
+                    });
+                } catch { }
             }
         );
 
@@ -2224,6 +2425,8 @@ window.destroyGeoMap =
             return;
         }
 
+
+        try { mapData.routeState?.controller?.abort(); } catch { }
 
         try {
 
@@ -2354,7 +2557,11 @@ window.updateAdminLiveStaffMap =
                     hasInitialFit: false,
                     lastStaffSignature: '',
                     lastSelectedId: 0,
-                    lastLocationAt: {}
+                    lastLocationAt: {},
+                    routeStates: {},
+                    roadRouteLines: {},
+                    roadRouteCasings: {},
+                    journeyStartedAt: {}
                 };
 
                 window.adminLiveMaps[mapId] =
@@ -2435,6 +2642,13 @@ window.updateAdminLiveStaffMap =
                         delete state.trails[id];
                         delete state.trailPoints[id];
                         delete state.labels[id];
+                        try { state.roadRouteLines[id] && state.map.removeLayer(state.roadRouteLines[id]); } catch { }
+                        try { state.roadRouteCasings[id] && state.map.removeLayer(state.roadRouteCasings[id]); } catch { }
+                        try { state.routeStates[id]?.controller?.abort(); } catch { }
+                        delete state.roadRouteLines[id];
+                        delete state.roadRouteCasings[id];
+                        delete state.routeStates[id];
+                        delete state.journeyStartedAt[id];
                     }
                 }
             );
@@ -2481,6 +2695,14 @@ window.updateAdminLiveStaffMap =
                         lat,
                         lng
                     ];
+
+                    if (!state.routeStates[employeeId]) {
+                        state.routeStates[employeeId] = {};
+                    }
+                    if (!state.journeyStartedAt[employeeId] && x.sessionStartedUtc) {
+                        const parsedStart = Date.parse(x.sessionStartedUtc);
+                        if (!Number.isNaN(parsedStart)) state.journeyStartedAt[employeeId] = parsedStart;
+                    }
 
                     const isSelected =
                         Number(selectedId) === employeeId;
@@ -2688,6 +2910,19 @@ window.updateAdminLiveStaffMap =
                             Number(selectedId) > 0 && !isSelected ? 0 : .95
                         );
                     }
+                    if (state.roadRouteLines[employeeId]) {
+                        state.roadRouteLines[employeeId].setStyle({
+                            color: '#1688ff',
+                            weight: isSelected ? 6 : 4,
+                            opacity: Number(selectedId) > 0 && !isSelected ? 0 : (isSelected ? .98 : .72)
+                        });
+                    }
+                    if (state.roadRouteCasings[employeeId]) {
+                        state.roadRouteCasings[employeeId].setStyle({
+                            weight: isSelected ? 9 : 7,
+                            opacity: Number(selectedId) > 0 && !isSelected ? 0 : .72
+                        });
+                    }
 
                     const distance =
                         window.formatAdminDistance(
@@ -2745,18 +2980,67 @@ window.updateAdminLiveStaffMap =
                     );
 
                     const lineOptions = {
-                        color:
-                            markerColor,
+                        color: markerColor,
                         weight: 2,
                         opacity: .8,
                         dashArray: '6,6'
                     };
 
-                    if (
-                        !state.lines[
-                        employeeId
-                        ]
-                    ) {
+                    if (!state.roadRouteCasings[employeeId]) {
+                        state.roadRouteCasings[employeeId] = L.polyline([office, position], {
+                            color: '#ffffff', weight: 7, opacity: .72, lineCap: 'round', lineJoin: 'round'
+                        }).addTo(state.map);
+                    }
+                    if (!state.roadRouteLines[employeeId]) {
+                        state.roadRouteLines[employeeId] = L.polyline([office, position], {
+                            color: '#1688ff', weight: 4, opacity: .95, lineCap: 'round', lineJoin: 'round'
+                        }).addTo(state.map);
+                    }
+
+                    // Throttled road routing: actual GPS points trigger route refreshes,
+                    // while marker motion remains smoothly interpolated in the browser.
+                    const routeState = state.routeStates[employeeId];
+                    const routeNow = Date.now();
+                    if (routeState.lastRawPosition) {
+                        const seconds = Math.max(.25, (routeNow - (routeState.lastRawPositionAt || routeNow)) / 1000);
+                        routeState.speedMps = Math.min(55, window.payrollHaversineMeters(routeState.lastRawPosition, position) / seconds);
+                    } else {
+                        routeState.speedMps = 0;
+                    }
+                    routeState.lastRawPosition = position.slice();
+                    routeState.lastRawPositionAt = routeNow;
+
+                    window.payrollRequestJourneyRoute(
+                        routeState,
+                        position,
+                        office,
+                        { minMoveMeters: 25, minIntervalMs: 30000 }
+                    ).then(function(route) {
+                        if (!route || !state.markers[employeeId]) return;
+                        const remaining = route.distanceMeters || window.payrollHaversineMeters(state.markers[employeeId].getLatLng(), office);
+                        state.roadRouteCasings[employeeId]?.setLatLngs(route.geometry);
+                        state.roadRouteLines[employeeId]?.setLatLngs(route.geometry);
+                        state.lines[employeeId]?.setStyle({ opacity: 0 });
+                        const road = window.payrollEscapeHtml(window.payrollGetNextRoadName(route));
+                        const routeDistance = window.payrollFormatRouteDistance(remaining);
+                        const eta = window.payrollFormatRouteDuration(route.durationSeconds);
+                        const name = window.payrollEscapeHtml(x.name || 'Employee');
+                        if (state.labels[employeeId]) {
+                            state.labels[employeeId].setContent(`${name}<br><span style="font-size:10px;opacity:.8">${routeDistance} • ${eta}</span>`);
+                        }
+                        state.markers[employeeId].bindPopup(
+                            `<div style="min-width:210px"><strong>${name}</strong>` +
+                            `<div style="margin-top:5px"><b>To Office</b></div>` +
+                            `<div>Road distance: ${routeDistance}</div>` +
+                            `<div>ETA: ${eta}</div>` +
+                            `<div>Current road: ${road}</div>` +
+                            `<div>GPS accuracy: ${Number(x.accuracyMeters) > 0 ? '±' + Math.round(Number(x.accuracyMeters)) + ' m' : 'Unknown'}</div>` +
+                            `<div>Speed: ${window.payrollFormatSpeed(state.routeStates[employeeId].speedMps || 0)}</div>` +
+                            `</div>`
+                        );
+                    }).catch(function() {});
+
+                    if (!state.lines[employeeId]) {
                         state.lines[
                             employeeId
                         ] =
@@ -2821,18 +3105,9 @@ window.updateAdminLiveStaffMap =
                         // animation callback above.
                     }
 
-                    if (isSelected) {
-                        state.markers[
-                            employeeId
-                        ].openPopup();
-
-                        state.map.setView(
-                            position,
-                            17,
-                            {
-                                animate: true
-                            }
-                        );
+                    if (isSelected && membershipChanged) {
+                        state.markers[employeeId].openPopup();
+                        state.map.setView(position, 17, { animate: true });
                     }
                 }
             );

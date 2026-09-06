@@ -1,4 +1,4 @@
-﻿@using global::Payroll.Web.Services
+@using global::Payroll.Web.Services
 @using global::Payroll.Shared.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.JSInterop
@@ -244,6 +244,21 @@
         font-size: 18px
     }
 
+    .payroll-employee-name-label {
+        background: rgba(10,18,30,.92) !important;
+        color: #fff !important;
+        border: 1px solid rgba(255,255,255,.18) !important;
+        border-radius: 10px !important;
+        box-shadow: 0 5px 14px rgba(0,0,0,.25) !important;
+        font-size: 11px !important;
+        font-weight: 800 !important;
+        padding: 4px 8px !important;
+    }
+
+    .payroll-employee-name-label::before {
+        border-top-color: rgba(10,18,30,.92) !important;
+    }
+
     .leaflet-control-attribution {
         font-size: 8px !important
     }
@@ -475,6 +490,9 @@
     [Parameter]
     public int EmployeeId { get; set; }
 
+    [Parameter]
+    public string EmployeeName { get; set; } = "You";
+
     private bool isModuleEnabled;
     private bool isProcessing;
     private bool isRefreshingLocation;
@@ -567,7 +585,10 @@
                 currentLatitude,
                 currentLongitude,
                 radius,
-                isWithinRadius);
+                isWithinRadius,
+                EmployeeName,
+                liveSessionStartedAt.HasValue ? liveSessionStartedAt.Value.ToUniversalTime().ToString("O") : null,
+                accuracyMeters);
 
             mapReady = mapUpdated;
             mapNeedsUpdate = !mapUpdated;
