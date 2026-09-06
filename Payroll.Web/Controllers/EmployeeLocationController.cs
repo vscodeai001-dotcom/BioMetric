@@ -96,6 +96,17 @@ public sealed class EmployeeLocationController : ControllerBase
 
             var accuracy = request.Accuracy >= 0 ? request.Accuracy : 0;
 
+            // Log authenticated user information for diagnostics
+            try
+            {
+                var userIdClaim = User?.FindFirst("sub")?.Value ?? User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                _logger.LogDebug("UpdateLocation called. AuthUserId={AuthUserId}, RequestEmployeeId={RequestEmployeeId}, SessionId={SessionId}",
+                    userIdClaim,
+                    request.EmployeeId,
+                    request.SessionId);
+            }
+            catch { }
+
             // ============================================================
             // GET DISTANCE FROM OFFICE
             // ============================================================
