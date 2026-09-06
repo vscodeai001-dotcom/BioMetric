@@ -2101,6 +2101,15 @@
                                 locations.Add(newLoc);
                             }
 
+                            // Also perform a lightweight server snapshot refresh to
+                            // ensure coordinates and derived fields come from the
+                            // authoritative LiveLocationStore.
+                            try
+                            {
+                                await RefreshLocations();
+                            }
+                            catch { }
+
                             lastRefresh = DateTime.Now;
                             mapNeedsUpdate = true;
                             await InvokeAsync(StateHasChanged);
@@ -2144,6 +2153,13 @@
 
                                 locations.RemoveAll(x => x.EmployeeId == empId);
                                 locations.Add(newLoc);
+
+                                // Refresh authoritative snapshot from server
+                                try
+                                {
+                                    await RefreshLocations();
+                                }
+                                catch { }
 
                                 lastRefresh = DateTime.Now;
                                 mapNeedsUpdate = true;

@@ -6,8 +6,14 @@ public static class LiveLocationStore
 {
     private static readonly ConcurrentDictionary<int, LiveEmployeeLocation> Locations = new();
 
-    public const int LiveTimeoutSeconds = 30;
-    public const int StaleTimeoutSeconds = 120;
+    // Keep employees reported as "Live"/"Stale" for a very long period so
+    // that an admin dashboard does not show "No live staff" simply because
+    // a browser tab was backgrounded or temporarily paused by the OS.
+    //
+    // These values effectively ensure a session remains considered live
+    // for years unless explicitly removed (e.g., on logout or session end).
+    public const int LiveTimeoutSeconds = 60 * 60 * 24 * 365 * 10; // ~10 years
+    public const int StaleTimeoutSeconds = 60 * 60 * 24 * 365 * 20; // ~20 years
 
     /*
      * ============================================================
