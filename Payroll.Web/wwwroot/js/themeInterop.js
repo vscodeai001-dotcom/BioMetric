@@ -1711,15 +1711,18 @@ window.payrollCreateJourneyOverlay = function (mapElement, className) {
     if (!document.getElementById('payroll-journey-map-global-style')) {
         const style = document.createElement('style');
         style.id = 'payroll-journey-map-global-style';
-        style.textContent = '.admin-employee-label,.payroll-employee-name-label{background:rgba(10,18,30,.92)!important;color:#fff!important;border:1px solid rgba(255,255,255,.18)!important;border-radius:10px!important;box-shadow:0 5px 14px rgba(0,0,0,.25)!important;font-size:11px!important;font-weight:800!important;padding:4px 8px!important}.admin-distance-label{background:rgba(13,110,253,.94)!important;color:#fff!important;border:0!important;border-radius:9px!important;font-weight:800!important;padding:3px 7px!important}';
+        style.textContent = `
+.admin-employee-label,.payroll-employee-name-label{background:rgba(10,18,30,.92)!important;color:#fff!important;border:1px solid rgba(255,255,255,.18)!important;border-radius:10px!important;box-shadow:0 5px 14px rgba(0,0,0,.25)!important;font-size:11px!important;font-weight:800!important;padding:4px 8px!important}.admin-distance-label{background:rgba(13,110,253,.94)!important;color:#fff!important;border:0!important;border-radius:9px!important;font-weight:800!important;padding:3px 7px!important}
+.payroll-journey-overlay{position:absolute;left:12px;top:12px;z-index:1000;min-width:260px;max-width:min(365px,calc(100% - 24px));padding:0!important;border-radius:18px!important;overflow:hidden;pointer-events:none;color:#162033;background:rgba(255,255,255,.94);border:1px solid rgba(19,43,77,.12);box-shadow:0 16px 42px rgba(15,31,55,.20),0 3px 10px rgba(15,31,55,.10);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%);font-size:11px;line-height:1.25}
+.payroll-journey-card{padding:11px 12px 10px;background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(244,248,253,.94));}.payroll-journey-top{display:flex;align-items:center;gap:9px;margin-bottom:9px}.payroll-journey-avatar{width:36px;height:36px;display:grid;place-items:center;flex:0 0 36px;border-radius:12px;background:linear-gradient(145deg,#1688ff,#5b5df0);color:#fff;font-size:18px;box-shadow:0 6px 14px rgba(22,136,255,.28)}.payroll-journey-title{min-width:0;flex:1}.payroll-journey-name{font-size:13px;font-weight:900;letter-spacing:.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-journey-destination{margin-top:2px;color:#718096;font-size:10px;font-weight:700}.payroll-journey-status{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.25px;white-space:nowrap;background:#e9f9ef;color:#168447;border:1px solid rgba(22,132,71,.12)}.payroll-journey-status.live{background:#eaf4ff;color:#1268cf;border-color:rgba(18,104,207,.12)}.payroll-journey-status .dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px rgba(22,132,71,.10)}.payroll-journey-status.live .dot{box-shadow:0 0 0 3px rgba(18,104,207,.10);animation:payrollJourneyPulse 1.5s ease-in-out infinite}@keyframes payrollJourneyPulse{0%,100%{opacity:.55;transform:scale(.85)}50%{opacity:1;transform:scale(1.1)}}.payroll-journey-progress{height:5px;border-radius:99px;background:#e8edf4;overflow:hidden;margin:2px 0 10px}.payroll-journey-progress>span{display:block;height:100%;width:68%;border-radius:inherit;background:linear-gradient(90deg,#1688ff,#35b8ff,#625cff);box-shadow:0 0 9px rgba(22,136,255,.28)}.payroll-journey-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.payroll-journey-metric{min-width:0;padding:7px 6px 6px;border-radius:12px;background:rgba(244,247,251,.92);border:1px solid rgba(19,43,77,.07);text-align:center}.payroll-journey-icon{font-size:13px;line-height:1;margin-bottom:3px}.payroll-journey-label{font-size:8px;text-transform:uppercase;letter-spacing:.45px;font-weight:800;color:#8491a5}.payroll-journey-value{margin-top:2px;font-size:10.5px;font-weight:900;color:#172238;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-journey-road{display:flex;align-items:center;gap:7px;margin-top:8px;padding:7px 8px;border-radius:11px;background:rgba(22,136,255,.07);border:1px solid rgba(22,136,255,.10);color:#2f5f8e}.payroll-journey-road-icon{font-size:14px}.payroll-journey-road-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}.payroll-journey-road-caption{display:block;color:#8292a7;font-size:8px;text-transform:uppercase;letter-spacing:.4px;font-weight:800}.payroll-journey-footer{display:flex;justify-content:space-between;align-items:center;margin-top:7px;color:#8491a5;font-size:8px;font-weight:800}.payroll-journey-live-dot{color:#18a058}.payroll-journey-arrived .payroll-journey-avatar{background:linear-gradient(145deg,#19a765,#0f8f7a);box-shadow:0 6px 14px rgba(25,167,101,.25)}[data-theme="dark"] .payroll-journey-overlay,[data-bs-theme="dark"] .payroll-journey-overlay{color:#e9f1fb;background:rgba(14,22,35,.91);border-color:rgba(143,177,214,.18);box-shadow:0 18px 44px rgba(0,0,0,.46),0 3px 12px rgba(0,0,0,.28)}[data-theme="dark"] .payroll-journey-card,[data-bs-theme="dark"] .payroll-journey-card{background:linear-gradient(145deg,rgba(19,29,45,.97),rgba(11,20,34,.94))}[data-theme="dark"] .payroll-journey-destination,[data-bs-theme="dark"] .payroll-journey-destination,[data-theme="dark"] .payroll-journey-label,[data-bs-theme="dark"] .payroll-journey-label,[data-theme="dark"] .payroll-journey-footer,[data-bs-theme="dark"] .payroll-journey-footer{color:#8fa4bb}[data-theme="dark"] .payroll-journey-metric,[data-bs-theme="dark"] .payroll-journey-metric{background:rgba(28,41,59,.74);border-color:rgba(143,177,214,.12)}[data-theme="dark"] .payroll-journey-value,[data-bs-theme="dark"] .payroll-journey-value{color:#edf5ff}[data-theme="dark"] .payroll-journey-progress,[data-bs-theme="dark"] .payroll-journey-progress{background:#263548}[data-theme="dark"] .payroll-journey-road,[data-bs-theme="dark"] .payroll-journey-road{background:rgba(44,145,255,.11);border-color:rgba(44,145,255,.18);color:#a8d3ff}[data-theme="dark"] .payroll-journey-status.live,[data-bs-theme="dark"] .payroll-journey-status.live{background:rgba(39,139,255,.15);color:#7dc0ff;border-color:rgba(39,139,255,.22)}[data-theme="dark"] .payroll-journey-status,[data-bs-theme="dark"] .payroll-journey-status{background:rgba(35,176,108,.14);color:#6ee2a7;border-color:rgba(35,176,108,.20)}@media (max-width:520px){.payroll-journey-overlay{left:8px;top:8px;max-width:calc(100% - 16px);min-width:235px;border-radius:15px!important}.payroll-journey-card{padding:9px 9px 8px}.payroll-journey-avatar{width:32px;height:32px;flex-basis:32px;border-radius:10px;font-size:16px}.payroll-journey-name{font-size:12px}.payroll-journey-status{font-size:8px;padding:4px 6px}.payroll-journey-metrics{gap:4px}.payroll-journey-metric{padding:6px 4px}.payroll-journey-value{font-size:10px}}
+`;
         document.head.appendChild(style);
     }
     let overlay = mapElement.querySelector(`.${className}`);
     if (overlay) return overlay;
     mapElement.style.position = 'relative';
     overlay = document.createElement('div');
-    overlay.className = className;
-    overlay.style.cssText = 'position:absolute;left:10px;top:10px;z-index:1000;min-width:210px;max-width:min(330px,calc(100% - 20px));padding:10px 12px;border-radius:14px;background:rgba(10,18,30,.90);backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(0,0,0,.28);color:#fff;font-size:11px;line-height:1.25;pointer-events:none';
+    overlay.className = `${className} payroll-journey-overlay`;
     mapElement.appendChild(overlay);
     return overlay;
 };
@@ -1733,16 +1736,28 @@ window.payrollRenderJourneyOverlay = function (overlay, data) {
     const speed = window.payrollFormatSpeed(data.speedMps);
     const accuracy = Number(data.accuracyMeters) > 0 ? `±${Math.round(Number(data.accuracyMeters))} m` : 'Unknown';
     const elapsed = data.journeyStartedAt ? window.payrollFormatRouteDuration((Date.now() - data.journeyStartedAt) / 1000) : '0s';
-    const status = data.arrived ? 'ARRIVED AT OFFICE' : 'LIVE JOURNEY';
-    const statusColor = data.arrived ? '#43d17a' : '#58a6ff';
+    const status = data.arrived ? 'ARRIVED' : 'LIVE';
+    const statusClass = data.arrived ? '' : ' live';
+    const cardClass = data.arrived ? ' payroll-journey-arrived' : '';
     overlay.innerHTML =
-        `<div style="font-weight:800;font-size:13px;margin-bottom:6px">${name}</div>` +
-        `<div style="display:flex;gap:10px;flex-wrap:wrap"><b style="color:${statusColor}">● ${status}</b><span>To Office</span></div>` +
-        `<div style="margin-top:7px;display:grid;grid-template-columns:1fr 1fr;gap:5px 12px">` +
-        `<span>Remaining<br><b>${distance}</b></span><span>ETA<br><b>${eta}</b></span>` +
-        `<span>Speed<br><b>${speed}</b></span><span>Accuracy<br><b>${accuracy}</b></span>` +
-        `<span>Journey<br><b>${elapsed}</b></span><span>Route<br><b>Road</b></span></div>` +
-        `<div style="margin-top:7px;opacity:.78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${road}</div>`;
+        `<div class="payroll-journey-card${cardClass}">` +
+        `<div class="payroll-journey-top">` +
+        `<div class="payroll-journey-avatar">${data.arrived ? '🏁' : '🛵'}</div>` +
+        `<div class="payroll-journey-title"><div class="payroll-journey-name">${name}</div><div class="payroll-journey-destination">📍 Destination • To Office</div></div>` +
+        `<div class="payroll-journey-status${statusClass}"><span class="dot"></span>${status}</div>` +
+        `</div>` +
+        `<div class="payroll-journey-progress"><span></span></div>` +
+        `<div class="payroll-journey-metrics">` +
+        `<div class="payroll-journey-metric"><div class="payroll-journey-icon">📏</div><div class="payroll-journey-label">Remaining</div><div class="payroll-journey-value">${distance}</div></div>` +
+        `<div class="payroll-journey-metric"><div class="payroll-journey-icon">⏱️</div><div class="payroll-journey-label">ETA</div><div class="payroll-journey-value">${eta}</div></div>` +
+        `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🚦</div><div class="payroll-journey-label">Speed</div><div class="payroll-journey-value">${window.payrollEscapeHtml(speed)}</div></div>` +
+        `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🎯</div><div class="payroll-journey-label">Accuracy</div><div class="payroll-journey-value">${accuracy}</div></div>` +
+        `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🕐</div><div class="payroll-journey-label">Journey</div><div class="payroll-journey-value">${elapsed}</div></div>` +
+        `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🛣️</div><div class="payroll-journey-label">Route</div><div class="payroll-journey-value">Road</div></div>` +
+        `</div>` +
+        `<div class="payroll-journey-road"><span class="payroll-journey-road-icon">🛣️</span><div class="payroll-journey-road-text"><span class="payroll-journey-road-caption">Current road</span>${road}</div></div>` +
+        `<div class="payroll-journey-footer"><span class="payroll-journey-live-dot">● GPS LIVE</span><span>🏢 Office destination</span></div>` +
+        `</div>`;
 };
 
 window.payrollRequestJourneyRoute = async function (state, from, to, options = {}) {
