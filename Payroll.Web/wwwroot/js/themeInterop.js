@@ -3466,6 +3466,29 @@ window.updateAdminLiveStaffMap =
                     state.map.setView(office, 17);
                 }
 
+                /* Reposition rich admin cards after fitBounds changes the map projection. */
+                setTimeout(function () {
+                    try {
+                        const refreshed = window.payrollBuildAdminMarkerDisplayPositions(
+                            state.map,
+                            liveStaff,
+                            selectedId
+                        );
+
+                        liveStaff.forEach(function (x) {
+                            const employeeId = Number(x.employeeId);
+                            const item = refreshed[employeeId];
+                            const label = state.labels[employeeId];
+                            if (!item || !label) return;
+
+                            label.setLatLng([
+                                Number(x.latitude) + Number(item.cardOffsetY || 0),
+                                Number(x.longitude) + Number(item.cardOffsetX || 0)
+                            ]);
+                        });
+                    } catch { }
+                }, 700);
+
                 state.hasInitialFit = true;
             }
 
