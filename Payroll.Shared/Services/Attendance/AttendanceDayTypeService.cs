@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Payroll.Shared;
@@ -26,7 +26,11 @@ namespace Payroll.Shared.Services
 
             bool isHoliday = holidays.Any(h => h.HolidayDate == dateOnly);
             bool isCompOffDay = emp.CompOffDayOfWeek.HasValue && day.DayOfWeek == emp.CompOffDayOfWeek.Value;
-            bool hasPunches = orderedPunches != null && orderedPunches.Count >= 2;
+            // A single IN punch is already a valid active attendance day.
+            // The attendance calculator will keep that punch open and
+            // calculate the elapsed time up to the current India time.
+            // Therefore, one punch must NOT be classified as Absent.
+            bool hasPunches = orderedPunches != null && orderedPunches.Count >= 1;
 
             // Holiday logic
             if (isHoliday)
