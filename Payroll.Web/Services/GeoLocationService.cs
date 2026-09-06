@@ -147,6 +147,15 @@ public class GeoLocationService
             {
                 previous.EndedAtUtc = now;
                 previous.EndReason = "NEW_SESSION";
+                // Ensure previous in-memory entries are removed so admins don't see old sessions
+                try
+                {
+                    LiveLocationStore.Remove(previous.EmployeeId, previous.SessionId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to remove previous LiveLocationStore entry for employee {EmployeeId}", previous.EmployeeId);
+                }
             }
 
             var session = new EmployeeGpsSession
@@ -409,6 +418,16 @@ public class GeoLocationService
                 employeeId,
                 sessionId,
                 session.EndReason);
+
+            // Remove from in-memory live location store so admin UI updates immediately.
+            try
+            {
+                LiveLocationStore.Remove(employeeId, sessionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to remove session from LiveLocationStore after end. EmployeeId={EmployeeId}", employeeId);
+            }
 
             /*
              * BROADCAST SESSION END
