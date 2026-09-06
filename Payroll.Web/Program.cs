@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.Components.Server;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
@@ -29,6 +28,7 @@ using Payroll.Shared.Services;
 using Payroll.Web.Components;
 using Payroll.Web.Hubs;
 using Payroll.Web.Services;
+using Payroll.Web.Security;
 
 
 // ============================================================
@@ -139,13 +139,15 @@ builder.Host.UseWindowsService();
 // SIGNALR
 // ============================================================
 
-builder.Services.AddSignalR(options =>
-{
-    // Keep the real-time channel tolerant of ordinary mobile/Wi-Fi
-    // interruptions. This does not affect authentication or business rules.
-    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-    options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
-});
+builder.Services.AddSignalR();
+
+// Native Android employee authentication. This is an opaque, Data Protection
+// backed bearer token and is validated against the existing employee device
+// lock, so the web and Android one-device rule share the same authority.
+builder.Services.AddSingleton<MobileEmployeeTokenService>();
+builder.Services.AddAuthentication()
+    .AddScheme<AuthenticationSchemeOptions, MobileTokenAuthenticationHandler>(
+        "MobileBearer", _ => { });
 
 builder.Services.AddSingleton<
     AttendanceRefreshService>();
@@ -585,24 +587,16 @@ builder.Services.AddSingleton<
 // ============================================================
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents(options =>
+    {
+        // A temporary network interruption or browser backgrounding
+        // must not be treated as a logout. Keep disconnected circuits
+        // available so an authenticated user can reconnect normally.
+        options.DisconnectedCircuitRetentionPeriod =
+            TimeSpan.FromHours(24);
 
-// ============================================================
-// BLAZOR CIRCUIT RECONNECT RETENTION
-// ============================================================
-// A temporary connection interruption is NOT a logout.
-// Retain disconnected circuits briefly for normal transient interruptions.
-// Authentication/session cookies are independent of circuit retention, so a
-// dead circuit is allowed to be evicted and recreated without forcing login.
-// ============================================================
-
-builder.Services.Configure<CircuitOptions>(options =>
-{
-    options.DisconnectedCircuitRetentionPeriod =
-        TimeSpan.FromMinutes(5);
-
-    options.DisconnectedCircuitMaxRetained = 100;
-});
+        options.DisconnectedCircuitMaxRetained = 1000;
+    });
 
 builder.Services.AddCascadingAuthenticationState();
 
