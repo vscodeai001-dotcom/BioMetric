@@ -202,6 +202,32 @@ namespace Payroll.Shared.Services
         }
 
         // ============================================================
+        // DIAGNOSTIC LOGGING
+        //
+        // Logging only. These helpers do not change attendance results.
+        // They make unusual punch patterns easier to investigate.
+        // ============================================================
+
+        private void LogInvalidPunchPair(
+            List<AttendanceLog> punches,
+            int index)
+        {
+            if (punches == null ||
+                index < 0 ||
+                index + 1 >= punches.Count)
+            {
+                return;
+            }
+
+            _logger.LogWarning(
+                "Attendance invalid punch pair detected. " +
+                "PunchIndex={PunchIndex}, In={InTime}, Out={OutTime}",
+                index,
+                punches[index].PunchTime,
+                punches[index + 1].PunchTime);
+        }
+
+        // ============================================================
         // GROSS WORKED
         //
         // Completed pairs:
@@ -248,6 +274,12 @@ namespace Payroll.Shared.Services
                 {
                     total +=
                         outTime - inTime;
+                }
+                else
+                {
+                    LogInvalidPunchPair(
+                        punches,
+                        i);
                 }
             }
 
@@ -637,29 +669,6 @@ namespace Payroll.Shared.Services
                 DateTime.DaysInMonth(
                     year,
                     month);
-
-            int workDaysInMonth = 0;
-
-            for (int d = 1;
-                 d <= daysInMonth;
-                 d++)
-            {
-                DateTime day =
-                    new DateTime(
-                        year,
-                        month,
-                        d);
-
-                bool isCompOff =
-                    emp.CompOffDayOfWeek.HasValue &&
-                    day.DayOfWeek ==
-                    emp.CompOffDayOfWeek.Value;
-
-                if (!isCompOff)
-                {
-                    workDaysInMonth++;
-                }
-            }
 
             TimeSpan totalMonthScheduledNet =
                 TimeSpan.Zero;
@@ -1292,6 +1301,13 @@ namespace Payroll.Shared.Services
                     else if (
                         pr.Ordered.Count % 2 != 0)
                     {
+                        _logger.LogInformation(
+                            "Attendance odd-punch case. " +
+                            "Date={Date}, PunchCount={PunchCount}, " +
+                            "OpenPunchLive={OpenPunchLive}",
+                            day.Date,
+                            pr.Ordered.Count,
+                            openPunchEnd.HasValue);
                         if (openPunchEnd.HasValue)
                         {
                             status =
