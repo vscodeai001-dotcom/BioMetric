@@ -1009,11 +1009,45 @@ namespace Payroll.Shared.Services
                                 pr.Ordered,
                                 0);
 
+                    // ------------------------------------------------
+                    // WEEKLY OFF WORKED
+                    //
+                    // Weekly Off has no scheduled shift for attendance
+                    // calculation.
+                    //
+                    // Gross Worked is the actual completed punch-pair
+                    // time:
+                    //
+                    // IN -> OUT
+                    // IN -> OUT
+                    // IN -> OUT
+                    //
+                    // Break/gap time is already calculated separately
+                    // above and must NOT be subtracted from Gross Worked.
+                    //
+                    // Example:
+                    //
+                    // 08:37 - 09:12 = 00:35
+                    // 09:47 - 10:25 = 00:38
+                    // 11:18 - 11:40 = 00:22
+                    // 11:48 - 11:50 = 00:02
+                    //
+                    // Gross Worked = 01:37
+                    //
+                    // Gross Break remains separately:
+                    // 01:36
+                    //
+                    // Therefore:
+                    // Gross Worked = 01:37
+                    // OT           = 01:37
+                    //
+                    // Do NOT subtract totalBreak here.
+                    // ------------------------------------------------
+
                     earnedStandard =
                         CalculateGrossWorkedIncludingOpenPunch(
                             pr.Ordered,
-                            openPunchEnd) -
-                        totalBreak;
+                            openPunchEnd);
 
                     if (earnedStandard < TimeSpan.Zero)
                     {
@@ -1021,6 +1055,7 @@ namespace Payroll.Shared.Services
                             TimeSpan.Zero;
                     }
 
+                    // Weekly Off worked time is OT.
                     overtime =
                         earnedStandard;
 
