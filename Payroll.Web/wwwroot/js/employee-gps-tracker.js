@@ -458,15 +458,30 @@ window.EmployeeGpsTracker = (function () {
 
         try {
             const now = Date.now();
-
-            // Throttle broadcasts to prevent excessive updates
-            if (now - lastBroadcastTime < BROADCAST_INTERVAL_MS) {
-                return;
-            }
-
-            lastBroadcastTime = now;
-
             const coords = position.coords;
+
+            // --------------------------------------------------------
+            // LOCAL MAP MOTION
+            // --------------------------------------------------------
+            // The browser may receive GPS fixes more frequently than the
+            // server update throttle. Feed those real fixes directly to
+            // the employee map so the marker remains visually continuous.
+            // This does not change server/DB update frequency.
+            try {
+                if (window.updateEmployeeLiveGeoMap) {
+                    window.updateEmployeeLiveGeoMap(
+                        employeeId,
+                        coords.latitude,
+                        coords.longitude
+                    );
+                }
+            }
+            catch (mapError) {
+                console.warn(
+                    'Employee live map motion update failed:',
+                    mapError
+                );
+            }
 
             // Store last location for forced updates
             lastLocationData = {
@@ -475,6 +490,15 @@ window.EmployeeGpsTracker = (function () {
                 accuracy: coords.accuracy,
                 timestamp: now
             };
+
+            // Throttle server broadcasts to the existing 5-second rate.
+            // Only the visual interpolation above uses the more frequent
+            // browser GPS callbacks.
+            if (now - lastBroadcastTime < BROADCAST_INTERVAL_MS) {
+                return;
+            }
+
+            lastBroadcastTime = now;
 
             console.log(
                 'GPS Update: ' +
