@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 
 using Payroll.Shared.Data;
+using Payroll.Web.Services;
 
 namespace Payroll.Web.Areas.Identity.Pages.Account
 {
@@ -29,6 +30,9 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
         private readonly IDbContextFactory<AppDbContext>
             _dbFactory;
 
+        private readonly GeoLocationService
+            _geoLocationService;
+
         private readonly ILogger<LogoutModel>
             _logger;
 
@@ -37,11 +41,13 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             SignInManager<IdentityUser> signInManager,
             UserManager<IdentityUser> userManager,
             IDbContextFactory<AppDbContext> dbFactory,
+            GeoLocationService geoLocationService,
             ILogger<LogoutModel> logger)
         {
             _signInManager = signInManager;
             _userManager = userManager;
             _dbFactory = dbFactory;
+            _geoLocationService = geoLocationService;
             _logger = logger;
         }
 
@@ -76,6 +82,7 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
             {
                 if (user != null)
                 {
+                    await EndEmployeeGpsSessionAsync(user);
                     await ReleaseEmployeeDeviceLockAsync(
                         user);
                 }
@@ -124,6 +131,78 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 {
                     area = "Identity"
                 });
+        }
+
+
+        // ============================================================
+        // END EMPLOYEE GPS SESSION
+        // ============================================================
+        //
+        // Real logout is the authoritative point at which GPS tracking
+        // is ended. Circuit disposal, page navigation, and temporary
+        // network interruptions do not end the GPS session.
+        // ============================================================
+
+        private async Task EndEmployeeGpsSessionAsync(
+            IdentityUser user)
+        {
+            if (user == null)
+                return;
+
+            if (!await _userManager.IsInRoleAsync(
+                    user,
+                    "Employee"))
+            {
+                return;
+            }
+
+            if (await _userManager.IsInRoleAsync(user, "Admin") ||
+                await _userManager.IsInRoleAsync(user, "SuperAdmin"))
+            {
+                return;
+            }
+
+            if (!int.TryParse(user.Id, out var employeeId) ||
+                employeeId <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var activeSession =
+                    await _geoLocationService.GetActiveGpsSessionAsync(
+                        employeeId);
+
+                if (activeSession == null ||
+                    activeSession.SessionId == Guid.Empty)
+                {
+                    return;
+                }
+
+                await _geoLocationService.EndGpsSessionAsync(
+                    employeeId,
+                    activeSession.SessionId,
+                    "LOGGED_OUT");
+
+                LiveLocationStore.Remove(
+                    employeeId,
+                    activeSession.SessionId);
+
+                _logger.LogInformation(
+                    "GPS session ended immediately during manual logout. " +
+                    "EmployeeId={EmployeeId}, SessionId={SessionId}",
+                    employeeId,
+                    activeSession.SessionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "GPS session cleanup failed during manual logout. " +
+                    "EmployeeId={EmployeeId}",
+                    employeeId);
+            }
         }
 
 

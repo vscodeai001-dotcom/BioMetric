@@ -1,4 +1,4 @@
-﻿@using global::Payroll.Web.Services
+@using global::Payroll.Web.Services
 @using global::Payroll.Web.Hubs
 @using Microsoft.JSInterop
 @using Microsoft.AspNetCore.SignalR
@@ -16,8 +16,9 @@
     -------------
     1. Normal navigation does NOT create a new GPS session.
     2. Circuit disposal does NOT end the database GPS session.
-    3. Browser tab close does NOT immediately mark the employee logged out.
-    4. The database session is allowed to timeout naturally.
+    3. Browser/tab closure does NOT mark the employee logged out.
+       (A browser page cannot execute JavaScript after it is fully closed.)
+    4. The database session remains active until real logout.
     5. A real logout explicitly ends the GPS session.
     6. If an old browser session has already timed out, a new SessionId
        is automatically generated.
@@ -68,9 +69,7 @@
      *
      * localStorage allows:
      *
-     * Close tab
-     *     ↓
-     * Open tab again
+     * Reconnect/reopen while the authenticated device lock remains active
      *     ↓
      * Same browser GPS SessionId
      *
@@ -643,42 +642,29 @@
         disposed = true;
 
         /*
-         * Stop only the browser watcher associated with this
-         * Blazor circuit.
+         * IMPORTANT:
+         *
+         * Circuit disposal is NOT logout.
+         *
+         * Do NOT stop the browser GPS watcher here.
+         * The JavaScript tracker is deliberately independent of the
+         * Blazor circuit and can continue using the HTTP GPS endpoint
+         * while the circuit is reconnecting.
+         *
+         * Real logout stops the watcher from LoginDisplay and the
+         * server-side logout endpoint ends the GPS session.
          */
-        try
-        {
-            await JSRuntime.InvokeVoidAsync(
-                "stopPersistentEmployeeGps");
-        }
-        catch
-        {
-        }
 
         /*
-         * Remove the in-memory live location.
+         * Do NOT remove the in-memory live location here.
          *
-         * The DATABASE session remains active temporarily.
+         * The employee may still be authenticated and the browser
+         * GPS tracker may still be active. Removing it here caused
+         * the admin map to show "No live staff locations" during a
+         * normal circuit disposal/reconnect.
          *
-         * MarkTimedOutSessionsAsync() will eventually close it
-         * if GPS updates do not resume.
+         * Real logout removes it through the server logout flow.
          */
-        try
-        {
-            if (sessionStarted)
-            {
-                LiveLocationStore.Remove(
-                    EmployeeId,
-                    liveLocationSessionId);
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"GPS live location cleanup failed. " +
-                $"EmployeeId={EmployeeId}. " +
-                $"Error={ex}");
-        }
 
         try
         {

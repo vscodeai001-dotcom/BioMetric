@@ -1,4 +1,4 @@
-﻿using Blazored.Toast;
+using Blazored.Toast;
 using Blazored.Toast.Services;
 
 using System.Globalization;
@@ -578,7 +578,22 @@ builder.Services.AddSingleton<
 // ============================================================
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents(options =>
+    {
+        // Keep disconnected Blazor circuits available for normal
+        // temporary network/browser interruptions. This does NOT
+        // change authentication or any business calculation rules.
+        //
+        // The authentication cookie is already long-lived; this setting
+        // prevents the Blazor circuit itself from being rejected after
+        // a short disconnect, which was the source of the
+        // "Session ended. Reload to sign in again." message.
+        options.DisconnectedCircuitRetentionPeriod =
+            TimeSpan.FromDays(30);
+
+        options.DisconnectedCircuitMaxRetained =
+            10000;
+    });
 
 builder.Services.AddCascadingAuthenticationState();
 

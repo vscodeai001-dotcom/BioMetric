@@ -18,7 +18,7 @@
  * - localStorage persists across tab close/reopen
  * - GPS watcher survives Blazor circuit reconnect
  * - GPS data sent via HTTP API, not dependent on Blazor JSInterop
- * - Continues tracking even when tab is inactive or closed
+ * - Continues tracking while the page is running, including background/inactive tabs when the browser permits it
  */
 
 window.EmployeeGpsTracker = (function () {
@@ -148,7 +148,27 @@ window.EmployeeGpsTracker = (function () {
         console.log('startPersistentEmployeeGps called with empId=' + empId);
 
         if (isWatching) {
-            console.log('GPS watcher already running');
+            /*
+             * A Blazor circuit can reconnect/recreate the component while
+             * the browser GPS watcher is still running.
+             *
+             * Rebind the current circuit reference and session details
+             * instead of returning with the old (possibly disposed)
+             * DotNetObjectReference.
+             *
+             * No second geolocation watcher is created.
+             */
+            dotNetReference = blazorReference;
+            employeeId = empId;
+            gpsSessionId = sessionId;
+            apiEndpoint = endpoint || '/api/employee-location/update';
+
+            startKeepalive();
+
+            console.log(
+                'GPS watcher already running; current Blazor circuit reference rebound.'
+            );
+
             return true;
         }
 
@@ -352,7 +372,7 @@ window.EmployeeGpsTracker = (function () {
     // ============================================================
     // Periodically force GPS update via HTTP API
     // This handles browser power management that pauses watchPosition
-    // Works even if tab is inactive, circuit disconnected, or browser closed
+    // Works while the page is running, including when the Blazor circuit is disconnected
     // ============================================================
 
     function startVisibilityAndBackgroundCheck() {

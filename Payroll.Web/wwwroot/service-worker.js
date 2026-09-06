@@ -1,8 +1,8 @@
 'use strict';
 
-// Minimal service worker to support Background Sync for GPS queued locations.
-// This file uses Cache API sparingly and implements a sync handler that
-// attempts to flush the queued GPS locations stored in localStorage.
+// Minimal service worker to support Background Sync for queued GPS locations.
+// A service worker can flush queued coordinates, but it cannot obtain a new
+// browser geolocation reading after the page has been fully closed.
 
 self.addEventListener('install', event => {
     self.skipWaiting();
