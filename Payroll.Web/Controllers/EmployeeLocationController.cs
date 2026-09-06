@@ -339,3 +339,33 @@ public sealed class EmployeeLocationController : ControllerBase
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     }
 }
+
+// Diagnostic endpoints for admin debugging only
+[ApiController]
+[Route("api/diagnostics")]
+[Authorize]
+public sealed class DiagnosticsController : ControllerBase
+{
+    [HttpGet("live-locations")]
+    public IActionResult GetLiveLocations()
+    {
+        try
+        {
+            var list = LiveLocationStore.GetAll().Select(x => new
+            {
+                x.EmployeeId,
+                x.Latitude,
+                x.Longitude,
+                x.LastUpdatedUtc,
+                x.SessionStartedUtc,
+                x.SessionId
+            }).ToList();
+
+            return Ok(list);
+        }
+        catch
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError);
+        }
+    }
+}
