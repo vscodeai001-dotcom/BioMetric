@@ -1205,36 +1205,3 @@ body.dark .user-creation-form .form-control:-webkit-autofill:focus {
     box-shadow: 0 0 0 1000px #151c25 inset !important;
     caret-color: #f3f6fa !important;
 }
-/* =========================================================
-   IDENTITY LOGIN / REGISTER - DARK MODE
-   ========================================================= */
-body.dark .identity-login-card {
-    background: linear-gradient(145deg, #1b2430, #121a24) !important;
-    border-color: #344150 !important;
-    box-shadow: 0 18px 46px rgba(0, 0, 0, .38) !important;
-}
-
-body.dark .identity-login-card .form-control {
-    background: #151d27 !important;
-    color: #f3f6fa !important;
-    border-color: #3a4756 !important;
-}
-
-body.dark .identity-login-card .form-control::placeholder {
-    color: #93a3b6 !important;
-}
-
-body.dark .identity-login-card .form-control:focus {
-    border-color: #67a4ff !important;
-    box-shadow: 0 0 0 .2rem rgba(103, 164, 255, .18) !important;
-}
-
-body.dark .identity-login-card .form-check-input {
-    background-color: #151d27;
-    border-color: #536274;
-}
-
-body.dark .identity-login-card .form-check-input:checked {
-    background-color: #3d8bfd;
-    border-color: #3d8bfd;
-}

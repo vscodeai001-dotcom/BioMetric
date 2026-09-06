@@ -1714,7 +1714,9 @@ window.payrollCreateJourneyOverlay = function (mapElement, className) {
         style.textContent = `
 .admin-employee-label,.payroll-employee-name-label{background:rgba(10,18,30,.92)!important;color:#fff!important;border:1px solid rgba(255,255,255,.18)!important;border-radius:10px!important;box-shadow:0 5px 14px rgba(0,0,0,.25)!important;font-size:11px!important;font-weight:800!important;padding:4px 8px!important}.payroll-admin-employee-badge-wrap{background:transparent!important;border:0!important;pointer-events:none!important}.payroll-admin-employee-badge{width:max-content;max-width:190px;min-width:110px;padding:5px 8px 6px;border-radius:10px;background:rgba(12,19,30,.94);border:1px solid rgba(255,255,255,.18);box-shadow:0 8px 18px rgba(0,0,0,.30),0 0 0 1px rgba(28,145,255,.08);color:#fff;line-height:1.08;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}.payroll-admin-employee-badge-name{font-size:10px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-admin-employee-badge-meta{margin-top:2px;font-size:8px;font-weight:800;color:#c9d7e8;white-space:nowrap}.payroll-admin-employee-badge-road{margin-top:2px;font-size:7px;font-weight:700;color:#7fc3ff;max-width:174px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.admin-distance-label{background:rgba(13,110,253,.94)!important;color:#fff!important;border:0!important;border-radius:9px!important;font-weight:800!important;padding:3px 7px!important}
 .payroll-journey-overlay{position:absolute;left:10px;top:10px;z-index:1000;width:min(285px,calc(100% - 20px));min-width:0;max-width:calc(100% - 20px);padding:0!important;border-radius:16px!important;overflow:hidden;pointer-events:none;color:#162033;background:rgba(255,255,255,.94);border:1px solid rgba(19,43,77,.12);box-shadow:0 14px 34px rgba(15,31,55,.22),0 3px 10px rgba(15,31,55,.10);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%);font-size:10px;line-height:1.15}
-.payroll-journey-card{padding:7px 8px 6px;background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(244,248,253,.94));}.payroll-journey-top{display:flex;align-items:center;gap:7px;margin-bottom:5px;min-height:31px}.payroll-journey-avatar{width:30px;height:30px;display:grid;place-items:center;flex:0 0 30px;border-radius:10px;background:linear-gradient(145deg,#1688ff,#5b5df0);color:#fff;font-size:15px;box-shadow:0 5px 12px rgba(22,136,255,.28)}.payroll-journey-title{min-width:0;flex:1}.payroll-journey-name{font-size:12px;font-weight:900;letter-spacing:.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-journey-destination{margin-top:1px;color:#718096;font-size:8px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-journey-status{display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:999px;font-size:7px;font-weight:900;letter-spacing:.2px;white-space:nowrap;background:#e9f9ef;color:#168447;border:1px solid rgba(22,132,71,.12)}.payroll-journey-status.live{background:#eaf4ff;color:#1268cf;border-color:rgba(18,104,207,.12)}.payroll-journey-status .dot{width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 0 2px rgba(22,132,71,.10)}.payroll-journey-status.live .dot{box-shadow:0 0 0 2px rgba(18,104,207,.10);animation:payrollJourneyPulse 1.5s ease-in-out infinite}@keyframes payrollJourneyPulse{0%,100%{opacity:.55;transform:scale(.85)}50%{opacity:1;transform:scale(1.1)}}.payroll-journey-progress{height:4px;border-radius:99px;background:#e8edf4;overflow:hidden;margin:1px 0 6px}.payroll-journey-progress>span{display:block;height:100%;width:68%;border-radius:inherit;background:linear-gradient(90deg,#1688ff,#35b8ff,#625cff);box-shadow:0 0 8px rgba(22,136,255,.28)}.payroll-journey-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.payroll-journey-metric{min-width:0;min-height:29px;padding:4px 4px 3px;border-radius:9px;background:rgba(244,247,251,.92);border:1px solid rgba(19,43,77,.07);text-align:center}.payroll-journey-icon{font-size:10px;line-height:1;margin-bottom:2px}.payroll-journey-label{font-size:6.5px;text-transform:uppercase;letter-spacing:.35px;font-weight:800;color:#8491a5;line-height:1}.payroll-journey-value{margin-top:2px;font-size:9px;line-height:1;font-weight:900;color:#172238;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-journey-road{display:flex;align-items:center;gap:5px;margin-top:5px;padding:5px 6px;border-radius:9px;background:rgba(22,136,255,.07);border:1px solid rgba(22,136,255,.10);color:#2f5f8e;min-height:22px}.payroll-journey-road-icon{font-size:11px}.payroll-journey-road-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800;font-size:8px}.payroll-journey-road-caption{display:inline;color:#8292a7;font-size:6px;text-transform:uppercase;letter-spacing:.3px;font-weight:800;margin-right:3px}.payroll-journey-footer{display:flex;justify-content:space-between;align-items:center;margin-top:4px;color:#8491a5;font-size:6.5px;font-weight:800}.payroll-journey-live-dot{color:#18a058}.payroll-journey-arrived .payroll-journey-avatar{background:linear-gradient(145deg,#19a765,#0f8f7a);box-shadow:0 5px 12px rgba(25,167,101,.25)}[data-theme="dark"] .payroll-admin-employee-badge,[data-bs-theme="dark"] .payroll-admin-employee-badge{background:rgba(11,20,34,.95);border-color:rgba(125,192,255,.20);box-shadow:0 10px 24px rgba(0,0,0,.48),0 0 0 1px rgba(125,192,255,.06)}[data-theme="dark"] .payroll-admin-employee-badge-meta,[data-bs-theme="dark"] .payroll-admin-employee-badge-meta{color:#b9cbe0}[data-theme="dark"] .payroll-admin-employee-badge-road,[data-bs-theme="dark"] .payroll-admin-employee-badge-road{color:#7dc0ff}[data-theme="light"] .payroll-admin-employee-badge,[data-bs-theme="light"] .payroll-admin-employee-badge{background:rgba(255,255,255,.96);color:#172238;border-color:rgba(20,55,90,.12);box-shadow:0 8px 20px rgba(15,31,55,.18)}[data-theme="light"] .payroll-admin-employee-badge-meta,[data-bs-theme="light"] .payroll-admin-employee-badge-meta{color:#60748c}[data-theme="light"] .payroll-admin-employee-badge-road,[data-bs-theme="light"] .payroll-admin-employee-badge-road{color:#286da8}\n[data-theme="dark"] .payroll-journey-overlay,[data-bs-theme="dark"] .payroll-journey-overlay{color:#e9f1fb;background:rgba(14,22,35,.91);border-color:rgba(143,177,214,.18);box-shadow:0 18px 44px rgba(0,0,0,.46),0 3px 12px rgba(0,0,0,.28)}[data-theme="dark"] .payroll-journey-card,[data-bs-theme="dark"] .payroll-journey-card{background:linear-gradient(145deg,rgba(19,29,45,.97),rgba(11,20,34,.94))}[data-theme="dark"] .payroll-journey-destination,[data-bs-theme="dark"] .payroll-journey-destination,[data-theme="dark"] .payroll-journey-label,[data-bs-theme="dark"] .payroll-journey-label,[data-theme="dark"] .payroll-journey-footer,[data-bs-theme="dark"] .payroll-journey-footer{color:#8fa4bb}[data-theme="dark"] .payroll-journey-metric,[data-bs-theme="dark"] .payroll-journey-metric{background:rgba(28,41,59,.74);border-color:rgba(143,177,214,.12)}[data-theme="dark"] .payroll-journey-value,[data-bs-theme="dark"] .payroll-journey-value{color:#edf5ff}[data-theme="dark"] .payroll-journey-progress,[data-bs-theme="dark"] .payroll-journey-progress{background:#263548}[data-theme="dark"] .payroll-journey-road,[data-bs-theme="dark"] .payroll-journey-road{background:rgba(44,145,255,.11);border-color:rgba(44,145,255,.18);color:#a8d3ff}[data-theme="dark"] .payroll-journey-status.live,[data-bs-theme="dark"] .payroll-journey-status.live{background:rgba(39,139,255,.15);color:#7dc0ff;border-color:rgba(39,139,255,.22)}[data-theme="dark"] .payroll-journey-status,[data-bs-theme="dark"] .payroll-journey-status{background:rgba(35,176,108,.14);color:#6ee2a7;border-color:rgba(35,176,108,.20)}@media (max-width:520px){.payroll-journey-overlay{left:7px;top:7px;width:calc(100% - 14px);max-width:calc(100% - 14px);border-radius:14px!important}.payroll-journey-card{padding:6px 7px 5px}.payroll-journey-top{gap:6px;margin-bottom:4px}.payroll-journey-avatar{width:28px;height:28px;flex-basis:28px;border-radius:9px;font-size:14px}.payroll-journey-name{font-size:11px}.payroll-journey-destination{font-size:7px}.payroll-journey-status{font-size:6.5px;padding:3px 5px}.payroll-journey-metrics{gap:3px}.payroll-journey-metric{padding:4px 3px;min-height:28px}.payroll-journey-value{font-size:8.5px}}
+.payroll-journey-card{padding:7px 8px 6px;background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(244,248,253,.94));}.payroll-journey-top{display:flex;align-items:center;gap:7px;margin-bottom:5px;min-height:31px}.payroll-journey-avatar{width:30px;height:30px;display:grid;place-items:center;flex:0 0 30px;border-radius:10px;background:linear-gradient(145deg,#1688ff,#5b5df0);color:#fff;font-size:15px;box-shadow:0 5px 12px rgba(22,136,255,.28)}.payroll-journey-title{min-width:0;flex:1}.payroll-journey-name{font-size:12px;font-weight:900;letter-spacing:.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-journey-destination{margin-top:1px;color:#718096;font-size:8px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-journey-status{display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:999px;font-size:7px;font-weight:900;letter-spacing:.2px;white-space:nowrap;background:#e9f9ef;color:#168447;border:1px solid rgba(22,132,71,.12)}.payroll-journey-status.live{background:#eaf4ff;color:#1268cf;border-color:rgba(18,104,207,.12)}.payroll-journey-status .dot{width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 0 2px rgba(22,132,71,.10)}.payroll-journey-status.live .dot{box-shadow:0 0 0 2px rgba(18,104,207,.10);animation:payrollJourneyPulse 1.5s ease-in-out infinite}@keyframes payrollJourneyPulse{0%,100%{opacity:.55;transform:scale(.85)}50%{opacity:1;transform:scale(1.1)}}.payroll-journey-progress{height:4px;border-radius:99px;background:#e8edf4;overflow:hidden;margin:1px 0 6px}.payroll-journey-progress>span{display:block;height:100%;width:68%;border-radius:inherit;background:linear-gradient(90deg,#1688ff,#35b8ff,#625cff);box-shadow:0 0 8px rgba(22,136,255,.28)}.payroll-journey-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.payroll-journey-metric{min-width:0;min-height:29px;padding:4px 4px 3px;border-radius:9px;background:rgba(244,247,251,.92);border:1px solid rgba(19,43,77,.07);text-align:center}.payroll-journey-icon{font-size:10px;line-height:1;margin-bottom:2px}.payroll-journey-label{font-size:6.5px;text-transform:uppercase;letter-spacing:.35px;font-weight:800;color:#8491a5;line-height:1}.payroll-journey-value{margin-top:2px;font-size:9px;line-height:1;font-weight:900;color:#172238;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-journey-road{display:flex;align-items:center;gap:5px;margin-top:5px;padding:5px 6px;border-radius:9px;background:rgba(22,136,255,.07);border:1px solid rgba(22,136,255,.10);color:#2f5f8e;min-height:22px}.payroll-journey-road-icon{font-size:11px}.payroll-journey-road-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800;font-size:8px}.payroll-journey-road-caption{display:inline;color:#8292a7;font-size:6px;text-transform:uppercase;letter-spacing:.3px;font-weight:800;margin-right:3px}.payroll-journey-footer{display:flex;justify-content:space-between;align-items:center;margin-top:4px;color:#8491a5;font-size:6.5px;font-weight:800}.payroll-journey-live-dot{color:#18a058}.payroll-journey-arrived .payroll-journey-avatar{background:linear-gradient(145deg,#19a765,#0f8f7a);box-shadow:0 5px 12px rgba(25,167,101,.25)}[data-theme="dark"] .payroll-admin-employee-badge,[data-bs-theme="dark"] .payroll-admin-employee-badge{background:rgba(11,20,34,.95);border-color:rgba(125,192,255,.20);box-shadow:0 10px 24px rgba(0,0,0,.48),0 0 0 1px rgba(125,192,255,.06)}[data-theme="dark"] .payroll-admin-employee-badge-meta,[data-bs-theme="dark"] .payroll-admin-employee-badge-meta{color:#b9cbe0}[data-theme="dark"] .payroll-admin-employee-badge-road,[data-bs-theme="dark"] .payroll-admin-employee-badge-road{color:#7dc0ff}[data-theme="light"] .payroll-admin-employee-badge,[data-bs-theme="light"] .payroll-admin-employee-badge{background:rgba(255,255,255,.96);color:#172238;border-color:rgba(20,55,90,.12);box-shadow:0 8px 20px rgba(15,31,55,.18)}[data-theme="light"] .payroll-admin-employee-badge-meta,[data-bs-theme="light"] .payroll-admin-employee-badge-meta{color:#60748c}[data-theme="light"] .payroll-admin-employee-badge-road,[data-bs-theme="light"] .payroll-admin-employee-badge-road{color:#286da8}\n
+.payroll-admin-journey-stack{position:absolute;left:10px;top:10px;z-index:1200;width:min(245px,calc(100% - 20px));max-height:calc(100% - 20px);overflow-y:auto;display:flex;flex-direction:column;gap:7px;pointer-events:none;padding-right:2px}.payroll-admin-journey-card{width:245px;max-width:100%;box-sizing:border-box;padding:7px 8px 6px;border-radius:12px;background:rgba(12,19,30,.94);border:1px solid rgba(255,255,255,.18);box-shadow:0 8px 20px rgba(0,0,0,.30),0 0 0 1px rgba(28,145,255,.08);color:#fff;line-height:1.05;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-size:9px}.payroll-admin-journey-card.selected{border-color:rgba(22,136,255,.65);box-shadow:0 9px 24px rgba(0,0,0,.34),0 0 0 2px rgba(22,136,255,.16)}.payroll-admin-journey-top{display:flex;align-items:center;gap:6px;min-height:29px}.payroll-admin-journey-avatar{width:28px;height:28px;flex:0 0 28px;display:grid;place-items:center;border-radius:9px;background:linear-gradient(145deg,#1688ff,#5b5df0);font-size:14px}.payroll-admin-journey-title{min-width:0;flex:1}.payroll-admin-journey-name{font-size:11px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-admin-journey-destination{margin-top:2px;color:#9fb0c5;font-size:7px;font-weight:800}.payroll-admin-journey-status{display:inline-flex;align-items:center;gap:3px;padding:3px 5px;border-radius:999px;font-size:6.5px;font-weight:900;white-space:nowrap;background:rgba(35,176,108,.14);color:#6ee2a7}.payroll-admin-journey-status.live{background:rgba(39,139,255,.15);color:#7dc0ff}.payroll-admin-journey-status.stale{background:rgba(255,193,7,.14);color:#ffd766}.payroll-admin-journey-status.arrived{background:rgba(25,167,101,.16);color:#72e3ae}.payroll-admin-journey-status .dot{width:4px;height:4px;border-radius:50%;background:currentColor}.payroll-admin-journey-progress{height:3px;margin:5px 0;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden}.payroll-admin-journey-progress span{display:block;width:68%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#1688ff,#35b8ff,#625cff)}.payroll-admin-journey-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px}.payroll-admin-journey-metrics>div{min-width:0;padding:4px 3px 3px;text-align:center;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.06)}.payroll-admin-journey-metrics small{display:block;font-size:5.5px;letter-spacing:.25px;color:#8fa4bb;font-weight:900}.payroll-admin-journey-metrics strong{display:block;margin-top:2px;font-size:7.5px;color:#edf5ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.payroll-admin-journey-metrics strong.ok{color:#6ee2a7}.payroll-admin-journey-metrics strong.bad{color:#ff8585}.payroll-admin-journey-road{display:flex;gap:5px;align-items:center;margin-top:4px;padding:4px 5px;border-radius:7px;background:rgba(44,145,255,.10);color:#a8d3ff;min-width:0}.payroll-admin-journey-road>span:last-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:7px;font-weight:800}.payroll-admin-journey-road b{font-size:5.5px;color:#8298b1;letter-spacing:.25px}.payroll-admin-journey-footer{display:flex;justify-content:space-between;margin-top:4px;font-size:5.8px;color:#8fa4bb;font-weight:800}.payroll-admin-journey-footer span:first-child{color:#6ee2a7}
+[data-theme="dark"] .payroll-journey-overlay,[data-bs-theme="dark"] .payroll-journey-overlay{color:#e9f1fb;background:rgba(14,22,35,.91);border-color:rgba(143,177,214,.18);box-shadow:0 18px 44px rgba(0,0,0,.46),0 3px 12px rgba(0,0,0,.28)}[data-theme="dark"] .payroll-journey-card,[data-bs-theme="dark"] .payroll-journey-card{background:linear-gradient(145deg,rgba(19,29,45,.97),rgba(11,20,34,.94))}[data-theme="dark"] .payroll-journey-destination,[data-bs-theme="dark"] .payroll-journey-destination,[data-theme="dark"] .payroll-journey-label,[data-bs-theme="dark"] .payroll-journey-label,[data-theme="dark"] .payroll-journey-footer,[data-bs-theme="dark"] .payroll-journey-footer{color:#8fa4bb}[data-theme="dark"] .payroll-journey-metric,[data-bs-theme="dark"] .payroll-journey-metric{background:rgba(28,41,59,.74);border-color:rgba(143,177,214,.12)}[data-theme="dark"] .payroll-journey-value,[data-bs-theme="dark"] .payroll-journey-value{color:#edf5ff}[data-theme="dark"] .payroll-journey-progress,[data-bs-theme="dark"] .payroll-journey-progress{background:#263548}[data-theme="dark"] .payroll-journey-road,[data-bs-theme="dark"] .payroll-journey-road{background:rgba(44,145,255,.11);border-color:rgba(44,145,255,.18);color:#a8d3ff}[data-theme="dark"] .payroll-journey-status.live,[data-bs-theme="dark"] .payroll-journey-status.live{background:rgba(39,139,255,.15);color:#7dc0ff;border-color:rgba(39,139,255,.22)}[data-theme="dark"] .payroll-journey-status,[data-bs-theme="dark"] .payroll-journey-status{background:rgba(35,176,108,.14);color:#6ee2a7;border-color:rgba(35,176,108,.20)}@media (max-width:520px){.payroll-journey-overlay{left:7px;top:7px;width:calc(100% - 14px);max-width:calc(100% - 14px);border-radius:14px!important}.payroll-journey-card{padding:6px 7px 5px}.payroll-journey-top{gap:6px;margin-bottom:4px}.payroll-journey-avatar{width:28px;height:28px;flex-basis:28px;border-radius:9px;font-size:14px}.payroll-journey-name{font-size:11px}.payroll-journey-destination{font-size:7px}.payroll-journey-status{font-size:6.5px;padding:3px 5px}.payroll-journey-metrics{gap:3px}.payroll-journey-metric{padding:4px 3px;min-height:28px}.payroll-journey-value{font-size:8.5px}}
 `;
         document.head.appendChild(style);
     }
@@ -2546,6 +2548,82 @@ window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selec
     return byId;
 };
 
+/*
+ * Compact admin journey cards. These intentionally live inside the map rather
+ * than in the right-side employee list, so every active employee remains
+ * visible even when several employees share the same GPS position.
+ */
+window.payrollEnsureAdminJourneyCard = function (state, x, selectedId) {
+    if (!state?.map || !x) return null;
+    state.journeyCards = state.journeyCards || {};
+    const employeeId = Number(x.employeeId);
+    if (!Number.isFinite(employeeId) || employeeId <= 0) return null;
+
+    let stack = state.journeyCardStack;
+    if (!stack || !stack.isConnected) {
+        stack = document.createElement('div');
+        stack.className = 'payroll-admin-journey-stack';
+        state.map.getContainer().appendChild(stack);
+        state.journeyCardStack = stack;
+    }
+
+    let card = state.journeyCards[employeeId];
+    if (!card || !card.isConnected) {
+        card = document.createElement('div');
+        card.className = 'payroll-admin-journey-card';
+        stack.appendChild(card);
+        state.journeyCards[employeeId] = card;
+    }
+
+    const name = window.payrollEscapeHtml(x.name || 'Employee');
+    const distance = window.payrollFormatRouteDistance(Number(x.distanceMeters) || 0);
+    const accuracy = Number(x.accuracyMeters) > 0 ? `±${Math.round(Number(x.accuracyMeters))} m` : 'Unknown';
+    const within = Boolean(x.isWithinAllowedRadius);
+    const status = String(x.status || 'Live').toLowerCase();
+    const isLive = status === 'live';
+    const started = x.sessionStartedUtc ? Date.parse(x.sessionStartedUtc) : 0;
+    const elapsed = started && !Number.isNaN(started)
+        ? window.payrollFormatRouteDuration(Math.max(0, (Date.now() - started) / 1000))
+        : '0s';
+    const routeState = state.routeStates?.[employeeId] || {};
+    const route = routeState.route;
+    const routeDistance = route?.distanceMeters > 0
+        ? window.payrollFormatRouteDistance(route.distanceMeters)
+        : distance;
+    const eta = route?.durationSeconds > 0
+        ? window.payrollFormatRouteDuration(route.durationSeconds)
+        : 'Calculating...';
+    const speed = window.payrollFormatSpeed(routeState.speedMps || 0);
+    const road = window.payrollEscapeHtml(window.payrollGetNextRoadName(route));
+    const arrived = route?.distanceMeters > 0
+        ? route.distanceMeters <= Math.max(25, Number(x.allowedRadiusMeters) || 100)
+        : (Number(x.distanceMeters) || 0) <= Math.max(25, Number(x.allowedRadiusMeters) || 100);
+    const statusText = arrived ? 'ARRIVED' : (isLive ? 'LIVE' : String(x.status || 'STALE').toUpperCase());
+    const statusClass = arrived ? 'arrived' : (isLive ? 'live' : 'stale');
+    const selectedClass = Number(selectedId) === employeeId ? ' selected' : '';
+
+    card.className = `payroll-admin-journey-card ${statusClass}${selectedClass}`;
+    card.innerHTML =
+        `<div class="payroll-admin-journey-top">` +
+        `<div class="payroll-admin-journey-avatar">${arrived ? '🏁' : '🛵'}</div>` +
+        `<div class="payroll-admin-journey-title"><div class="payroll-admin-journey-name">${name}</div><div class="payroll-admin-journey-destination">📍 To Office</div></div>` +
+        `<div class="payroll-admin-journey-status ${statusClass}"><span class="dot"></span>${statusText}</div>` +
+        `</div>` +
+        `<div class="payroll-admin-journey-progress"><span></span></div>` +
+        `<div class="payroll-admin-journey-metrics">` +
+        `<div><small>REMAINING</small><strong>${routeDistance}</strong></div>` +
+        `<div><small>ETA</small><strong>${eta}</strong></div>` +
+        `<div><small>SPEED</small><strong>${window.payrollEscapeHtml(speed)}</strong></div>` +
+        `<div><small>ACCURACY</small><strong>${accuracy}</strong></div>` +
+        `<div><small>JOURNEY</small><strong>${elapsed}</strong></div>` +
+        `<div><small>RANGE</small><strong class="${within ? 'ok' : 'bad'}">${within ? 'Within' : 'Outside'}</strong></div>` +
+        `</div>` +
+        `<div class="payroll-admin-journey-road"><span>🛣️</span><span><b>ROAD</b> ${road}</span></div>` +
+        `<div class="payroll-admin-journey-footer"><span>● GPS ${isLive ? 'LIVE' : 'STALE'}</span><span>🏢 Office</span></div>`;
+
+    return card;
+};
+
 window.updateAdminLiveStaffMap =
     async function (
         mapId,
@@ -2669,7 +2747,8 @@ window.updateAdminLiveStaffMap =
                     routeStates: {},
                     roadRouteLines: {},
                     roadRouteCasings: {},
-                    journeyStartedAt: {}
+                    journeyStartedAt: {},
+                    journeyCards: {}
                 };
 
                 window.adminLiveMaps[mapId] =
@@ -2764,6 +2843,10 @@ window.updateAdminLiveStaffMap =
                         delete state.roadRouteCasings[id];
                         delete state.routeStates[id];
                         delete state.journeyStartedAt[id];
+                        if (state.journeyCards?.[id]) {
+                            try { state.journeyCards[id].remove(); } catch { }
+                            delete state.journeyCards[id];
+                        }
                     }
                 }
             );
@@ -2791,6 +2874,7 @@ window.updateAdminLiveStaffMap =
 
             liveStaff.forEach(
                 function (x) {
+                    try {
                     const employeeId =
                         Number(
                             x.employeeId
@@ -2938,6 +3022,9 @@ window.updateAdminLiveStaffMap =
                         markerCreated = true;
                     }
                     else {
+                        if (!state.map.hasLayer(state.markers[employeeId])) {
+                            state.markers[employeeId].addTo(state.map);
+                        }
                         state.markers[
                             employeeId
                         ].setIcon(
@@ -3229,6 +3316,7 @@ window.updateAdminLiveStaffMap =
                         const routeDistance = window.payrollFormatRouteDistance(remaining);
                         const eta = window.payrollFormatRouteDuration(route.durationSeconds);
                         const name = window.payrollEscapeHtml(x.name || 'Employee');
+                        try { window.payrollEnsureAdminJourneyCard(state, x, selectedId); } catch { }
                         if (state.labels[employeeId]) {
                             state.labels[employeeId].setIcon(L.divIcon({
                                 className: 'payroll-admin-employee-badge-wrap',
@@ -3323,6 +3411,13 @@ window.updateAdminLiveStaffMap =
                     if (isSelected && membershipChanged) {
                         state.markers[employeeId].openPopup();
                         state.map.setView(position, 17, { animate: true });
+                    }
+
+                    // Keep a compact journey card for every active employee on the map.
+                    window.payrollEnsureAdminJourneyCard(state, x, selectedId);
+                    } catch (employeeRenderError) {
+                        console.error('Admin live map employee render failed:', employeeRenderError, x);
+                        try { window.payrollEnsureAdminJourneyCard(state, x, selectedId); } catch { }
                     }
                 }
             );

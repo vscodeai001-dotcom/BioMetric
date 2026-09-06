@@ -16,12 +16,12 @@
 </head>
 
 <body>
+    <!-- Apply the saved theme before the identity page paints. This keeps the login page
+         consistent with the dark/light theme used by the authenticated application. -->
     <script>
-        // Apply the same persisted application theme immediately on Identity pages.
-        // This prevents a light-mode flash when the user previously selected dark mode.
         (function () {
             try {
-                var theme = localStorage.getItem('payroll_theme') === 'dark' ? 'dark' : 'light';
+                var theme = localStorage.getItem('payroll_theme') || 'light';
                 if (theme === 'dark') document.body.classList.add('dark');
             } catch (e) { }
         })();
@@ -35,7 +35,6 @@
                     class="identity-theme-toggle"
                     aria-label="Switch theme"
                     title="Switch theme"
-                    aria-pressed="false"
                     onclick="window.identityTheme.toggle()">
                 <span id="identityThemeIcon" aria-hidden="true"></span>
             </button>
@@ -53,7 +52,7 @@
     <!-- Identity page scripts -->
     @await RenderSectionAsync("Scripts", required: false)
 
-    <script src="~/js/themeInterop.js?v=20260907-identity-theme"></script>
+    <script src="~/js/themeInterop.js?v=20260830"></script>
     <!-- APPLY DARK/LIGHT THEME WHEN PAGE LOADS -->
     <script>
         (function () {
@@ -67,12 +66,6 @@
                         if (icon) {
                             icon.className = value === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
                         }
-                        var toggle = document.getElementById('identityThemeToggle');
-                        if (toggle) {
-                            toggle.setAttribute('aria-pressed', value === 'dark' ? 'true' : 'false');
-                            toggle.setAttribute('aria-label', value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
-                            toggle.setAttribute('title', value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
-                        }
                     },
                     toggle: function () {
                         var next = document.body.classList.contains('dark') ? 'light' : 'dark';
@@ -80,7 +73,9 @@
                     }
                 };
 
-                window.identityTheme.apply(window.themeInterop.loadTheme());
+                window.identityTheme.apply(
+                    document.body.classList.contains('dark') ? 'dark' : window.themeInterop.loadTheme()
+                );
             } catch (e) {
                 console.warn('Theme init failed', e);
             }
