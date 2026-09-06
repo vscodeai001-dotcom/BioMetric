@@ -143,6 +143,9 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<
     AttendanceRefreshService>();
 
+// Background service broadcasting location health for admin dashboards
+builder.Services.AddHostedService<LocationHealthService>();
+
 
 // ============================================================
 // POSTGRESQL DATETIME COMPATIBILITY

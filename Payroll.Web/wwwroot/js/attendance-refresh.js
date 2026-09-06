@@ -73,6 +73,17 @@
                 }
             );
 
+            // LOCATION HEALTH (periodic status of sessions)
+            connection.on(
+                "LocationHealth",
+                async function (data) {
+                    console.log('LocationHealth', data);
+
+                    // Dispatch event for admin UI to update status/age indicators
+                    window.dispatchEvent(new CustomEvent('location-health-updated', { detail: data }));
+                }
+            );
+
             connection.on(
                 "LeaveChanged",
                 async function (data) {
