@@ -1,4 +1,4 @@
-﻿@using global::Payroll.Web.Services
+@using global::Payroll.Web.Services
 @using global::Payroll.Shared.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.JSInterop
@@ -3350,12 +3350,15 @@
             DateTime.UtcNow -
             location.LastUpdatedUtc;
 
-        if (age <=
-            TimeSpan.FromSeconds(30))
+        // The LiveLocationStore is the source of truth for the active
+        // employee GPS session. Its thresholds are intentionally long so
+        // a browser background/sleep throttle does not turn a still-logged-in
+        // employee into Offline merely because a fresh GPS point was delayed.
+        // The actual LastUpdated time is still displayed separately.
+        if (age <= TimeSpan.FromSeconds(LiveLocationStore.LiveTimeoutSeconds))
             return LocationStatus.Live;
 
-        if (age <=
-            TimeSpan.FromMinutes(2))
+        if (age <= TimeSpan.FromSeconds(LiveLocationStore.StaleTimeoutSeconds))
             return LocationStatus.Stale;
 
         return LocationStatus.Offline;
