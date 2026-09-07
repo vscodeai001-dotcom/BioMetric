@@ -191,14 +191,18 @@ public sealed class MobileEmployeeController : ControllerBase
         if (!distance.Success)
             return StatusCode(500, new { success = false, message = distance.Message });
 
-        var liveUpdated = LiveLocationStore.Update(employeeId, request.Latitude, request.Longitude,
-            Math.Max(0, request.Accuracy), distance.DistanceMeters, distance.AllowedRadiusMeters,
-            distance.IsWithinAllowedRadius, sessionId);
-        if (!liveUpdated)
-            return Conflict(new { success = false, message = "GPS session is no longer active." });
+        var sessionUpdated = await _geo.UpdateGpsSessionAsync(
+            employeeId,
+            sessionId,
+            request.Latitude,
+            request.Longitude,
+            request.Accuracy,
+            distance.DistanceMeters,
+            distance.AllowedRadiusMeters,
+            distance.IsWithinAllowedRadius);
 
-        await _geo.UpdateGpsSessionAsync(employeeId, sessionId, request.Latitude, request.Longitude,
-            request.Accuracy, distance.DistanceMeters, distance.AllowedRadiusMeters, distance.IsWithinAllowedRadius);
+        if (!sessionUpdated)
+            return Conflict(new { success = false, message = "GPS session is no longer active." });
 
         await _geo.SaveLocationHistoryAsync(employeeId, sessionId, request.Latitude, request.Longitude,
             distance.DistanceMeters, distance.AllowedRadiusMeters, distance.IsWithinAllowedRadius, request.Accuracy);
@@ -209,20 +213,6 @@ public sealed class MobileEmployeeController : ControllerBase
             var lockRecord = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == userId);
             if (lockRecord != null) { lockRecord.LastSeenAtUtc = DateTime.UtcNow; await db.SaveChangesAsync(); }
         }
-
-        await _hub.Clients.All.SendAsync("LocationChanged", new
-        {
-            EmployeeId = employeeId,
-            Latitude = request.Latitude,
-            Longitude = request.Longitude,
-            AccuracyMeters = Math.Max(0, request.Accuracy),
-            DistanceMeters = distance.DistanceMeters,
-            AllowedRadiusMeters = distance.AllowedRadiusMeters,
-            IsWithinAllowedRadius = distance.IsWithinAllowedRadius,
-            SessionId = sessionId,
-            LastUpdatedUtc = DateTime.UtcNow,
-            Source = "Android"
-        });
 
         return Ok(new
         {

@@ -22,6 +22,7 @@ public class GeoLocationService
     private const int AuthoritativePunchProtectionSeconds = 120;
     private const int FallbackReconciliationWindowSeconds = 300;
     private const long AttendanceAdvisoryLockNamespace = 0x504159524F4C4CL;
+    private const long GpsSessionAdvisoryLockNamespace = 0x4750534C4F434BL;
 
     public GeoLocationService(
         IDbContextFactory<AppDbContext> dbFactory,
@@ -233,7 +234,7 @@ public class GeoLocationService
     // UPDATE GPS SESSION
     // ================================================================
 
-    public async Task UpdateGpsSessionAsync(
+    public async Task<bool> UpdateGpsSessionAsync(
         int employeeId,
         Guid sessionId,
         double latitude,
@@ -247,11 +248,14 @@ public class GeoLocationService
             sessionId == Guid.Empty ||
             !IsValidCoordinate(latitude, longitude))
         {
-            return;
+            return false;
         }
 
         try
         {
+            // The first update after login can race the session-start call.
+            // Recover the session before taking the lifecycle lock, then
+            // re-read it under the lock before touching LiveLocationStore.
             await using var db =
                 await _dbFactory.CreateDbContextAsync();
 
@@ -262,16 +266,12 @@ public class GeoLocationService
 
             if (session == null)
             {
-                /*
-                 * A GPS update can arrive immediately after login.
-                 * Create the session safely if it does not exist yet.
-                 */
                 var created = await StartGpsSessionAsync(
                     employeeId,
                     sessionId);
 
                 if (!created)
-                    return;
+                    return false;
 
                 session = await db.EmployeeGpsSessions
                     .FirstOrDefaultAsync(x =>
@@ -279,149 +279,191 @@ public class GeoLocationService
                         x.SessionId == sessionId);
 
                 if (session == null)
-                    return;
+                    return false;
             }
 
-            /*
-             * Never update a session which has already ended.
-             */
-            if (session.EndedAtUtc.HasValue)
-                return;
+            // Session-level PostgreSQL advisory lock coordinates GPS updates
+            // and logout/session-end operations across Web/Worker instances.
+            // This closes the race where an old GPS request could repopulate
+            // LiveLocationStore immediately after logout.
+            await db.Database.OpenConnectionAsync();
+            var lockKey = GpsSessionAdvisoryLockNamespace + (uint)employeeId;
+            var lockHeld = false;
 
-            var safeAccuracy =
-                NormalizeAccuracy(accuracyMeters);
+            try
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    "SELECT pg_advisory_lock({0})",
+                    lockKey);
+                lockHeld = true;
 
-            var safeDistance =
-                NormalizeDistance(distanceMeters);
+                session = await db.EmployeeGpsSessions
+                    .FirstOrDefaultAsync(x =>
+                        x.EmployeeId == employeeId &&
+                        x.SessionId == sessionId);
 
-            var now = DateTime.UtcNow;
+                if (session == null || session.EndedAtUtc.HasValue)
+                {
+                    // An old in-flight GPS request is no longer authoritative.
+                    // Remove only if this exact old session still owns the
+                    // in-memory entry. A newer session is never removed.
+                    LiveLocationStore.Remove(employeeId, sessionId);
+                    return false;
+                }
 
-            var previousLocationState =
-                session.LastIsWithinAllowedRadius;
+                var safeAccuracy = NormalizeAccuracy(accuracyMeters);
+                var safeDistance = NormalizeDistance(distanceMeters);
+                var now = DateTime.UtcNow;
+                var previousLocationState = session.LastIsWithinAllowedRadius;
 
-            /*
-             * Convert the raw GPS reading into a stable geofence state.
-             * The configured radius remains the business boundary; the
-             * hysteresis band exists only to suppress GPS jitter at that
-             * boundary. A brand-new session can still establish INSIDE
-             * immediately when the GPS fix is clearly inside the radius.
-             */
-            var stableLocationState =
-                ResolveStableGeofenceState(
+                var stableLocationState = ResolveStableGeofenceState(
                     previousLocationState,
                     safeDistance,
                     allowedRadiusMeters);
 
-            /*
-             * Attendance fallback is evaluated BEFORE the session state
-             * is changed. A null state means the first fix is ambiguous
-             * and therefore cannot safely create an attendance event.
-             */
-            if (stableLocationState.HasValue)
-            {
-                var attendanceEvaluationCompleted =
-                    await ProcessAutomaticGeofencePunchAsync(
-                        db,
-                        employeeId,
-                        sessionId,
-                        latitude,
-                        longitude,
-                        safeAccuracy,
-                        safeDistance,
-                        allowedRadiusMeters,
-                        previousLocationState,
-                        stableLocationState.Value);
-
-                if (attendanceEvaluationCompleted)
+                // Automatic attendance is evaluated while the session lock is
+                // held, so logout cannot interleave with the decision.
+                if (stableLocationState.HasValue)
                 {
-                    session.LastIsWithinAllowedRadius =
-                        stableLocationState.Value;
-                }
-            }
+                    var attendanceEvaluationCompleted =
+                        await ProcessAutomaticGeofencePunchAsync(
+                            db,
+                            employeeId,
+                            sessionId,
+                            latitude,
+                            longitude,
+                            safeAccuracy,
+                            safeDistance,
+                            allowedRadiusMeters,
+                            previousLocationState,
+                            stableLocationState.Value);
 
-            session.LastUpdateAtUtc = now;
-            session.LastLatitude = latitude;
-            session.LastLongitude = longitude;
-            session.LastAccuracyMeters = safeAccuracy;
-            session.LastDistanceFromOfficeMeters = safeDistance;
-            session.LastAllowedRadiusMeters =
-                allowedRadiusMeters < 0
-                    ? 0
-                    : allowedRadiusMeters;
-            session.LastIsWithinAllowedRadius =
-                isWithinAllowedRadius;
-
-            session.TotalPoints++;
-
-            /*
-             * This represents the accumulated distance supplied by the
-             * GPS processing layer. We intentionally add the validated
-             * distance value rather than inventing a movement distance.
-             */
-            session.TotalDistanceMeters += safeDistance;
-
-            if (session.TotalPoints == 1)
-            {
-                session.AverageAccuracyMeters =
-                    safeAccuracy;
-            }
-            else
-            {
-                var previousAverage =
-                    session.AverageAccuracyMeters ?? 0;
-
-                session.AverageAccuracyMeters =
-                    ((previousAverage *
-                      (session.TotalPoints - 1)) +
-                     safeAccuracy) /
-                    session.TotalPoints;
-            }
-
-            await db.SaveChangesAsync();
-
-            /*
-             * BROADCAST REAL-TIME LOCATION UPDATE
-             *
-             * Notify all connected admin clients of the location change
-             * so the live map updates automatically without requiring refresh.
-             */
-            try
-            {
-                await _hubContext.Clients.All.SendAsync(
-                    "LocationChanged",
-                    new
+                    // Persist the SAME stable state that drove the attendance
+                    // decision only when the evaluation completed safely. If
+                    // automatic attendance failed, keep the previous state so
+                    // the next valid GPS fix retries instead of silently
+                    // consuming the transition. Never overwrite it with raw
+                    // GPS state.
+                    if (attendanceEvaluationCompleted)
                     {
-                        EmployeeId = employeeId,
-                        SessionId = sessionId,
-                        Latitude = latitude,
-                        Longitude = longitude,
-                        Timestamp = now,
-                        DistanceMeters = safeDistance,
-                        AccuracyMeters = safeAccuracy,
-                        IsWithinAllowedRadius = isWithinAllowedRadius
-                    });
+                        session.LastIsWithinAllowedRadius =
+                            stableLocationState.Value;
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "Dual Attendance evaluation did not complete. Geofence state was not advanced so the transition can be retried. EmployeeId={EmployeeId}, SessionId={SessionId}",
+                            employeeId,
+                            sessionId);
+                    }
+                }
+
+                session.LastUpdateAtUtc = now;
+                session.LastLatitude = latitude;
+                session.LastLongitude = longitude;
+                session.LastAccuracyMeters = safeAccuracy;
+                session.LastDistanceFromOfficeMeters = safeDistance;
+                session.LastAllowedRadiusMeters =
+                    allowedRadiusMeters < 0 ? 0 : allowedRadiusMeters;
+
+                session.TotalPoints++;
+                session.TotalDistanceMeters += safeDistance;
+
+                if (session.TotalPoints == 1)
+                {
+                    session.AverageAccuracyMeters = safeAccuracy;
+                }
+                else
+                {
+                    var previousAverage =
+                        session.AverageAccuracyMeters ?? 0;
+
+                    session.AverageAccuracyMeters =
+                        ((previousAverage * (session.TotalPoints - 1)) +
+                         safeAccuracy) /
+                        session.TotalPoints;
+                }
+
+                // Only after the active-session check and state update do we
+                // publish the location into the process-local live store.
+                var liveUpdated = LiveLocationStore.Update(
+                    employeeId,
+                    latitude,
+                    longitude,
+                    safeAccuracy,
+                    safeDistance,
+                    allowedRadiusMeters,
+                    isWithinAllowedRadius,
+                    sessionId);
+
+                if (!liveUpdated)
+                {
+                    _logger.LogWarning(
+                        "GPS live-store update rejected. EmployeeId={EmployeeId}, SessionId={SessionId}",
+                        employeeId,
+                        sessionId);
+                    return false;
+                }
+
+                await db.SaveChangesAsync();
+
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync(
+                        "LocationChanged",
+                        new
+                        {
+                            EmployeeId = employeeId,
+                            SessionId = sessionId,
+                            Latitude = latitude,
+                            Longitude = longitude,
+                            Timestamp = now,
+                            DistanceMeters = safeDistance,
+                            AccuracyMeters = safeAccuracy,
+                            IsWithinAllowedRadius = isWithinAllowedRadius
+                        });
+                }
+                catch (Exception signalREx)
+                {
+                    _logger.LogWarning(
+                        signalREx,
+                        "Failed to broadcast location update via SignalR for employee {EmployeeId}",
+                        employeeId);
+                }
+
+                return true;
             }
-            catch (Exception signalREx)
+            finally
             {
-                /*
-                 * SignalR broadcast failure must never stop GPS tracking.
-                 */
-                _logger.LogWarning(
-                    signalREx,
-                    "Failed to broadcast location update via SignalR for employee {EmployeeId}",
-                    employeeId);
+                if (lockHeld)
+                {
+                    try
+                    {
+                        await db.Database.ExecuteSqlRawAsync(
+                            "SELECT pg_advisory_unlock({0})",
+                            lockKey);
+                    }
+                    catch (Exception unlockEx)
+                    {
+                        _logger.LogWarning(
+                            unlockEx,
+                            "Failed to release GPS session advisory lock. EmployeeId={EmployeeId}",
+                            employeeId);
+                    }
+                }
+
+                await db.Database.CloseConnectionAsync();
             }
         }
         catch (Exception ex)
         {
-            /*
-             * Session database failure must never stop live GPS.
-             */
             _logger.LogError(
                 ex,
                 "Failed to update GPS session. EmployeeId={EmployeeId}, SessionId={SessionId}",
                 employeeId,
                 sessionId);
+
+            return false;
         }
     }
 
@@ -488,8 +530,9 @@ public class GeoLocationService
 
         try
         {
-            // PostgreSQL transaction-level advisory lock makes the attendance
-            // decision single-writer per employee across Web/Worker instances.
+            // Keep the attendance decision and fallback punch atomic.
+            // The surrounding GPS/session advisory lock prevents logout and
+            // stale GPS updates from interleaving with this operation.
             await using var transaction =
                 await db.Database.BeginTransactionAsync();
 
@@ -647,12 +690,48 @@ public class GeoLocationService
         catch (Exception ex)
         {
             // Automatic fallback must NEVER break normal GPS tracking.
+            // Record the failure separately so an operator can diagnose a
+            // missing automatic punch from the existing Punch Audit screen.
             _logger.LogError(
                 ex,
                 "Automatic geofence attendance processing failed. " +
                 "EmployeeId={EmployeeId}, SessionId={SessionId}",
                 employeeId,
                 sessionId);
+
+            try
+            {
+                await using var auditDb =
+                    await _dbFactory.CreateDbContextAsync();
+
+                await SavePunchAuditAsync(
+                    auditDb,
+                    employeeId,
+                    sessionId,
+                    DateTime.UtcNow,
+                    latitude,
+                    longitude,
+                    accuracyMeters,
+                    distanceMeters,
+                    allowedRadiusMeters,
+                    currentLocationState,
+                    new GeoPunchResult
+                    {
+                        Success = false,
+                        Message = $"Automatic geofence {
+                            (currentLocationState ? "IN" : "OUT")} failed: {ex.Message}"
+                    },
+                    null,
+                    "GEOFENCE_AUTO");
+            }
+            catch (Exception auditEx)
+            {
+                _logger.LogWarning(
+                    auditEx,
+                    "Failed to record automatic geofence failure audit. EmployeeId={EmployeeId}, SessionId={SessionId}",
+                    employeeId,
+                    sessionId);
+            }
 
             return false;
         }
@@ -796,78 +875,102 @@ public class GeoLocationService
         Guid sessionId,
         string endReason = "LOGGED_OUT")
     {
-        if (employeeId <= 0 ||
-            sessionId == Guid.Empty)
-        {
+        if (employeeId <= 0 || sessionId == Guid.Empty)
             return;
-        }
 
         try
         {
             await using var db =
                 await _dbFactory.CreateDbContextAsync();
 
-            var session = await db.EmployeeGpsSessions
-                .FirstOrDefaultAsync(x =>
-                    x.EmployeeId == employeeId &&
-                    x.SessionId == sessionId);
+            await db.Database.OpenConnectionAsync();
+            var lockKey = GpsSessionAdvisoryLockNamespace + (uint)employeeId;
+            var lockHeld = false;
 
-            if (session == null)
-                return;
-
-            if (session.EndedAtUtc.HasValue)
-                return;
-
-            session.EndedAtUtc = DateTime.UtcNow;
-
-            session.EndReason =
-                string.IsNullOrWhiteSpace(endReason)
-                    ? "ENDED"
-                    : endReason.Length > 40
-                        ? endReason[..40]
-                        : endReason;
-
-            await db.SaveChangesAsync();
-
-            _logger.LogInformation(
-                "GPS session ended. EmployeeId={EmployeeId}, SessionId={SessionId}, Reason={Reason}",
-                employeeId,
-                sessionId,
-                session.EndReason);
-
-            // Remove from in-memory live location store so admin UI updates immediately.
             try
             {
+                await db.Database.ExecuteSqlRawAsync(
+                    "SELECT pg_advisory_lock({0})",
+                    lockKey);
+                lockHeld = true;
+
+                var session = await db.EmployeeGpsSessions
+                    .FirstOrDefaultAsync(x =>
+                        x.EmployeeId == employeeId &&
+                        x.SessionId == sessionId);
+
+                if (session == null)
+                {
+                    LiveLocationStore.Remove(employeeId, sessionId);
+                    return;
+                }
+
+                if (session.EndedAtUtc.HasValue)
+                {
+                    LiveLocationStore.Remove(employeeId, sessionId);
+                    return;
+                }
+
+                session.EndedAtUtc = DateTime.UtcNow;
+                session.EndReason =
+                    string.IsNullOrWhiteSpace(endReason)
+                        ? "ENDED"
+                        : endReason.Length > 40
+                            ? endReason[..40]
+                            : endReason;
+
+                await db.SaveChangesAsync();
+
+                // Remove only the session being ended. A newer login/session
+                // can never be removed by an old logout request.
                 LiveLocationStore.Remove(employeeId, sessionId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to remove session from LiveLocationStore after end. EmployeeId={EmployeeId}", employeeId);
-            }
 
-            /*
-             * BROADCAST SESSION END
-             *
-             * Notify all connected admin clients that a GPS session ended.
-             */
-            try
-            {
-                await _hubContext.Clients.All.SendAsync(
-                    "SessionEnded",
-                    new
-                    {
-                        EmployeeId = employeeId,
-                        SessionId = sessionId,
-                        EndedAtUtc = session.EndedAtUtc,
-                        EndReason = session.EndReason
-                    });
+                _logger.LogInformation(
+                    "GPS session ended. EmployeeId={EmployeeId}, SessionId={SessionId}, Reason={Reason}",
+                    employeeId,
+                    sessionId,
+                    session.EndReason);
+
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync(
+                        "SessionEnded",
+                        new
+                        {
+                            EmployeeId = employeeId,
+                            SessionId = sessionId,
+                            EndedAtUtc = session.EndedAtUtc,
+                            EndReason = session.EndReason
+                        });
+                }
+                catch (Exception signalREx)
+                {
+                    _logger.LogWarning(
+                        signalREx,
+                        "Failed to broadcast session end via SignalR for employee {EmployeeId}",
+                        employeeId);
+                }
             }
-            catch (Exception signalREx)
+            finally
             {
-                _logger.LogWarning(
-                    signalREx,
-                    "Failed to broadcast session end via SignalR for employee {EmployeeId}",
-                    employeeId);
+                if (lockHeld)
+                {
+                    try
+                    {
+                        await db.Database.ExecuteSqlRawAsync(
+                            "SELECT pg_advisory_unlock({0})",
+                            lockKey);
+                    }
+                    catch (Exception unlockEx)
+                    {
+                        _logger.LogWarning(
+                            unlockEx,
+                            "Failed to release GPS session advisory lock after logout. EmployeeId={EmployeeId}",
+                            employeeId);
+                    }
+                }
+
+                await db.Database.CloseConnectionAsync();
             }
         }
         catch (Exception ex)
@@ -879,6 +982,7 @@ public class GeoLocationService
                 sessionId);
         }
     }
+
 
     // ================================================================
     // MARK SESSION TIMED OUT
@@ -928,6 +1032,30 @@ public class GeoLocationService
             {
                 session.EndedAtUtc = now;
                 session.EndReason = "TIMED_OUT";
+
+                // Remove only the timed-out session. A newer session for the
+                // same employee can never be removed by this cleanup pass.
+                LiveLocationStore.Remove(session.EmployeeId, session.SessionId);
+
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync(
+                        "SessionEnded",
+                        new
+                        {
+                            EmployeeId = session.EmployeeId,
+                            SessionId = session.SessionId,
+                            EndedAtUtc = now,
+                            EndReason = session.EndReason
+                        });
+                }
+                catch (Exception signalREx)
+                {
+                    _logger.LogWarning(
+                        signalREx,
+                        "Failed to broadcast timed-out GPS session for employee {EmployeeId}",
+                        session.EmployeeId);
+                }
 
                 _logger.LogInformation(
                     "GPS session timed out. EmployeeId={EmployeeId}, SessionId={SessionId}, " +

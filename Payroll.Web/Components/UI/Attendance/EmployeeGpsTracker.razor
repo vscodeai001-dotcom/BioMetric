@@ -1,4 +1,4 @@
-﻿@using global::Payroll.Web.Services
+@using global::Payroll.Web.Services
 @using global::Payroll.Web.Hubs
 @using Microsoft.JSInterop
 @using Microsoft.AspNetCore.SignalR
@@ -399,50 +399,37 @@
             }
 
             /*
-             * Update live in-memory location.
-             */
-            var liveUpdated =
-                LiveLocationStore.Update(
-                    EmployeeId,
-                    coords.Latitude,
-                    coords.Longitude,
-                    accuracy,
-                    distanceResult.DistanceMeters,
-                    distanceResult.AllowedRadiusMeters,
-                    distanceResult.IsWithinAllowedRadius,
-                    liveLocationSessionId);
-
-            if (!liveUpdated)
-            {
-                Console.Error.WriteLine(
-                    $"GPS update rejected because session is no longer current. " +
-                    $"EmployeeId={EmployeeId}, " +
-                    $"SessionId={liveLocationSessionId}");
-
-                return;
-            }
-
-            /*
-             * Persist session statistics.
+             * Persist the GPS update through the authoritative service.
+             * The service validates the active database session before
+             * touching LiveLocationStore, so a stale browser request cannot
+             * resurrect a logged-out employee.
              */
             try
             {
-                await GeoService.UpdateGpsSessionAsync(
-                    EmployeeId,
-                    liveLocationSessionId,
-                    coords.Latitude,
-                    coords.Longitude,
-                    accuracy,
-                    distanceResult.DistanceMeters,
-                    distanceResult.AllowedRadiusMeters,
-                    distanceResult.IsWithinAllowedRadius);
+                var sessionUpdated =
+                    await GeoService.UpdateGpsSessionAsync(
+                        EmployeeId,
+                        liveLocationSessionId,
+                        coords.Latitude,
+                        coords.Longitude,
+                        accuracy,
+                        distanceResult.DistanceMeters,
+                        distanceResult.AllowedRadiusMeters,
+                        distanceResult.IsWithinAllowedRadius);
+
+                if (!sessionUpdated)
+                {
+                    Console.Error.WriteLine(
+                        $"GPS update rejected because the session is no longer active. " +
+                        $"EmployeeId={EmployeeId}, SessionId={liveLocationSessionId}");
+                    return;
+                }
             }
             catch (Exception sessionEx)
             {
                 Console.Error.WriteLine(
-                    $"GPS session statistics update failed. " +
-                    $"EmployeeId={EmployeeId}. " +
-                    $"Error={sessionEx}");
+                    $"GPS session update failed. EmployeeId={EmployeeId}. Error={sessionEx}");
+                return;
             }
 
             /*

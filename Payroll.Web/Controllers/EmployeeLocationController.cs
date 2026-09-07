@@ -132,39 +132,14 @@ public sealed class EmployeeLocationController : ControllerBase
             }
 
             // ============================================================
-            // UPDATE IN-MEMORY LOCATION STORE
+            // AUTHORITATIVE GPS SESSION UPDATE
+            //
+            // GeoLocationService validates the active DB session before
+            // updating LiveLocationStore. This prevents an in-flight GPS
+            // request from resurrecting a logged-out employee.
             // ============================================================
 
-            var liveUpdated = LiveLocationStore.Update(
-                request.EmployeeId,
-                request.Latitude,
-                request.Longitude,
-                accuracy,
-                distanceResult.DistanceMeters,
-                distanceResult.AllowedRadiusMeters,
-                distanceResult.IsWithinAllowedRadius,
-                sessionId);
-
-            if (!liveUpdated)
-            {
-                _logger.LogWarning(
-                    "GPS update rejected. Session mismatch. " +
-                    "EmployeeId={EmployeeId}, " +
-                    "SessionId={SessionId}",
-                    request.EmployeeId,
-                    sessionId);
-
-                return StatusCode(
-                    StatusCodes.Status409Conflict,
-                    "Session ID mismatch or expired.");
-            }
-
-            // ============================================================
-            // UPDATE DATABASE GPS SESSION
-            // ============================================================
-
-            try
-            {
+            var sessionUpdated =
                 await _geoLocationService.UpdateGpsSessionAsync(
                     request.EmployeeId,
                     sessionId,
@@ -174,16 +149,15 @@ public sealed class EmployeeLocationController : ControllerBase
                     distanceResult.DistanceMeters,
                     distanceResult.AllowedRadiusMeters,
                     distanceResult.IsWithinAllowedRadius);
-            }
-            catch (Exception sessionEx)
-            {
-                _logger.LogError(
-                    sessionEx,
-                    "GPS session statistics update failed. " +
-                    "EmployeeId={EmployeeId}",
-                    request.EmployeeId);
 
-                // Continue anyway - location store is already updated
+            if (!sessionUpdated)
+            {
+                _logger.LogDebug(
+                    "GPS update ignored because the session is no longer active. EmployeeId={EmployeeId}, SessionId={SessionId}",
+                    request.EmployeeId,
+                    sessionId);
+
+                return Conflict("GPS session is no longer active.");
             }
 
             // ============================================================
@@ -211,42 +185,6 @@ public sealed class EmployeeLocationController : ControllerBase
                     request.EmployeeId);
 
                 // Continue anyway - session update succeeded
-            }
-
-            // ============================================================
-            // BROADCAST LOCATION UPDATE VIA SIGNALR
-            // ============================================================
-            // This ensures admin dashboards refresh immediately when
-            // GPS updates arrive via HTTP API (not just Blazor JSInterop)
-            // ============================================================
-
-            try
-            {
-                await _attendanceHub.Clients.All.SendAsync(
-                    "LocationChanged",
-                    new
-                    {
-                        EmployeeId = request.EmployeeId,
-                        Latitude = request.Latitude,
-                        Longitude = request.Longitude,
-                        AccuracyMeters = accuracy,
-                        DistanceMeters = distanceResult.DistanceMeters,
-                        AllowedRadiusMeters = distanceResult.AllowedRadiusMeters,
-                        IsWithinAllowedRadius = distanceResult.IsWithinAllowedRadius,
-                        SessionId = sessionId,
-                        LastUpdatedUtc = DateTime.UtcNow,
-                        Source = "HttpAPI"
-                    });
-            }
-            catch (Exception signalREx)
-            {
-                _logger.LogWarning(
-                    signalREx,
-                    "Failed to broadcast GPS location via SignalR. " +
-                    "EmployeeId={EmployeeId}",
-                    request.EmployeeId);
-
-                // Continue anyway - location is still updated
             }
 
             _logger.LogInformation(
