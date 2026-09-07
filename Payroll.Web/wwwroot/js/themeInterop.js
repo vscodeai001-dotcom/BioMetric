@@ -2475,180 +2475,66 @@ window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selec
         const employeeId = Number(x.employeeId);
         const lat = Number(x.latitude);
         const lng = Number(x.longitude);
-
-        if (
-            !Number.isFinite(employeeId) ||
-            !Number.isFinite(lat) ||
-            !Number.isFinite(lng)
-        ) {
-            return;
-        }
-
-        const item = {
-            employeeId,
-            lat,
-            lng,
-            offsetX: 0,
-            offsetY: 0
-        };
-
+        if (!Number.isFinite(employeeId) || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const item = { employeeId, lat, lng, offsetX: 0, offsetY: 0 };
         items.push(item);
         byId[employeeId] = item;
     });
 
-    if (!useCollisionOffsets || items.length < 2) {
-        return byId;
-    }
-
-    /*
-     * IMPORTANT:
-     * Leaflet cannot project LatLng to layer points until
-     * the map has a center and zoom.
-     *
-     * Do not call latLngToLayerPoint() before that happens.
-     */
-    if (
-        !map ||
-        !map._loaded ||
-        !map.getCenter ||
-        !map.getZoom ||
-        !Number.isFinite(map.getZoom())
-    ) {
-        return byId;
-    }
+    if (!useCollisionOffsets || items.length < 2) return byId;
 
     // Group staff whose map markers would visually collide.
     const collisionMeters = 45;
-
-    const parent = items.map(function (_, i) {
-        return i;
-    });
-
+    const parent = items.map(function (_, i) { return i; });
     function find(i) {
         while (parent[i] !== i) {
             parent[i] = parent[parent[i]];
             i = parent[i];
         }
-
         return i;
     }
-
     function union(a, b) {
-        const ra = find(a);
-        const rb = find(b);
-
-        if (ra !== rb) {
-            parent[rb] = ra;
-        }
+        const ra = find(a), rb = find(b);
+        if (ra !== rb) parent[rb] = ra;
     }
 
     for (let i = 0; i < items.length; i++) {
         for (let j = i + 1; j < items.length; j++) {
-
-            const d =
-                window.payrollHaversineMeters(
-                    [items[i].lat, items[i].lng],
-                    [items[j].lat, items[j].lng]
-                );
-
-            if (d <= collisionMeters) {
-                union(i, j);
-            }
+            const d = window.payrollHaversineMeters(
+                [items[i].lat, items[i].lng],
+                [items[j].lat, items[j].lng]
+            );
+            if (d <= collisionMeters) union(i, j);
         }
     }
 
     const groups = {};
-
     items.forEach(function (item, index) {
         const root = find(index);
-
-        if (!groups[root]) {
-            groups[root] = [];
-        }
-
+        if (!groups[root]) groups[root] = [];
         groups[root].push(item);
     });
 
     Object.keys(groups).forEach(function (root) {
-
         const group = groups[root];
+        if (group.length < 2) return;
 
-        if (group.length < 2) {
-            return;
-        }
-
-        // Stable employee-ID ordering prevents markers swapping places.
-        group.sort(function (a, b) {
-            return a.employeeId - b.employeeId;
-        });
-
-        const center = [
-            group[0].lat,
-            group[0].lng
-        ];
-
-        /*
-         * Extra safety:
-         * Even after _loaded is true, make sure the map
-         * actually has a valid center before projecting.
-         */
-        let centerPoint;
-
-        try {
-            centerPoint =
-                map.latLngToLayerPoint(center);
-        }
-        catch (error) {
-            console.warn(
-                'Admin map collision projection skipped:',
-                error
-            );
-
-            return;
-        }
-
-        if (
-            !centerPoint ||
-            !Number.isFinite(centerPoint.x) ||
-            !Number.isFinite(centerPoint.y)
-        ) {
-            return;
-        }
-
+        // Stable employee-ID ordering prevents markers from swapping places.
+        group.sort(function (a, b) { return a.employeeId - b.employeeId; });
+        const center = [group[0].lat, group[0].lng];
+        const centerPoint = map.latLngToLayerPoint(center);
         const count = group.length;
-
-        const radius =
-            count <= 2
-                ? 28
-                : count <= 4
-                    ? 34
-                    : count <= 7
-                        ? 40
-                        : 46;
+        const radius = count <= 2 ? 28 : count <= 4 ? 34 : count <= 7 ? 40 : 46;
 
         group.forEach(function (item, index) {
-
-            const angle =
-                (-Math.PI / 2) +
-                (index * (Math.PI * 2 / count));
-
-            const point =
-                L.point(
-                    centerPoint.x +
-                    Math.cos(angle) * radius,
-
-                    centerPoint.y +
-                    Math.sin(angle) * radius
-                );
-
-            const display =
-                map.layerPointToLatLng(point);
-
-            item.offsetX =
-                display.lng - item.lng;
-
-            item.offsetY =
-                display.lat - item.lat;
+            const angle = (-Math.PI / 2) + (index * (Math.PI * 2 / count));
+            const point = L.point(
+                centerPoint.x + Math.cos(angle) * radius,
+                centerPoint.y + Math.sin(angle) * radius
+            );
+            const display = map.layerPointToLatLng(point);
+            item.offsetX = display.lng - item.lng;
+            item.offsetY = display.lat - item.lat;
         });
     });
 
@@ -2705,40 +2591,6 @@ window.updateAdminLiveStaffMap =
                     );
 
                 L.tileLayer(
-
-                const map =
-                    L.map(
-                        mapId,
-                        {
-                            zoomControl: true,
-                            attributionControl: true
-                        }
-                    );
-
-                /*
-                 * IMPORTANT:
-                 * Give Leaflet an initial center and zoom immediately.
-                 * Collision/projection calculations may run before fitBounds().
-                 */
-                map.setView(
-                    office,
-                    17,
-                    {
-                        animate: false
-                    }
-                );
-
-                map.invalidateSize(true);
-
-                L.tileLayer(
-                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    {
-                        maxZoom: 19,
-                        attribution:
-                            '© OpenStreetMap contributors'
-                    }
-                ).addTo(map);
-
                     'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                     {
                         maxZoom: 19,
@@ -3400,14 +3252,13 @@ window.updateAdminLiveStaffMap =
                             );
                         }
                         state.markers[employeeId].bindPopup(
-                            `<div style="min-width:210px;color:#eaf2ff;background:#151b24;">` +
-                            `<strong style="display:block;color:#ffffff !important;font-size:14px;font-weight:800;margin-bottom:7px;">${name}</strong>` +
-                            `<div style="margin-top:5px;color:#d7e2ef;"><b style="color:#ffffff;">To Office</b></div>` +
-                            `<div style="color:#d7e2ef;">Road distance: ${routeDistance}</div>` +
-                            `<div style="color:#d7e2ef;">ETA: ${eta}</div>` +
-                            `<div style="color:#d7e2ef;">Current road: ${road}</div>` +
-                            `<div style="color:#d7e2ef;">GPS accuracy: ${Number(x.accuracyMeters) > 0 ? '±' + Math.round(Number(x.accuracyMeters)) + ' m' : 'Unknown'}</div>` +
-                            `<div style="color:#d7e2ef;">Speed: ${window.payrollFormatSpeed(state.routeStates[employeeId].speedMps || 0)}</div>` +
+                            `<div style="min-width:210px"><strong>${name}</strong>` +
+                            `<div style="margin-top:5px"><b>To Office</b></div>` +
+                            `<div>Road distance: ${routeDistance}</div>` +
+                            `<div>ETA: ${eta}</div>` +
+                            `<div>Current road: ${road}</div>` +
+                            `<div>GPS accuracy: ${Number(x.accuracyMeters) > 0 ? '±' + Math.round(Number(x.accuracyMeters)) + ' m' : 'Unknown'}</div>` +
+                            `<div>Speed: ${window.payrollFormatSpeed(state.routeStates[employeeId].speedMps || 0)}</div>` +
                             `</div>`
                         );
                     }).catch(function() {});
@@ -3437,14 +3288,45 @@ window.updateAdminLiveStaffMap =
                         );
                     }
 
-                    /*
- * The rich employee journey card is rendered through
- * state.journeyLabels.
- *
- * The old permanent distance tooltip from state.labels
- * is intentionally disabled so no small duplicate tooltip
- * appears on the map.
- */
+                    if (
+                        !state.labels[
+                        employeeId
+                        ]
+                    ) {
+                        state.labels[
+                            employeeId
+                        ] =
+                            L.tooltip({
+                                permanent:
+                                    true,
+                                direction:
+                                    'center',
+                                className:
+                                    'admin-distance-label',
+                                opacity: .95
+                            })
+                                .setContent(
+                                    distance
+                                )
+                                .setLatLng(
+                                    window.getAdminLineMidpoint(
+                                        office,
+                                        position
+                                    )
+                                )
+                                .addTo(
+                                    state.map
+                                );
+                    }
+                    else {
+                        state.labels[
+                            employeeId
+                        ].setContent(
+                            distance
+                        );
+                        // Position is updated continuously by the marker
+                        // animation callback above.
+                    }
 
                     if (isSelected && membershipChanged) {
                         state.markers[employeeId].openPopup();
