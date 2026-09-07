@@ -38,45 +38,11 @@
 
 <body>
 
-    <Router AppAssembly="@typeof(App).Assembly">
-
-        <Found Context="routeData">
-
-            <AuthorizeView>
-
-                <Authorized>
-
-                    @if (routeData.PageType ==
-                                        typeof(global::Payroll.Web.Components.Pages.Admin.Home))
-                    {
-                        <RoleBasedRedirectComponent />
-                    }
-
-                </Authorized>
-
-            </AuthorizeView>
-
-        </Found>
-
-
-        <NotFound>
-
-            <PageTitle>
-                Not found
-            </PageTitle>
-
-            <LayoutView Layout="@typeof(Layout.MainLayout)">
-
-                <p role="alert">
-                    Sorry, there's nothing at this address.
-                </p>
-
-            </LayoutView>
-
-        </NotFound>
-
-    </Router>
-
+    @*
+       IMPORTANT: Routes.razor owns the single interactive Router.
+       Do not add another Router here. A duplicate Router can leave stale
+       PageTitle values in <head> after client-side navigation.
+    *@
 
     <Routes @rendermode="InteractiveServer" />
 
