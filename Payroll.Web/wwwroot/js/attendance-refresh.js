@@ -1,4 +1,4 @@
-﻿window.attendanceRefresh = (function () {
+window.attendanceRefresh = (function () {
 
     let connection = null;
     let started = false;
@@ -7,6 +7,8 @@
 
     let viewerRef = null;
     let listeners = [];
+    let applicationListeners = [];
+    let applicationRefreshTimer = null;
 
     async function start() {
 
@@ -72,6 +74,69 @@
                     );
                 }
             );
+
+            /*
+             * ==========================================================
+             * APPLICATION-WIDE DATABASE CHANGE
+             * ==========================================================
+             *
+             * Emitted centrally after a successful EF Core write.
+             * This is a database invalidation signal, not a data
+             * payload. The active route reloads from the database.
+             *
+             * Rapid writes are coalesced so bulk CRUD does not cause
+             * a refresh storm.
+             */
+            connection.on(
+                "ApplicationDataChanged",
+                function (data) {
+
+                    console.log(
+                        "ApplicationDataChanged",
+                        data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "application-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
+                    );
+
+                    /*
+                     * Pages that already use the established
+                     * AttendanceRefreshListener receive the same
+                     * application-wide invalidation through its
+                     * ApplicationDataChanged callback. Pages without
+                     * that listener use the MainLayout fallback.
+                     */
+                    if (listeners.length > 0) {
+                        notifyListeners(
+                            "ApplicationDataChanged",
+                            data
+                        ).catch(function () {});
+                        return;
+                    }
+
+                    if (applicationRefreshTimer) {
+                        clearTimeout(applicationRefreshTimer);
+                    }
+
+                    applicationRefreshTimer = setTimeout(
+                        async function () {
+                            applicationRefreshTimer = null;
+
+                            await notifyApplicationListeners(
+                                data
+                            );
+                        },
+                        250
+                    );
+                }
+            );
+
 
             // LOCATION HEALTH (periodic status of sessions)
             connection.on(
@@ -429,6 +494,13 @@
                         "LocationChanged",
                         null
                     );
+
+                    await notifyApplicationListeners(
+                        {
+                            Entities: [],
+                            Reason: "SIGNALR_RECONNECTED"
+                        }
+                    );
                 }
             );
 
@@ -494,7 +566,7 @@
 
     function scheduleRetry() {
 
-        if (retryTimer || !listeners.length)
+        if (retryTimer || (!listeners.length && !applicationListeners.length))
             return;
 
         retryTimer = setTimeout(
@@ -504,6 +576,35 @@
             },
             2000
         );
+    }
+
+
+    /*
+     * ==============================================================
+     * APPLICATION-WIDE LISTENER NOTIFICATION
+     * ==============================================================
+     */
+
+    async function notifyApplicationListeners(data) {
+
+        const currentListeners =
+            [...applicationListeners];
+
+        for (const listener of currentListeners) {
+
+            try {
+                await listener.invokeMethodAsync(
+                    "ApplicationDataChanged",
+                    data
+                );
+            }
+            catch (error) {
+                console.warn(
+                    "Application-wide refresh listener failed:",
+                    error
+                );
+            }
+        }
     }
 
 
@@ -669,6 +770,39 @@
             );
     }
 
+    /*
+     * ==============================================================
+     * APPLICATION-WIDE LISTENER REGISTRATION
+     * ==============================================================
+     */
+
+    function registerApplication(dotNetReference) {
+
+        if (!applicationListeners.includes(dotNetReference)) {
+            applicationListeners.push(dotNetReference);
+        }
+
+        start();
+    }
+
+    async function unregisterApplication(dotNetReference) {
+
+        applicationListeners =
+            applicationListeners.filter(
+                function (item) {
+                    return item !== dotNetReference;
+                }
+            );
+
+        if (!listeners.length && !applicationListeners.length) {
+            if (applicationRefreshTimer) {
+                clearTimeout(applicationRefreshTimer);
+                applicationRefreshTimer = null;
+            }
+        }
+    }
+
+
     // Allow Blazor components to register for periodic LocationHealth bridge
     function registerLocationHealth(dotNetReference) {
         try {
@@ -714,7 +848,13 @@
             register,
 
         unregister:
-            unregister
+            unregister,
+
+        registerApplication:
+            registerApplication,
+
+        unregisterApplication:
+            unregisterApplication
 
     };
 

@@ -33,6 +33,7 @@
     private bool _registered;
 
     private bool _disposed;
+    private long _lastAttendanceRefreshTicks;
 
 
     // ============================================================
@@ -74,6 +75,15 @@
         if (_disposed)
             return;
 
+        var now = DateTime.UtcNow.Ticks;
+        if (now - _lastAttendanceRefreshTicks <
+            TimeSpan.FromMilliseconds(500).Ticks)
+        {
+            return;
+        }
+
+        _lastAttendanceRefreshTicks = now;
+
         try
         {
             if (OnAttendanceChanged.HasDelegate)
@@ -87,6 +97,42 @@
         {
             Console.Error.WriteLine(
                 $"AttendanceChanged callback failed: {ex}");
+        }
+    }
+
+
+    // ============================================================
+    // APPLICATION-WIDE DATABASE CHANGED
+    // ============================================================
+
+    [JSInvokable]
+    public async Task ApplicationDataChanged(object? data = null)
+    {
+        if (_disposed)
+            return;
+
+        var now = DateTime.UtcNow.Ticks;
+        if (now - _lastAttendanceRefreshTicks <
+            TimeSpan.FromMilliseconds(500).Ticks)
+        {
+            return;
+        }
+
+        _lastAttendanceRefreshTicks = now;
+
+        try
+        {
+            if (OnAttendanceChanged.HasDelegate)
+            {
+                await InvokeAsync(
+                    () =>
+                        OnAttendanceChanged.InvokeAsync());
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"ApplicationDataChanged callback failed: {ex}");
         }
     }
 

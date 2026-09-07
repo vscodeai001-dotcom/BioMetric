@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Payroll.Web.Hubs;
 
 namespace Payroll.Web.Services
@@ -128,6 +128,38 @@ namespace Payroll.Web.Services
                 null,
                 null,
                 "GLOBAL");
+        }
+
+
+        /*
+         * ==========================================================
+         * APPLICATION-WIDE DATABASE CHANGE
+         * ==========================================================
+         *
+         * This event is emitted centrally after a successful EF Core
+         * SaveChanges operation. It is intentionally separate from
+         * the existing attendance/location events so existing
+         * listeners keep their current behaviour.
+         *
+         * The payload describes which entity types changed. The
+         * client uses this as a realtime invalidation signal and
+         * reloads the currently visible route from the database.
+         */
+
+        public async Task NotifyApplicationDataChangedAsync(
+            IReadOnlyCollection<string> changedEntities)
+        {
+            await _hub.Clients.All.SendAsync(
+                "ApplicationDataChanged",
+                new
+                {
+                    Entities = changedEntities
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(x => x, StringComparer.Ordinal)
+                        .ToArray(),
+
+                    Timestamp = DateTime.UtcNow
+                });
         }
 
 

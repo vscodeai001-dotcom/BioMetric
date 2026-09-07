@@ -1,0 +1,90 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+@code {
+    private DotNetObjectReference<ApplicationRealtimeRefreshListener>? _dotNetRef;
+    private bool _registered;
+    private bool _disposed;
+    private long _lastRefreshTicks;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed)
+            return;
+
+        try
+        {
+            _dotNetRef =
+                DotNetObjectReference.Create(this);
+
+            await JSRuntime.InvokeVoidAsync(
+                "attendanceRefresh.registerApplication",
+                _dotNetRef);
+
+            _registered = true;
+        }
+        catch
+        {
+            // Realtime refresh is an enhancement. It must never break
+            // normal page rendering when the circuit is unavailable.
+        }
+    }
+
+    [JSInvokable]
+    public async Task ApplicationDataChanged(object? data = null)
+    {
+        if (_disposed)
+            return;
+
+        // Protect against duplicate notifications arriving within the
+        // same millisecond from concurrent writes/reconnects.
+        var now = DateTime.UtcNow.Ticks;
+        if (now - _lastRefreshTicks < TimeSpan.FromMilliseconds(150).Ticks)
+            return;
+
+        _lastRefreshTicks = now;
+
+        await InvokeAsync(() =>
+        {
+            if (_disposed)
+                return Task.CompletedTask;
+
+            // Enhanced navigation refreshes the active route without
+            // forcing a browser reload. The database remains the source
+            // of truth and the current page re-queries its normal data.
+            Navigation.Refresh(false);
+            return Task.CompletedTask;
+        });
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        try
+        {
+            if (_registered && _dotNetRef != null)
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "attendanceRefresh.unregisterApplication",
+                    _dotNetRef);
+            }
+        }
+        catch
+        {
+            // Circuit may already be disconnected.
+        }
+        finally
+        {
+            _registered = false;
+            _dotNetRef?.Dispose();
+            _dotNetRef = null;
+        }
+    }
+}

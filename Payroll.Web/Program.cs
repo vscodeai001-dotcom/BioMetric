@@ -162,6 +162,9 @@ builder.Services.AddAuthentication()
 builder.Services.AddSingleton<
     AttendanceRefreshService>();
 
+builder.Services.AddSingleton<
+    RealtimeSaveChangesInterceptor>();
+
 // Background service broadcasting location health for admin dashboards
 builder.Services.AddHostedService<LocationHealthService>();
 
@@ -198,12 +201,18 @@ if (string.IsNullOrWhiteSpace(connectionString))
 
 
 builder.Services.AddDbContextFactory<AppDbContext>(
-    options =>
+    (serviceProvider, options) =>
+    {
         options.UseNpgsql(
             connectionString,
             npgsqlOptions =>
                 npgsqlOptions.MigrationsAssembly(
-                    typeof(AppDbContext).Assembly.GetName().Name)));
+                    typeof(AppDbContext).Assembly.GetName().Name));
+
+        options.AddInterceptors(
+            serviceProvider.GetRequiredService<
+                RealtimeSaveChangesInterceptor>());
+    });
 
 
 // ============================================================
