@@ -40,7 +40,9 @@ public class GeoLocationService
             .AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == 1);
 
-        if (features?.EnableGeoFencing != true && features?.EnableDualAttendance != true)
+        if (features == null ||
+    (!features.EnableGeoFencing &&
+     !features.EnableDualAttendance))
         {
             return new GeoDistanceResult
             {
