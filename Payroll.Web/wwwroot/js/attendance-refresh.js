@@ -106,20 +106,18 @@ window.attendanceRefresh = (function () {
                     );
 
                     /*
-                     * Pages that already use the established
-                     * AttendanceRefreshListener receive the same
-                     * application-wide invalidation through its
-                     * ApplicationDataChanged callback. Pages without
-                     * that listener use the MainLayout fallback.
+                     * The application-level listener lives in MainLayout
+                     * and remains mounted while the user navigates between
+                     * pages. It MUST always receive the global invalidation.
+                     *
+                     * Do not suppress this merely because the current
+                     * page also has an AttendanceRefreshListener.
+                     *
+                     * The global listener is the fallback that guarantees
+                     * pages without a domain-specific listener also refresh.
+                     * Existing domain-specific listeners continue handling
+                     * their own explicit events independently.
                      */
-                    if (listeners.length > 0) {
-                        notifyListeners(
-                            "ApplicationDataChanged",
-                            data
-                        ).catch(function () {});
-                        return;
-                    }
-
                     if (applicationRefreshTimer) {
                         clearTimeout(applicationRefreshTimer);
                     }

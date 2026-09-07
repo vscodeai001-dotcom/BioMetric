@@ -1,7 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.AspNetCore.SignalR;
-using Payroll.Web.Hubs;
 using System.Runtime.CompilerServices;
 
 namespace Payroll.Web.Services;
@@ -23,9 +21,10 @@ public sealed class ApplicationDataChangeInterceptor : SaveChangesInterceptor
     private sealed class PendingChange
     {
         public bool Notify;
+        public string[] Entities { get; set; } = Array.Empty<string>();
     }
 
-    private readonly IHubContext<AttendanceRefreshHub> _hub;
+    private readonly AttendanceRefreshService _refreshService;
 
     private readonly ConditionalWeakTable<DbContext, PendingChange> _pending = new();
 
@@ -39,9 +38,9 @@ public sealed class ApplicationDataChangeInterceptor : SaveChangesInterceptor
         };
 
     public ApplicationDataChangeInterceptor(
-        IHubContext<AttendanceRefreshHub> hub)
+        AttendanceRefreshService refreshService)
     {
-        _hub = hub;
+        _refreshService = refreshService;
     }
 
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
@@ -103,18 +102,24 @@ public sealed class ApplicationDataChangeInterceptor : SaveChangesInterceptor
         if (db == null)
             return;
 
-        var hasRelevantChange = db.ChangeTracker
+        var changedEntities = db.ChangeTracker
             .Entries()
-            .Any(e =>
+            .Where(e =>
                 e.State is EntityState.Added
                     or EntityState.Modified
-                    or EntityState.Deleted
-                && !IgnoredEntityNames.Contains(e.Entity.GetType().Name));
+                    or EntityState.Deleted)
+            .Select(e => e.Entity.GetType().Name)
+            .Where(name => !IgnoredEntityNames.Contains(name))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
 
-        if (!hasRelevantChange)
+        if (changedEntities.Length == 0)
             return;
 
-        _pending.GetOrCreateValue(db).Notify = true;
+        var pending = _pending.GetOrCreateValue(db);
+        pending.Notify = true;
+        pending.Entities = changedEntities;
     }
 
     private async Task PublishIfNeededAsync(
@@ -125,28 +130,21 @@ public sealed class ApplicationDataChangeInterceptor : SaveChangesInterceptor
         if (db == null)
             return;
 
-        var shouldNotify = false;
+        PendingChange? pending = null;
 
-        if (_pending.TryGetValue(db, out var pending))
+        if (_pending.TryGetValue(db, out var found))
         {
-            shouldNotify = pending.Notify;
+            pending = found;
             _pending.Remove(db);
         }
 
-        if (!shouldNotify || result <= 0)
+        if (pending is not { Notify: true } || result <= 0)
             return;
 
         try
         {
-            await _hub.Clients.All.SendAsync(
-                "DataChanged",
-                new
-                {
-                    Scope = "APPLICATION",
-                    Source = "EF_CORE",
-                    Timestamp = DateTime.UtcNow
-                },
-                cancellationToken);
+            await _refreshService.NotifyApplicationDataChangedAsync(
+                pending.Entities);
         }
         catch
         {
