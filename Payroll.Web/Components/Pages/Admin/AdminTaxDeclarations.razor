@@ -6,6 +6,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject TaxDeclarationService TaxService
 @inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
+@inject Payroll.Web.Services.NotificationService NotificationService
 @inject IToastService toastService
 @inject IJSRuntime JSRuntime
 @attribute [Authorize(Roles = "Admin, SuperAdmin")]
@@ -206,6 +207,11 @@ else
     {
         if (!await JSRuntime.InvokeAsync<bool>("confirm", "Approve this declaration? This locks the regime for payroll.")) return;
         await TaxService.ApproveAsync(item.DeclarationId, "Approved by Admin");
+        await NotificationService.NotifyEmployeeAsync(
+            item.EmployeeId,
+            "Tax Declaration Approved",
+            $"Your tax declaration for FY {selectedYear}-{selectedYear + 1} was approved.",
+            "/my-tax-declaration");
         await AttendanceRefresh.NotifyDataChangedAsync(item.EmployeeId, null, "TAX_APPROVAL");
         toastService.ShowSuccess("Approved");
         await LoadData();
@@ -216,6 +222,11 @@ else
         var reason = await JSRuntime.InvokeAsync<string>("prompt", "Enter rejection reason:");
         if (string.IsNullOrWhiteSpace(reason)) return;
         await TaxService.RejectAsync(item.DeclarationId, reason);
+        await NotificationService.NotifyEmployeeAsync(
+            item.EmployeeId,
+            "Tax Declaration Rejected",
+            $"Your tax declaration for FY {selectedYear}-{selectedYear + 1} was rejected. Reason: {reason}",
+            "/my-tax-declaration");
         await AttendanceRefresh.NotifyDataChangedAsync(item.EmployeeId, null, "TAX_REJECTION");
         toastService.ShowWarning("Rejected");
         await LoadData();

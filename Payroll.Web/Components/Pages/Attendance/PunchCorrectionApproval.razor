@@ -218,7 +218,11 @@ else
                     var user = await UserManager.FindByEmailAsync(emp.Email);
                     if (user != null)
                     {
-                        await NoteService.SendNotificationAsync(user.Id, "Punch Approved", $"Your punch correction for {dbPunch.PunchTime:dd-MMM} at {dbPunch.PunchTime:HH:mm} was approved.", "my-attendance");
+                        await NoteService.NotifyEmployeeAsync(
+                            dbPunch.EmployeeID!.Value,
+                            "Punch Correction Approved",
+                            $"Your punch correction for {dbPunch.PunchTime:dd-MMM-yyyy} at {dbPunch.PunchTime:HH:mm} was approved.",
+                            "/my-attendance");
                     }
                 }
 
@@ -297,6 +301,12 @@ else
 
                 if (dbPunch.EmployeeID.HasValue)
                 {
+                    await NoteService.NotifyEmployeeAsync(
+                        dbPunch.EmployeeID.Value,
+                        "Punch Correction Rejected",
+                        $"Your punch correction for {dbPunch.PunchTime:dd-MMM-yyyy} at {dbPunch.PunchTime:HH:mm} was rejected.",
+                        "/my-attendance");
+
                     await AttendanceRefreshService
                         .NotifyAttendanceChangedAsync(
                             dbPunch.EmployeeID.Value,

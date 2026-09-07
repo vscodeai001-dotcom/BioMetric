@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -21,6 +21,7 @@ namespace Payroll.Web.Services
         private readonly UserManager<IdentityUser> _userManager;
         private readonly AttendanceCalculatorService _attendanceCalculator;
         private readonly AttendanceRefreshService _refreshService;
+        private readonly NotificationService _notificationService;
 
         public LeaveManagementService(
             IDbContextFactory<AppDbContext> dbFactory,
@@ -29,7 +30,8 @@ namespace Payroll.Web.Services
             ILogger<LeaveManagementService> logger,
             UserManager<IdentityUser> userManager,
             AttendanceCalculatorService attendanceCalculator,
-            AttendanceRefreshService refreshService)
+            AttendanceRefreshService refreshService,
+            NotificationService notificationService)
         {
             _dbFactory = dbFactory;
             _auditService = auditService;
@@ -38,6 +40,7 @@ namespace Payroll.Web.Services
             _userManager = userManager;
             _attendanceCalculator = attendanceCalculator;
             _refreshService = refreshService;
+            _notificationService = notificationService;
         }
 
         // --- 1. LOAD DATA ---
@@ -165,6 +168,14 @@ namespace Payroll.Web.Services
             if (emp != null)
                 await SendStatusEmailAsync(dbReq, emp, approved ? "Approved" : "Pending (Revoked)");
 
+            await _notificationService.NotifyEmployeeAsync(
+                dbReq.EmployeeID,
+                approved ? "Leave Approved" : "Leave Rejected / Revoked",
+                approved
+                    ? $"Your leave request for {dbReq.LeaveDate:dd-MMM-yyyy} was approved."
+                    : $"Your leave request for {dbReq.LeaveDate:dd-MMM-yyyy} was rejected or revoked.",
+                "/my-leave-history");
+
             // ================================================================
             // BROADCAST REAL-TIME LEAVE STATUS UPDATE TO ALL CONNECTED CLIENTS
             // ================================================================
@@ -221,6 +232,12 @@ namespace Payroll.Web.Services
 
             if (emp != null)
                 await SendStatusEmailAsync(reqCopy, emp, "Denied/Deleted");
+
+            await _notificationService.NotifyEmployeeAsync(
+                employeeId,
+                "Leave Request Denied",
+                $"Your leave request for {affectedDate:dd-MMM-yyyy} was denied/deleted by the administrator.",
+                "/my-leave-history");
 
             // ================================================================
             // BROADCAST REAL-TIME LEAVE DELETION TO ALL CONNECTED CLIENTS

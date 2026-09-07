@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Payroll.Shared.Data;
 using System;
 using System.Collections.Generic;
@@ -10,10 +10,12 @@ namespace Payroll.Web.Services
     public class FBPService
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
+        private readonly NotificationService _notificationService;
 
-        public FBPService(IDbContextFactory<AppDbContext> dbFactory)
+        public FBPService(IDbContextFactory<AppDbContext> dbFactory, NotificationService notificationService)
         {
             _dbFactory = dbFactory;
+            _notificationService = notificationService;
         }
 
         // --- ADMIN: MANAGE COMPONENTS ---
@@ -77,6 +79,16 @@ namespace Payroll.Web.Services
                 }
             }
             await db.SaveChangesAsync();
+
+            var employee = await db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.EmployeeID == employeeId);
+            if (employee != null)
+            {
+                await _notificationService.NotifyAdminsAsync(
+                    "New FBP Declaration",
+                    $"{employee.Name} submitted an FBP declaration for FY {financialYear}-{financialYear + 1}.",
+                    "/admin/fbp-approval");
+            }
         }
 
         // --- PAYROLL INTEGRATION LOGIC ---

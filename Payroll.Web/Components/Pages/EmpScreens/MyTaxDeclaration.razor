@@ -5,6 +5,7 @@
 @using global::Payroll.Shared.Services
 @using Microsoft.EntityFrameworkCore
 @inject TaxDeclarationService TaxService
+@inject NotificationService NotificationService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject AuthenticationStateProvider AuthState
 @inject IToastService toastService
@@ -258,6 +259,10 @@ else
         try
         {
             await TaxService.SubmitAsync(declaration);
+            await NotificationService.NotifyAdminsAsync(
+                "New Tax Declaration",
+                $"{employee?.Name ?? "Employee"} submitted a tax declaration for FY {currentYear}-{currentYear + 1}.",
+                "/admin/tax-declarations");
             toastService.ShowSuccess("Tax declaration submitted for approval.");
             await CheckPermissionsAndLoadData(); // Refresh status
         }

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
 using Payroll.Shared.Data;
@@ -68,15 +68,10 @@ namespace Payroll.Web.Services
                     $"<p>Reason: {reason}</p>" +
                     $"<p><a href='#'>Login to Admin Portal to review.</a></p>");
 
-                var adminUsers = await _userManager.GetUsersInRoleAsync("Admin");
-                foreach (var user in adminUsers)
-                {
-                    await _noteService.SendNotificationAsync(
-                        user.Id,
-                        "New Resignation Request",
-                        $"Resignation submitted by {emp.Name} for {lastDay:dd-MMM}.",
-                        "admin/exit-management");
-                }
+                await _noteService.NotifyAdminsAsync(
+                    "New Resignation Request",
+                    $"Resignation submitted by {emp.Name} for {lastDay:dd-MMM}.",
+                    "/admin/exit-management");
             }
 
             return true;

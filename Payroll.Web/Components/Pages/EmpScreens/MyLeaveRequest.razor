@@ -6,6 +6,7 @@
 @using global::Payroll.Shared.Data
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject AttendanceRefreshService AttendanceRefresh
+@inject NotificationService NotificationService
 @inject ILogger<MyLeaveRequest> _logger
 @inject IToastService toastService
 @inject NavigationManager Navigation
@@ -206,6 +207,16 @@ else
             if (successfullyAddedCount > 0)
             {
                 await dbContext.SaveChangesAsync();
+
+                var leaveEmployee = await dbContext.Employees.AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.EmployeeID == linkedEmployee!.EmployeeID);
+                if (leaveEmployee != null)
+                {
+                    await NotificationService.NotifyAdminsAsync(
+                        "New Leave Request",
+                        $"{leaveEmployee.Name} submitted {successfullyAddedCount} leave request(s) starting {firstLeaveDate:dd-MMM-yyyy}.",
+                        "/leave-management");
+                }
 
                 // ================================================================
                 // BROADCAST REAL-TIME LEAVE SUBMISSIONS TO ALL CONNECTED CLIENTS

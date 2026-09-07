@@ -18,6 +18,7 @@ namespace Payroll.Web.Services
         private readonly IEmailSender _emailSender;
         private readonly UserManager<IdentityUser> _userManager;
         private readonly AttendanceRefreshService _refreshService;
+        private readonly NotificationService _notificationService;
 
 
 
@@ -26,13 +27,15 @@ namespace Payroll.Web.Services
             IHttpContextAccessor httpContextAccessor,
             IEmailSender emailSender,
             UserManager<IdentityUser> userManager,
-            AttendanceRefreshService refreshService)
+            AttendanceRefreshService refreshService,
+            NotificationService notificationService)
         {
             _dbFactory = dbFactory;
             _httpContextAccessor = httpContextAccessor;
             _emailSender = emailSender;
             _userManager = userManager;
             _refreshService = refreshService;
+            _notificationService = notificationService;
         }
 
         // --- 1. EMPLOYEE SUBMITS REQUEST ---
@@ -63,7 +66,15 @@ namespace Payroll.Web.Services
             await _refreshService
                 .NotifyRegularizationChangedAsync(employeeId);
 
-            // Existing notification flow remains unchanged.
+            var employee = await db.Employees.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.EmployeeID == employeeId);
+            if (employee != null)
+            {
+                await _notificationService.NotifyAdminsAsync(
+                    "New Regularization Request",
+                    $"{employee.Name} submitted a {(isInPunch ? "IN" : "OUT")} regularization for {date:dd-MMM-yyyy} at {time:hh\:mm tt}.",
+                    "/attendance/regularization-approval");
+            }
         }
 
         // --- 2. ADMIN/MANAGER APPROVES/REJECTS ---
@@ -116,6 +127,12 @@ namespace Payroll.Web.Services
             await _refreshService
                 .NotifyRegularizationChangedAsync(
                     request.EmployeeId);
+
+            await _notificationService.NotifyEmployeeAsync(
+                request.EmployeeId,
+                $"Regularization {newStatus}",
+                $"Your {(request.IsInPunch ? "IN" : "OUT")} regularization request for {request.DateOfPunch:dd-MMM-yyyy} at {request.PunchTimeNew:hh\:mm tt} was {newStatus.ToLowerInvariant()}.",
+                "/my-regularization");
 
             // --- NOTIFICATION TO EMPLOYEE (Email) ---
             if (emp != null && !string.IsNullOrEmpty(emp.Email))

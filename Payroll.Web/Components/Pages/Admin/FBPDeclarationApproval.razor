@@ -12,6 +12,7 @@
 @inject IJSRuntime JSRuntime
 @inject IToastService toastService
 @inject UserManager<IdentityUser> UserManager
+@inject NotificationService NotificationService
 @inject IEmailSender EmailSender // Assuming email is needed for rejected submissions
 @attribute [Authorize(Roles = "Admin, SuperAdmin")]
 
@@ -166,6 +167,11 @@ else
             }
             
             await db.SaveChangesAsync();
+            await NotificationService.NotifyEmployeeAsync(
+                summary.EmployeeId,
+                "FBP Declaration Approved",
+                $"Your FBP declaration for FY {currentYear}-{currentYear + 1} was approved and locked.",
+                "/my-fbp-declaration");
             await AttendanceRefresh.NotifyDataChangedAsync(summary.EmployeeId, null, "FBP_APPROVAL");
             toastService.ShowSuccess($"Declaration for {summary.EmployeeName} locked and approved.");
             await LoadData();
@@ -201,6 +207,11 @@ else
             
             db.FlexibleBenefitDeclarations.RemoveRange(declarationsToReject);
             await db.SaveChangesAsync();
+            await NotificationService.NotifyEmployeeAsync(
+                summary.EmployeeId,
+                "FBP Declaration Rejected",
+                $"Your FBP declaration for FY {currentYear}-{currentYear + 1} was rejected. Reason: {remarks}",
+                "/my-fbp-declaration");
             await AttendanceRefresh.NotifyDataChangedAsync(summary.EmployeeId, null, "FBP_REJECTION");
             
             // Send email notification (TODO: Implement proper notification via service)
