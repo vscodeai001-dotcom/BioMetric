@@ -122,6 +122,8 @@ else
     }
 </style>
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private CompanySetting? settings;
     private FeatureSettings? features;
@@ -166,4 +168,28 @@ else
         catch (Exception ex) { _logger.LogError(ex, "Error saving."); toastService.ShowError("Save failed."); }
         finally { isSaving = false; }
     }
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await using var dbContext = await DbFactory.CreateDbContextAsync();
+            settings = await dbContext.CompanySettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.SettingID == 1);
+            features = await dbContext.FeatureSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(f => f.Id == 1)
+                ?? new FeatureSettings();
+
+            if (settings == null)
+                settings = new CompanySetting();
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Realtime company settings refresh failed.");
+        }
+    }
+
 }

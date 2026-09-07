@@ -85,6 +85,8 @@ else
     }
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private List<SalaryAdvance> advanceHistory = new();
     private bool isLoading = true;
@@ -152,6 +154,19 @@ else
         finally
         {
             isLoading = false;
+        }
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await CheckPermissionsAndLoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
         }
     }
 }

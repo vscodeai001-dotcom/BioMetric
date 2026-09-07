@@ -207,6 +207,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private bool isLoading = false;
     private bool isAccessDenied = false;
@@ -339,4 +341,17 @@ else
         _ => "bg-secondary"
     };
     private string FormatTimeSpan(TimeSpan ts) => $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}";
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await CheckPermissionsAndLoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
+        }
+    }
 }

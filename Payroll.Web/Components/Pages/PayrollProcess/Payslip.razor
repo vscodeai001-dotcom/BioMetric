@@ -410,6 +410,8 @@ else
     </style>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     [Parameter] public int PayrollId { get; set; }
 
@@ -616,4 +618,17 @@ else
 
         await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
     }
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            Navigation.Refresh(false);
+            await Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Realtime payslip refresh failed.");
+        }
+    }
+
 }

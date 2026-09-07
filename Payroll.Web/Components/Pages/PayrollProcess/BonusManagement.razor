@@ -39,6 +39,8 @@ else
                        OnDelete="DeleteBonus" />
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private List<Employee>? employeeList;
     private List<BonusRecord>? bonusList;
@@ -88,5 +90,18 @@ else
         await dbContext.SaveChangesAsync();
         toastService.ShowSuccess("Bonus deleted.");
         await LoadData();
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await LoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
+        }
     }
 }

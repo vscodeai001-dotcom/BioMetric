@@ -162,8 +162,11 @@ builder.Services.AddAuthentication()
 builder.Services.AddSingleton<
     AttendanceRefreshService>();
 
+// Application-wide realtime CRUD invalidation.
+// This publishes only after successful EF Core SaveChanges operations and
+// leaves existing domain-specific SignalR events untouched.
 builder.Services.AddSingleton<
-    RealtimeSaveChangesInterceptor>();
+    ApplicationDataChangeInterceptor>();
 
 // Background service broadcasting location health for admin dashboards
 builder.Services.AddHostedService<LocationHealthService>();
@@ -201,17 +204,16 @@ if (string.IsNullOrWhiteSpace(connectionString))
 
 
 builder.Services.AddDbContextFactory<AppDbContext>(
-    (serviceProvider, options) =>
+    (sp, options) =>
     {
+        options.AddInterceptors(
+            sp.GetRequiredService<ApplicationDataChangeInterceptor>());
+
         options.UseNpgsql(
             connectionString,
             npgsqlOptions =>
                 npgsqlOptions.MigrationsAssembly(
                     typeof(AppDbContext).Assembly.GetName().Name));
-
-        options.AddInterceptors(
-            serviceProvider.GetRequiredService<
-                RealtimeSaveChangesInterceptor>());
     });
 
 

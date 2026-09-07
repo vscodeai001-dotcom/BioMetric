@@ -144,6 +144,8 @@ else
     <div class="modal-backdrop fade show"></div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     [Parameter] public int EmployeeId { get; set; }
 
@@ -380,5 +382,18 @@ else
         }
 
         return summary;
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await LoadPageData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
+        }
     }
 }

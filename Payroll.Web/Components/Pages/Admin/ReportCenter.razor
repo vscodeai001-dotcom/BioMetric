@@ -194,6 +194,8 @@ else
     .icon-bg-orange { background: rgba(253, 126, 20, 0.1); color: #fd7e14; }
 </style>
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private bool isLoading = true;
     private bool isAccessDenied = false; // Fixed: Variable declared correctly
@@ -314,4 +316,17 @@ else
         "FINANCIAL_REGISTER" => "icon-bg-green",
         _ => "icon-bg-orange"
     };
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await LoadInitialData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
+        }
+    }
 }

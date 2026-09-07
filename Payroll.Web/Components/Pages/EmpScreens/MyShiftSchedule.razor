@@ -101,6 +101,8 @@ else
     }
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private DateTime selectedMonth = DateTime.Now;
     private List<ShiftSchedule> shifts = new();
@@ -170,5 +172,18 @@ else
     private async Task LoadShifts()
     {
         await CheckPermissionsAndLoadData();
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await CheckPermissionsAndLoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
+        }
     }
 }

@@ -101,6 +101,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private List<AttendanceLog> pendingPunches = new();
     private List<Employee> employeeList = new();
@@ -313,6 +315,19 @@ else
         finally
         {
             await LoadRequests();
+        }
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await CheckPermissionsAndLoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
         }
     }
 }

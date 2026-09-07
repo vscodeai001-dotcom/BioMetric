@@ -164,6 +164,8 @@ else
 }
 
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private List<Employee>? employeeList;
     private int selectedEmployeeId = 0;
@@ -615,6 +617,19 @@ else
         catch (Exception ex)
         {
             toastService.ShowError($"Error saving: {ex.Message}");
+        }
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await LoadEmployeesAsync(); await LoadProblematicDays();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
         }
     }
 }

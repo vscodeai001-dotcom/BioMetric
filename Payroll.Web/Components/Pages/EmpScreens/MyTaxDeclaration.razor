@@ -178,6 +178,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private bool isLoading = true;
     private bool isAccessDenied = false;
@@ -266,6 +268,19 @@ else
         finally
         {
             isSaving = false;
+        }
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await CheckPermissionsAndLoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
         }
     }
 }

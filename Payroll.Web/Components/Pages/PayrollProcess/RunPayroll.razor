@@ -135,6 +135,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private List<ProfessionalTaxSlab> ptSlabs = new();
     private int selectedMonth;
@@ -470,4 +472,17 @@ else
     private void ViewPayslip(int id) => Navigation.NavigateTo($"/payslip/{id}");
     private bool CanRecalculate() => !isLoading && (payrollPreviewList?.Any() == true || payrollHistoryList?.Any() == true);
     private string GetEmployeeName(int id) => employeeList?.FirstOrDefault(e => e.EmployeeID == id)?.Name ?? "Unknown";
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await CheckPermissionsAndLoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
+        }
+    }
 }

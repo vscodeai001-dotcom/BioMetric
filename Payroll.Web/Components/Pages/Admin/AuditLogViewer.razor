@@ -68,6 +68,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     
     private List<AuditLog> logs = new();
@@ -122,4 +124,17 @@ else
         "LOGIN" => "bg-secondary",
         _ => "bg-light text-dark border"
     };
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await LoadLogs();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
+        }
+    }
 }

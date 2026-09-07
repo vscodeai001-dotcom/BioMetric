@@ -73,6 +73,8 @@ else
     </div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private List<YearEndSummary> annualSummaries = new();
     private List<Employee> employeeList = new();
@@ -124,6 +126,19 @@ else
         {
             isLoading = false;
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await LoadYearEndData();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
         }
     }
 }

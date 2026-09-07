@@ -84,6 +84,8 @@
     <div class="modal-backdrop fade show"></div>
 }
 
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
 @code {
     private List<Employee>? employeeList;
     private List<ShiftSchedule>? scheduleList;
@@ -248,6 +250,21 @@
         finally
         {
             isSaving = false;
+        }
+    }
+
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            employeeList = null;
+            await LoadEmployees();
+            await LoadSchedules();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime refresh failed: {ex}");
         }
     }
 }

@@ -1,4 +1,6 @@
-﻿@using global::Payroll.Web.Services
+<AttendanceRefreshListener OnAttendanceChanged="HandleRealtimeRefresh" />
+
+@using global::Payroll.Web.Services
 @using global::Payroll.Shared.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.JSInterop
@@ -1112,4 +1114,35 @@
         public double Longitude { get; set; }
         public double Accuracy { get; set; }
     }
+    private async Task HandleRealtimeRefresh()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            var company = await db.CompanySettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.SettingID == 1);
+
+            var enabled = await GeoAccess.IsEnabledAsync();
+
+            radius = company?.GeoRadiusMeters ?? 100;
+            officeLatitude = company?.OfficeLatitude ?? 0;
+            officeLongitude = company?.OfficeLongitude ?? 0;
+            isModuleEnabled = enabled;
+
+            if (isModuleEnabled && (officeLatitude == 0 || officeLongitude == 0))
+                locationMessage = "Office location is not configured.";
+            else if (!isModuleEnabled)
+                locationMessage = null;
+
+            mapNeedsUpdate = hasLocation && isModuleEnabled;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Realtime mobile punch settings refresh failed: {ex}");
+        }
+    }
+
 }

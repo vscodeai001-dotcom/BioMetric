@@ -693,6 +693,12 @@ else
         if (!await JSRuntime.InvokeAsync<bool>("confirm", "FINAL WARNING: This cannot be undone. Confirm?")) return;
         try {
             await CleanerService.WipeAllTransactionalDataAsync();
+
+            // Wipe uses direct SQL/TRUNCATE, so EF SaveChanges interception
+            // cannot publish the realtime invalidation. Publish explicitly
+            // after the transaction succeeds.
+            await AttendanceRefresh.NotifyGlobalRefreshAsync("SYSTEM_DATA_WIPED");
+
             toastService.ShowSuccess("System reset.");
         } catch (Exception ex) {
              toastService.ShowError("Wipe failed.");
