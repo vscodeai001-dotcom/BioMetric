@@ -18,6 +18,11 @@ namespace Payroll.AttendanceService
         private readonly int _pollInterval;
         private readonly bool _clearLogs;
 
+        // Shared PostgreSQL advisory-lock namespace. The Web application
+        // uses the same namespace so biometric and geofence writers are
+        // serialized per employee without changing the database schema.
+        private const long AttendanceAdvisoryLockNamespace = 0x504159524F4C4CL;
+
         public Worker(
             ILogger<Worker> logger,
             IConfiguration config,
@@ -165,6 +170,21 @@ namespace Payroll.AttendanceService
             }
         }
 
+        private static async Task AcquireAttendanceAdvisoryLockAsync(
+            AppDbContext dbContext,
+            int employeeId,
+            CancellationToken stoppingToken)
+        {
+            var lockKey =
+                AttendanceAdvisoryLockNamespace +
+                (uint)employeeId;
+
+            await dbContext.Database.ExecuteSqlRawAsync(
+                "SELECT pg_advisory_xact_lock({0})",
+                new object[] { lockKey },
+                stoppingToken);
+        }
+
         private async Task ProcessLogs(CancellationToken stoppingToken)
         {
             using (var scope = _serviceProvider.CreateScope())
@@ -227,20 +247,44 @@ namespace Payroll.AttendanceService
 
                 if (newLogCount > 0)
                 {
+                    // Serialize the complete biometric save + fallback
+                    // reconciliation per employee. This closes the race where
+                    // GPS and the physical machine report the same transition
+                    // at nearly the same time.
+                    await using var attendanceTransaction =
+                        await dbContext.Database.BeginTransactionAsync(stoppingToken);
+
+                    var employeeIds =
+                        newBiometricLogs
+                            .Where(x => x.EmployeeID.HasValue)
+                            .Select(x => x.EmployeeID!.Value)
+                            .Distinct()
+                            .OrderBy(x => x)
+                            .ToList();
+
+                    foreach (var employeeId in employeeIds)
+                    {
+                        await AcquireAttendanceAdvisoryLockAsync(
+                            dbContext,
+                            employeeId,
+                            stoppingToken);
+                    }
+
                     await dbContext.SaveChangesAsync(stoppingToken);
 
                     /*
                      * Biometric punches are the PRIMARY attendance source.
-                     *
-                     * If the employee physically punches the machine shortly
-                     * after a fallback geofence punch, remove the temporary
-                     * geofence punch so the physical machine punch becomes
-                     * the only attendance event for that transition.
+                     * A temporary geofence fallback immediately around a
+                     * physical punch is removed so the physical machine
+                     * punch remains the only attendance event for that
+                     * transition. The audit record remains intact.
                      */
                     await ReconcileGeofenceFallbacksAsync(
                         dbContext,
                         newBiometricLogs,
                         stoppingToken);
+
+                    await attendanceTransaction.CommitAsync(stoppingToken);
 
                     _logger.LogInformation("Successfully saved {count} new attendance logs.", newLogCount);
 

@@ -9,12 +9,12 @@ namespace Payroll.Shared.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<bool>(
-                name: "enable_dual_attendance",
-                table: "feature_settings",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
+            // Idempotent for the current Neon deployment, where the column
+            // may already have been provisioned manually before this migration
+            // is recorded in __EFMigrationsHistory.
+            migrationBuilder.Sql(
+                "ALTER TABLE feature_settings " +
+                "ADD COLUMN IF NOT EXISTS enable_dual_attendance boolean NOT NULL DEFAULT false;");
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)

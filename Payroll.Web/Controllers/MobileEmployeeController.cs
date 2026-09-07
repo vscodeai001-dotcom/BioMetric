@@ -266,12 +266,63 @@ public sealed class MobileEmployeeController : ControllerBase
         if (type is not ("IN" or "OUT")) return BadRequest(new { success = false, message = "Punch type must be IN or OUT." });
         if (!double.IsFinite(request.Latitude) || !double.IsFinite(request.Longitude) || request.Latitude is < -90 or > 90 || request.Longitude is < -180 or > 180) return BadRequest(new { success = false, message = "Invalid GPS coordinates." });
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
-        var last = await db.AttendanceLogs.Where(x => x.EmployeeID == employeeId).OrderByDescending(x => x.PunchTime).FirstOrDefaultAsync();
-        var expected = last?.LogType?.ToUpperInvariant() == "IN" ? "OUT" : "IN";
-        if (type != expected) return Conflict(new { success = false, message = $"Next valid punch is {expected}." });
-        var log = new Payroll.Shared.AttendanceLog { EmployeeID = employeeId, BiometricID = $"ANDROID-{employeeId}", PunchTime = DateTime.Now, DeviceID = "Android", LogType = type, IsApproved = true, Latitude = request.Latitude, Longitude = request.Longitude };
-        db.AttendanceLogs.Add(log); await db.SaveChangesAsync();
-        return Ok(new { success = true, lastType = type, nextType = type == "IN" ? "OUT" : "IN", lastPunchTime = log.PunchTime.ToString("yyyy-MM-dd HH:mm:ss") });
+        var last = await db.AttendanceLogs
+            .Where(x => x.EmployeeID == employeeId)
+            .OrderByDescending(x => x.PunchTime)
+            .ThenByDescending(x => x.LogID)
+            .FirstOrDefaultAsync();
+
+        var lastIsAutomaticFallback =
+            string.Equals(last?.DeviceID, "GeofenceAuto", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(last?.BiometricID, "GEOFENCE_AUTO", StringComparison.OrdinalIgnoreCase);
+
+        // If the most recent event is a temporary geofence fallback, allow
+        // an explicit Android punch of the same direction to replace it.
+        // This preserves the existing expected-punch rule for normal punches.
+        var expected =
+            lastIsAutomaticFallback
+                ? last?.LogType?.ToUpperInvariant()
+                : last?.LogType?.ToUpperInvariant() == "IN"
+                    ? "OUT"
+                    : "IN";
+
+        if (type != expected)
+            return Conflict(new { success = false, message = $"Next valid punch is {expected}." });
+        await using var attendanceTransaction =
+            await db.Database.BeginTransactionAsync();
+
+        var log = new Payroll.Shared.AttendanceLog
+        {
+            EmployeeID = employeeId,
+            BiometricID = $"ANDROID-{employeeId}",
+            PunchTime = DateTime.Now,
+            DeviceID = "Android",
+            LogType = type,
+            IsApproved = true,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude
+        };
+
+        db.AttendanceLogs.Add(log);
+        await db.SaveChangesAsync();
+
+        // In Dual Attendance mode, an explicit Android punch is
+        // authoritative. If a GPS fallback was created moments earlier,
+        // remove only that temporary fallback. The geo audit remains intact.
+        await _geo.ReconcileAutomaticFallbackAsync(
+            db,
+            employeeId,
+            log.PunchTime);
+
+        await attendanceTransaction.CommitAsync();
+
+        return Ok(new
+        {
+            success = true,
+            lastType = type,
+            nextType = type == "IN" ? "OUT" : "IN",
+            lastPunchTime = log.PunchTime.ToString("yyyy-MM-dd HH:mm:ss")
+        });
     }
 
     [HttpGet("dashboard")]
