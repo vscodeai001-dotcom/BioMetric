@@ -1132,9 +1132,37 @@
             isModuleEnabled = enabled;
 
             if (isModuleEnabled && (officeLatitude == 0 || officeLongitude == 0))
+            {
                 locationMessage = "Office location is not configured.";
+            }
             else if (!isModuleEnabled)
+            {
                 locationMessage = null;
+            }
+            else if (hasLocation)
+            {
+                /*
+                 * Re-evaluate the current GPS fix immediately against the
+                 * newly saved office/radius settings. Do not wait for the
+                 * browser to produce another GPS callback.
+                 */
+                var currentDistanceResult =
+                    await GeoService.GetDistanceFromOfficeAsync(
+                        currentLatitude,
+                        currentLongitude);
+
+                if (currentDistanceResult.Success)
+                {
+                    distanceMeters =
+                        currentDistanceResult.DistanceMeters;
+
+                    radius =
+                        currentDistanceResult.AllowedRadiusMeters;
+
+                    isWithinRadius =
+                        currentDistanceResult.IsWithinAllowedRadius;
+                }
+            }
 
             mapNeedsUpdate = hasLocation && isModuleEnabled;
             await InvokeAsync(StateHasChanged);

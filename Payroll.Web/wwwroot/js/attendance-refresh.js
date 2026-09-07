@@ -89,7 +89,7 @@ window.attendanceRefresh = (function () {
              */
             connection.on(
                 "ApplicationDataChanged",
-                function (data) {
+                async function (data) {
 
                     console.log(
                         "ApplicationDataChanged",
@@ -108,30 +108,49 @@ window.attendanceRefresh = (function () {
                     /*
                      * The application-level listener lives in MainLayout
                      * and remains mounted while the user navigates between
-                     * pages. It MUST always receive the global invalidation.
+                     * pages. It is the fallback for routes that do not have
+                     * a domain-specific realtime listener.
                      *
-                     * Do not suppress this merely because the current
-                     * page also has an AttendanceRefreshListener.
-                     *
-                     * The global listener is the fallback that guarantees
-                     * pages without a domain-specific listener also refresh.
-                     * Existing domain-specific listeners continue handling
-                     * their own explicit events independently.
+                     * Routes with a direct listener receive the invalidation
+                     * directly so they can update their existing component
+                     * state without a navigation.
                      */
-                    if (applicationRefreshTimer) {
-                        clearTimeout(applicationRefreshTimer);
+                    /*
+                     * Prefer the page-level realtime listeners when the
+                     * active route has one. They can reload their exact
+                     * component state immediately without a navigation.
+                     *
+                     * If the active route has no domain-specific listener,
+                     * fall back to the persistent MainLayout listener so
+                     * that pages which do not subscribe individually still
+                     * receive the change.
+                     */
+                    if (!listeners.length) {
+                        if (applicationRefreshTimer) {
+                            clearTimeout(applicationRefreshTimer);
+                        }
+
+                        applicationRefreshTimer = setTimeout(
+                            async function () {
+                                applicationRefreshTimer = null;
+
+                                await notifyApplicationListeners(
+                                    data
+                                );
+                            },
+                            100
+                        );
                     }
-
-                    applicationRefreshTimer = setTimeout(
-                        async function () {
-                            applicationRefreshTimer = null;
-
-                            await notifyApplicationListeners(
-                                data
-                            );
-                        },
-                        250
-                    );
+                    else {
+                        /*
+                         * The active page has a direct realtime listener.
+                         * Deliver the same database invalidation to it now.
+                         */
+                        await notifyListeners(
+                            "ApplicationDataChanged",
+                            data
+                        );
+                    }
                 }
             );
 
@@ -297,10 +316,17 @@ window.attendanceRefresh = (function () {
 
                     await notifyViewer();
 
-                    await notifyListeners(
-                        "AttendanceChanged",
-                        data
-                    );
+                    if (listeners.length) {
+                        await notifyListeners(
+                            "AttendanceChanged",
+                            data
+                        );
+                    }
+                    else {
+                        await notifyApplicationListeners(
+                            data
+                        );
+                    }
 
                     window.dispatchEvent(
                         new CustomEvent(
@@ -493,12 +519,22 @@ window.attendanceRefresh = (function () {
                         null
                     );
 
-                    await notifyApplicationListeners(
-                        {
-                            Entities: [],
-                            Reason: "SIGNALR_RECONNECTED"
-                        }
-                    );
+                    const reconnectData = {
+                        Entities: [],
+                        Reason: "SIGNALR_RECONNECTED"
+                    };
+
+                    if (listeners.length) {
+                        await notifyListeners(
+                            "ApplicationDataChanged",
+                            reconnectData
+                        );
+                    }
+                    else {
+                        await notifyApplicationListeners(
+                            reconnectData
+                        );
+                    }
                 }
             );
 
