@@ -151,6 +151,22 @@ public sealed class MobileEmployeeController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return Unauthorized();
 
+        var employeeId = GetEmployeeId();
+
+        // GPS session lifecycle must end before the device lock is released.
+        // Otherwise a stale mobile GPS session can remain visible as live in
+        // admin location screens after the employee has logged out.
+        var activeGpsSession =
+            await _geo.GetActiveGpsSessionAsync(employeeId);
+
+        if (activeGpsSession != null)
+        {
+            await _geo.EndGpsSessionAsync(
+                employeeId,
+                activeGpsSession.SessionId,
+                "LOGGED_OUT");
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync();
         var lockRecord = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == userId);
         if (lockRecord != null)

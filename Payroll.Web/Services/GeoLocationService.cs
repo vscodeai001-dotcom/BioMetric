@@ -159,14 +159,42 @@ public class GeoLocationService
             {
                 previous.EndedAtUtc = now;
                 previous.EndReason = "NEW_SESSION";
-                // Ensure previous in-memory entries are removed so admins don't see old sessions
+
+                // Ensure previous in-memory entries are removed so admins
+                // cannot see an old session after a new login starts.
                 try
                 {
-                    LiveLocationStore.Remove(previous.EmployeeId, previous.SessionId);
+                    LiveLocationStore.Remove(
+                        previous.EmployeeId,
+                        previous.SessionId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to remove previous LiveLocationStore entry for employee {EmployeeId}", previous.EmployeeId);
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to remove previous LiveLocationStore entry for employee {EmployeeId}",
+                        previous.EmployeeId);
+                }
+
+                // Notify connected admin screens immediately.
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync(
+                        "SessionEnded",
+                        new
+                        {
+                            EmployeeId = previous.EmployeeId,
+                            SessionId = previous.SessionId,
+                            EndedAtUtc = now,
+                            EndReason = previous.EndReason
+                        });
+                }
+                catch (Exception signalREx)
+                {
+                    _logger.LogWarning(
+                        signalREx,
+                        "Failed to broadcast previous GPS session end for employee {EmployeeId}",
+                        previous.EmployeeId);
                 }
             }
 

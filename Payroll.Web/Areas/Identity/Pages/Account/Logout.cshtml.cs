@@ -170,30 +170,35 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     return;
                 }
 
-                var activeSession =
-                    await _geoLocationService
-                        .GetActiveGpsSessionAsync(
-                            employee.EmployeeID);
+                // End every unfinished GPS session for this employee.
+                // Normally there is only one, but cleaning all active records
+                // makes logout authoritative even if legacy/race conditions
+                // left more than one session behind.
+                var activeSessionIds = await db.EmployeeGpsSessions
+                    .AsNoTracking()
+                    .Where(x =>
+                        x.EmployeeId == employee.EmployeeID &&
+                        x.EndedAtUtc == null)
+                    .Select(x => x.SessionId)
+                    .ToListAsync();
 
-                if (activeSession == null)
+                foreach (var activeSessionId in activeSessionIds)
                 {
-                    return;
+                    await _geoLocationService.EndGpsSessionAsync(
+                        employee.EmployeeID,
+                        activeSessionId,
+                        "LOGGED_OUT");
+
+                    LiveLocationStore.Remove(
+                        employee.EmployeeID,
+                        activeSessionId);
+
+                    _logger.LogInformation(
+                        "GPS SESSION ENDED DURING MANUAL LOGOUT. " +
+                        "EmployeeId={EmployeeId}, SessionId={SessionId}",
+                        employee.EmployeeID,
+                        activeSessionId);
                 }
-
-                await _geoLocationService.EndGpsSessionAsync(
-                    employee.EmployeeID,
-                    activeSession.SessionId,
-                    "LOGGED_OUT");
-
-                LiveLocationStore.Remove(
-                    employee.EmployeeID,
-                    activeSession.SessionId);
-
-                _logger.LogInformation(
-                    "GPS SESSION ENDED DURING MANUAL LOGOUT. " +
-                    "EmployeeId={EmployeeId}, SessionId={SessionId}",
-                    employee.EmployeeID,
-                    activeSession.SessionId);
             }
             catch (Exception ex)
             {

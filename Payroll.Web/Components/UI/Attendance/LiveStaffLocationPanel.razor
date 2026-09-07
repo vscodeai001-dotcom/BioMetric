@@ -2308,18 +2308,55 @@
 
         try
         {
+            // The database is the authoritative source for GPS session
+            // lifecycle. LiveLocationStore is process-local and therefore
+            // cannot be the sole source of truth when the app is restarted,
+            // scaled, or the logout request lands on another instance.
+            await using var db =
+                await DbFactory.CreateDbContextAsync();
+
+            var activeSessions = await db.EmployeeGpsSessions
+                .AsNoTracking()
+                .Where(x =>
+                    x.EndedAtUtc == null &&
+                    x.LastLatitude.HasValue &&
+                    x.LastLongitude.HasValue)
+                .OrderBy(x => x.EmployeeId)
+                .ThenByDescending(x => x.StartedAtUtc)
+                .ToListAsync();
+
+            var snapshot = new List<LiveEmployeeLocation>();
+            var seenEmployees = new HashSet<int>();
+
+            foreach (var session in activeSessions)
+            {
+                // One active session is expected per employee. If bad legacy
+                // data contains duplicates, prefer the newest session.
+                if (!seenEmployees.Add(session.EmployeeId))
+                    continue;
+
+                snapshot.Add(new LiveEmployeeLocation
+                {
+                    EmployeeId = session.EmployeeId,
+                    Latitude = session.LastLatitude!.Value,
+                    Longitude = session.LastLongitude!.Value,
+                    AccuracyMeters = session.LastAccuracyMeters ?? 0,
+                    DistanceMeters = session.LastDistanceFromOfficeMeters ?? 0,
+                    AllowedRadiusMeters = session.LastAllowedRadiusMeters ?? 0,
+                    IsWithinAllowedRadius = session.LastIsWithinAllowedRadius ?? false,
+                    LastUpdatedUtc = session.LastUpdateAtUtc,
+                    SessionStartedUtc = session.StartedAtUtc,
+                    SessionId = session.SessionId
+                });
+            }
+
             locations.Clear();
+            locations.AddRange(snapshot);
 
-            locations.AddRange(
-                LiveLocationStore.GetAll());
-
-            lastRefresh =
-                DateTime.Now;
-
+            lastRefresh = DateTime.Now;
             mapNeedsUpdate = true;
 
-            await InvokeAsync(
-                StateHasChanged);
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
@@ -2329,6 +2366,36 @@
         finally
         {
             isRefreshing = false;
+        }
+    }
+
+    // ============================================================
+    // GPS SESSION ENDED
+    // ============================================================
+    //
+    // Logout/session-end is a lifecycle event, not a location update.
+    // Remove the employee from the active list immediately and then
+    // reload the authoritative DB snapshot so an old in-memory entry
+    // can never remain visible.
+    // ============================================================
+
+    [JSInvokable]
+    public async Task SessionEnded(object? data = null)
+    {
+        if (disposed)
+            return;
+
+        try
+        {
+            await RefreshLocations();
+
+            mapNeedsUpdate = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Admin GPS session-end refresh failed: {ex}");
         }
     }
 

@@ -72,7 +72,7 @@ namespace Payroll.Web.Services
             {
                 await _notificationService.NotifyAdminsAsync(
                     "New Regularization Request",
-                    $"{employee.Name} submitted a {(isInPunch ? "IN" : "OUT")} regularization for {date:dd-MMM-yyyy} at {time:hh\:mm tt}.",
+                    $"{employee.Name} submitted a {(isInPunch ? "IN" : "OUT")} regularization for {date:dd-MMM-yyyy} at {time:hh:mm tt}.",
                     "/attendance/regularization-approval");
             }
         }
@@ -131,7 +131,7 @@ namespace Payroll.Web.Services
             await _notificationService.NotifyEmployeeAsync(
                 request.EmployeeId,
                 $"Regularization {newStatus}",
-                $"Your {(request.IsInPunch ? "IN" : "OUT")} regularization request for {request.DateOfPunch:dd-MMM-yyyy} at {request.PunchTimeNew:hh\:mm tt} was {newStatus.ToLowerInvariant()}.",
+                $"Your {(request.IsInPunch ? "IN" : "OUT")} regularization request for {request.DateOfPunch:dd-MMM-yyyy} at {request.PunchTimeNew:hh:mm tt} was {newStatus.ToLowerInvariant()}.",
                 "/my-regularization");
 
             // --- NOTIFICATION TO EMPLOYEE (Email) ---
