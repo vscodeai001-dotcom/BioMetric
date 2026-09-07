@@ -40,7 +40,7 @@ public class GeoLocationService
             .AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == 1);
 
-        if (features?.EnableGeoFencing != true)
+        if (features?.EnableGeoFencing != true && features?.EnableDualAttendance != true)
         {
             return new GeoDistanceResult
             {
@@ -285,6 +285,26 @@ public class GeoLocationService
 
             var now = DateTime.UtcNow;
 
+            var wasWithinAllowedRadius =
+                session.LastIsWithinAllowedRadius;
+
+            /*
+             * Attendance fallback is evaluated BEFORE the session state
+             * is changed, so the previous inside/outside state represents
+             * the actual transition.
+             */
+            await ProcessAutomaticGeofencePunchAsync(
+                db,
+                employeeId,
+                sessionId,
+                latitude,
+                longitude,
+                safeAccuracy,
+                safeDistance,
+                allowedRadiusMeters,
+                wasWithinAllowedRadius,
+                isWithinAllowedRadius);
+
             session.LastUpdateAtUtc = now;
             session.LastLatitude = latitude;
             session.LastLongitude = longitude;
@@ -369,6 +389,259 @@ public class GeoLocationService
                 employeeId,
                 sessionId);
         }
+    }
+
+
+    // ================================================================
+    // AUTOMATIC GEOFENCE ATTENDANCE FALLBACK
+    // ================================================================
+    //
+    // Geofence attendance is a FALLBACK only.
+    //
+    // ENTER radius  -> automatic IN, only when the current attendance
+    //                   state is OUT.
+    // EXIT radius   -> automatic OUT, only when the current attendance
+    //                   state is IN.
+    //
+    // Physical biometric punches remain the priority source. If a
+    // biometric punch arrives shortly after an automatic geofence punch,
+    // the Attendance Worker reconciles the temporary geofence punch and
+    // keeps the biometric punch.
+    // ================================================================
+
+    private async Task ProcessAutomaticGeofencePunchAsync(
+        AppDbContext db,
+        int employeeId,
+        Guid sessionId,
+        double latitude,
+        double longitude,
+        double accuracyMeters,
+        double distanceMeters,
+        int allowedRadiusMeters,
+        bool wasWithinRadius,
+        bool isWithinRadius)
+    {
+        // Automatic geofence attendance is available ONLY in Dual Attendance mode.
+        // Single Geo-Fencing mode remains manual mobile punch only.
+        var features = await db.FeatureSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(f => f.Id == 1);
+
+        if (features?.EnableDualAttendance != true)
+            return;
+
+        // No state transition = no automatic attendance punch.
+        if (wasWithinRadius == isWithinRadius)
+            return;
+
+        try
+        {
+            var indiaNow = GetIndiaNow();
+
+            var businessDayStart =
+                DateTime.SpecifyKind(
+                    indiaNow.Date,
+                    DateTimeKind.Unspecified);
+
+            var businessDayEnd =
+                DateTime.SpecifyKind(
+                    indiaNow.Date.AddDays(1),
+                    DateTimeKind.Unspecified);
+
+            var todaysPunches =
+                await db.AttendanceLogs
+                    .Where(x =>
+                        x.EmployeeID == employeeId &&
+                        x.PunchTime >= businessDayStart &&
+                        x.PunchTime < businessDayEnd)
+                    .OrderBy(x => x.PunchTime)
+                    .ThenBy(x => x.LogID)
+                    .ToListAsync();
+
+            /*
+             * AttendanceCalculatorService treats punches as alternating
+             * IN -> OUT -> IN -> OUT. We therefore only create the
+             * geofence transition which is valid for the current state.
+             */
+            var currentlyInsideAttendance =
+                todaysPunches.Count % 2 != 0;
+
+            var requiredPunchType =
+                isWithinRadius
+                    ? "IN"
+                    : "OUT";
+
+            /*
+             * ENTER:
+             *     Only create GEO-IN if attendance is currently OUT.
+             *
+             * EXIT:
+             *     Only create GEO-OUT if attendance is currently IN.
+             *
+             * This is what prevents repeated GPS fixes inside/outside
+             * the radius from generating duplicate punches.
+             */
+            if (isWithinRadius && currentlyInsideAttendance)
+                return;
+
+            if (!isWithinRadius && !currentlyInsideAttendance)
+                return;
+
+            /*
+             * If a biometric punch has already arrived for this exact
+             * transition, it is authoritative and the GEO fallback must
+             * not add another punch.
+             *
+             * We use a short transition window because the Worker polls
+             * the biometric device periodically.
+             */
+            var recentBiometric =
+                todaysPunches
+                    .Where(x =>
+                        IsBiometricPunch(x) &&
+                        Math.Abs(
+                            (x.PunchTime - indiaNow).TotalSeconds) <= 120)
+                    .OrderByDescending(x => x.PunchTime)
+                    .FirstOrDefault();
+
+            if (recentBiometric != null)
+            {
+                _logger.LogInformation(
+                    "Automatic geofence {PunchType} skipped because biometric punch already exists. " +
+                    "EmployeeId={EmployeeId}, BiometricLogId={LogId}, Time={PunchTime}",
+                    requiredPunchType,
+                    employeeId,
+                    recentBiometric.LogID,
+                    recentBiometric.PunchTime);
+
+                return;
+            }
+
+            var log =
+                new AttendanceLog
+                {
+                    EmployeeID = employeeId,
+                    BiometricID = "GEOFENCE_AUTO",
+                    PunchTime = indiaNow,
+                    DeviceID = "GeofenceAuto",
+                    LogType = requiredPunchType,
+                    Latitude = latitude,
+                    Longitude = longitude,
+                    IsApproved = true
+                };
+
+            db.AttendanceLogs.Add(log);
+
+            await db.SaveChangesAsync();
+
+            var result =
+                new GeoPunchResult
+                {
+                    Success = true,
+                    Message =
+                        $"Automatic geofence {requiredPunchType} recorded. " +
+                        $"(Dist: {distanceMeters:F0}m)"
+                };
+
+            await SavePunchAuditAsync(
+                db,
+                employeeId,
+                sessionId,
+                DateTime.UtcNow,
+                latitude,
+                longitude,
+                accuracyMeters,
+                distanceMeters,
+                allowedRadiusMeters,
+                true,
+                result,
+                log.LogID,
+                "GEOFENCE_AUTO");
+
+            _logger.LogInformation(
+                "Automatic geofence {PunchType} recorded. " +
+                "EmployeeId={EmployeeId}, LogId={LogId}, Distance={Distance}m",
+                requiredPunchType,
+                employeeId,
+                log.LogID,
+                Math.Round(distanceMeters, 1));
+
+            try
+            {
+                await _refreshService.NotifyDataChangedAsync(
+                    employeeId,
+                    DateOnly.FromDateTime(log.PunchTime.Date),
+                    "GEOFENCE_AUTO");
+
+                await _refreshService.NotifyAttendanceChangedAsync(
+                    employeeId,
+                    DateOnly.FromDateTime(log.PunchTime.Date));
+
+                await _refreshService.NotifyPunchCreatedAsync(
+                    employeeId,
+                    DateOnly.FromDateTime(log.PunchTime.Date));
+            }
+            catch (Exception refreshEx)
+            {
+                _logger.LogWarning(
+                    refreshEx,
+                    "Automatic geofence punch saved but attendance refresh notification failed. " +
+                    "EmployeeId={EmployeeId}, LogId={LogId}",
+                    employeeId,
+                    log.LogID);
+            }
+        }
+        catch (Exception ex)
+        {
+            /*
+             * Automatic fallback must NEVER break normal GPS tracking.
+             */
+            _logger.LogError(
+                ex,
+                "Automatic geofence attendance processing failed. " +
+                "EmployeeId={EmployeeId}, SessionId={SessionId}",
+                employeeId,
+                sessionId);
+        }
+    }
+
+    private static bool IsBiometricPunch(
+        AttendanceLog log)
+    {
+        if (log == null)
+            return false;
+
+        var device =
+            log.DeviceID?.Trim() ?? string.Empty;
+
+        var biometricId =
+            log.BiometricID?.Trim() ?? string.Empty;
+
+        return device.StartsWith(
+                   "ZKTeco_",
+                   StringComparison.OrdinalIgnoreCase)
+               ||
+               (
+                   !string.IsNullOrWhiteSpace(biometricId) &&
+                   !biometricId.Equals(
+                       "MOBILE_APP",
+                       StringComparison.OrdinalIgnoreCase) &&
+                   !biometricId.Equals(
+                       "GEOFENCE_AUTO",
+                       StringComparison.OrdinalIgnoreCase) &&
+                   !biometricId.StartsWith(
+                       "ANDROID-",
+                       StringComparison.OrdinalIgnoreCase) &&
+                   !device.Equals(
+                       "MobileWeb",
+                       StringComparison.OrdinalIgnoreCase) &&
+                   !device.Equals(
+                       "Android",
+                       StringComparison.OrdinalIgnoreCase) &&
+                   !device.Equals(
+                       "GeofenceAuto",
+                       StringComparison.OrdinalIgnoreCase)
+               );
     }
 
     // ================================================================
@@ -661,7 +934,7 @@ public class GeoLocationService
         var safeAccuracy =
             NormalizeAccuracy(accuracyMeters);
 
-        if (features?.EnableGeoFencing != true)
+        if (features?.EnableGeoFencing != true && features?.EnableDualAttendance != true)
         {
             var result = new GeoPunchResult
             {
@@ -873,7 +1146,8 @@ public class GeoLocationService
         int allowedRadiusMeters,
         bool withinRadius,
         GeoPunchResult result,
-        long? attendanceLogId = null)
+        long? attendanceLogId = null,
+        string source = "MOBILE_APP")
     {
         try
         {
@@ -890,7 +1164,7 @@ public class GeoLocationService
                 IsWithinAllowedRadius = withinRadius,
                 Success = result.Success,
                 ResultMessage = result.Message,
-                Source = "MOBILE_APP",
+                Source = source,
                 AttendanceLogId = attendanceLogId
             };
 

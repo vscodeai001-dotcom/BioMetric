@@ -202,6 +202,24 @@ else
                                         <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableGeoFencing" id="c_geo" />
                                         <label class="form-check-label fw-bold text-primary" for="c_geo">Enable Geo-Fencing (Mobile)</label>
                                     </div>
+                                    <div class="form-check form-switch mb-2 ms-4">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableDualAttendance" id="c_dual_attendance" />
+                                        <label class="form-check-label fw-bold text-success small" for="c_dual_attendance">↳ Dual Attendance (Biometric + Geo-Fencing)</label>
+                                    </div>
+                                    <div class="small text-muted ms-4 mb-2">
+                                        @if (settings.EnableDualAttendance)
+                                        {
+                                            <span>Both biometric machine and geofence attendance are active. Biometric punches have priority.</span>
+                                        }
+                                        else if (settings.EnableGeoFencing)
+                                        {
+                                            <span>Single mode: Geo-Fencing/mobile attendance is active; biometric machine attendance is disabled.</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Single mode: biometric machine attendance is active; Geo-Fencing/mobile attendance is disabled.</span>
+                                        }
+                                    </div>
                                     <hr class="my-2 text-muted opacity-25">
                                     <div class="form-check form-switch mb-2">
                                         <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableCompanyReports" id="c_reports" />

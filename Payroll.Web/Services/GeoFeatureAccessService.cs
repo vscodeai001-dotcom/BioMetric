@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Payroll.Shared.Data;
 
@@ -19,7 +19,8 @@ public sealed class GeoFeatureAccessService
 
     /// <summary>
     /// SuperAdmin always has access to Geo-Fencing.
-    /// All other users follow FeatureSettings.EnableGeoFencing.
+    /// In normal mode, Geo-Fencing follows EnableGeoFencing.
+    /// Dual Attendance mode also activates Geo-Fencing.
     /// </summary>
     public async Task<bool> IsEnabledAsync()
     {
@@ -54,7 +55,7 @@ public sealed class GeoFeatureAccessService
                 .AsNoTracking()
                 .FirstOrDefaultAsync(f => f.Id == 1);
 
-        return settings?.EnableGeoFencing == true;
+        return settings?.EnableGeoFencing == true || settings?.EnableDualAttendance == true;
     }
 
     /// <summary>

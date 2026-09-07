@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 
@@ -158,6 +158,14 @@ namespace Payroll.Shared.Data
         // --- NEW: GEO-FENCING TOGGLE ---
         [Column("enable_geo_fencing")]
         public bool EnableGeoFencing { get; set; } = true;
+
+        // --- DUAL ATTENDANCE MODE ---
+        // When enabled, both biometric machine and geofence attendance are active.
+        // When disabled, the existing single-source mode applies:
+        // Geo-Fencing ON  = mobile/geofence attendance only (machine disabled).
+        // Geo-Fencing OFF = biometric machine attendance only.
+        [Column("enable_dual_attendance")]
+        public bool EnableDualAttendance { get; set; } = false;
 
         // --- NEW: EXIT MANAGEMENT ---
         [Column("enable_resignation_module")]
