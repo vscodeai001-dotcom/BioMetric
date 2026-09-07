@@ -302,7 +302,7 @@ public class GeoLocationService
                 safeAccuracy,
                 safeDistance,
                 allowedRadiusMeters,
-                wasWithinAllowedRadius,
+               wasWithinAllowedRadius ?? false,
                 isWithinAllowedRadius);
 
             session.LastUpdateAtUtc = now;
