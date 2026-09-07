@@ -64,11 +64,20 @@ Environment.SetEnvironmentVariable(
 // Use the platform-provided port through ASPNETCORE_URLS and clear the
 // base image default so Kestrel does not report a conflicting port source.
 var platformPort = Environment.GetEnvironmentVariable("PORT");
+
 if (!string.IsNullOrWhiteSpace(platformPort))
 {
+    // Cloud/platform deployment
     Environment.SetEnvironmentVariable(
         "ASPNETCORE_URLS",
         $"http://0.0.0.0:{platformPort}");
+}
+else
+{
+    // Local Windows Service deployment
+    Environment.SetEnvironmentVariable(
+        "ASPNETCORE_URLS",
+        "http://localhost:5050");
 }
 
 Environment.SetEnvironmentVariable(
