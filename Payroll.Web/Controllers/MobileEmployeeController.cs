@@ -188,15 +188,24 @@ public sealed class MobileEmployeeController : ControllerBase
         // GPS session lifecycle must end before the device lock is released.
         // Otherwise a stale mobile GPS session can remain visible as live in
         // admin location screens after the employee has logged out.
-        var activeGpsSession =
-            await _geo.GetActiveGpsSessionAsync(employeeId);
-
-        if (activeGpsSession != null)
+        // End every unfinished GPS session for this employee. Normally
+        // there is only one, but this makes logout authoritative if a
+        // legacy/race condition left more than one active record.
+        await using (var sessionDb = await _dbFactory.CreateDbContextAsync())
         {
-            await _geo.EndGpsSessionAsync(
-                employeeId,
-                activeGpsSession.SessionId,
-                "LOGGED_OUT");
+            var activeSessionIds = await sessionDb.EmployeeGpsSessions
+                .AsNoTracking()
+                .Where(x => x.EmployeeId == employeeId && x.EndedAtUtc == null)
+                .Select(x => x.SessionId)
+                .ToListAsync();
+
+            foreach (var activeSessionId in activeSessionIds)
+            {
+                await _geo.EndGpsSessionAsync(
+                    employeeId,
+                    activeSessionId,
+                    "LOGGED_OUT");
+            }
         }
 
         await using var db = await _dbFactory.CreateDbContextAsync();
@@ -371,25 +380,11 @@ public sealed class MobileEmployeeController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync();
         var employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(x => x.EmployeeID == employeeId && !x.IsDeleted);
         if (employee == null) return NotFound(new { success = false, message = "Employee not found." });
-
         var latest = await db.PayrollHistories.AsNoTracking().Where(x => x.EmployeeID == employeeId)
             .OrderByDescending(x => x.PayYear).ThenByDescending(x => x.PayMonth).FirstOrDefaultAsync();
-
-        var company = await db.CompanySettings.AsNoTracking().FirstOrDefaultAsync(s => s.SettingID == 1);
-
-        return Ok(new {
-            success = true,
-            employeeId,
-            name = employee.Name,
-            email = employee.Email ?? "",
-            monthlySalary = employee.MonthlySalary,
-            paidLeaveBalance = employee.PaidLeaveBalance,
-            sickLeaveBalance = employee.SickLeaveBalance,
-            latestPayslip = latest == null ? null : ToPayslip(latest),
-            officeLatitude = company?.OfficeLatitude ?? 0,
-            officeLongitude = company?.OfficeLongitude ?? 0,
-            geoRadiusMeters = company?.GeoRadiusMeters ?? 100
-        });
+        return Ok(new { success = true, employeeId, name = employee.Name, email = employee.Email ?? "", monthlySalary = employee.MonthlySalary,
+            paidLeaveBalance = employee.PaidLeaveBalance, sickLeaveBalance = employee.SickLeaveBalance,
+            latestPayslip = latest == null ? null : ToPayslip(latest) });
     }
 
     [HttpGet("attendance")]

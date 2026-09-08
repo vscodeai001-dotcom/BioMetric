@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +53,9 @@ namespace Payroll.Web.Services
         private readonly ILogger<EmployeeSingleSessionSignInManager>
             _logger;
 
+        private readonly GeoLocationService
+            _geoLocationService;
+
 
         // ============================================================
         // CONSTRUCTOR
@@ -67,7 +70,8 @@ namespace Payroll.Web.Services
             IAuthenticationSchemeProvider schemes,
             IUserConfirmation<IdentityUser> confirmation,
             IDbContextFactory<AppDbContext> dbFactory,
-            ILogger<EmployeeSingleSessionSignInManager> sessionLogger)
+            ILogger<EmployeeSingleSessionSignInManager> sessionLogger,
+            GeoLocationService geoLocationService)
             : base(
                 userManager,
                 contextAccessor,
@@ -85,6 +89,9 @@ namespace Payroll.Web.Services
 
             _logger =
                 sessionLogger;
+
+            _geoLocationService =
+                geoLocationService;
         }
 
 
@@ -647,11 +654,35 @@ namespace Payroll.Web.Services
 
 
                 // ----------------------------------------------------
-                // Remove old device lock.
+                // End any GPS sessions belonging to the invalidated
+                // employee session before releasing the device lock.
+                // This keeps the database session state and the admin
+                // live-location state synchronized for new-device login.
                 // ----------------------------------------------------
 
                 await using var db =
                     await _dbFactory.CreateDbContextAsync();
+
+                var employee = await db.Employees
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.AspNetUserId == userId);
+
+                if (employee != null)
+                {
+                    var activeSessionIds = await db.EmployeeGpsSessions
+                        .AsNoTracking()
+                        .Where(x => x.EmployeeId == employee.EmployeeID && x.EndedAtUtc == null)
+                        .Select(x => x.SessionId)
+                        .ToListAsync();
+
+                    foreach (var activeSessionId in activeSessionIds)
+                    {
+                        await _geoLocationService.EndGpsSessionAsync(
+                            employee.EmployeeID,
+                            activeSessionId,
+                            "NEW_LOGIN");
+                    }
+                }
 
 
                 var oldLock =

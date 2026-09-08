@@ -2380,14 +2380,32 @@
     // ============================================================
 
     [JSInvokable]
-    public async Task SessionEnded(object? data = null)
+    public async Task SessionEnded(JsonElement data)
     {
         if (disposed)
             return;
 
         try
         {
+            // Refresh the live dashboard immediately from the authoritative
+            // database snapshot.
             await RefreshLocations();
+
+            // If the employee whose history is currently open just ended a
+            // session, reload that history too so the timeline changes from
+            // Active to Ended immediately instead of waiting for reselection.
+            var endedEmployeeId = 0;
+            if (data.ValueKind == JsonValueKind.Object &&
+                data.TryGetProperty("EmployeeId", out var employeeIdProperty) &&
+                employeeIdProperty.TryGetInt32(out var parsedEmployeeId))
+            {
+                endedEmployeeId = parsedEmployeeId;
+            }
+
+            if (endedEmployeeId > 0 && endedEmployeeId == selectedEmployeeId)
+            {
+                await LoadSelectedEmployeeHistory();
+            }
 
             mapNeedsUpdate = true;
             await InvokeAsync(StateHasChanged);
