@@ -16,6 +16,7 @@ namespace Payroll.Web.Controllers;
 public sealed class MobileEmployeeController : ControllerBase
 {
     private readonly UserManager<IdentityUser> _userManager;
+    private readonly SignInManager<IdentityUser> _signInManager;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly MobileEmployeeTokenService _tokens;
     private readonly GeoLocationService _geo;
@@ -24,6 +25,7 @@ public sealed class MobileEmployeeController : ControllerBase
 
     public MobileEmployeeController(
         UserManager<IdentityUser> userManager,
+        SignInManager<IdentityUser> signInManager,
         IDbContextFactory<AppDbContext> dbFactory,
         MobileEmployeeTokenService tokens,
         GeoLocationService geo,
@@ -31,6 +33,7 @@ public sealed class MobileEmployeeController : ControllerBase
         ILogger<MobileEmployeeController> logger)
     {
         _userManager = userManager;
+        _signInManager = signInManager;
         _dbFactory = dbFactory;
         _tokens = tokens;
         _geo = geo;
@@ -52,14 +55,24 @@ public sealed class MobileEmployeeController : ControllerBase
             return BadRequest(new { success = false, message = "Email, password and device ID are required." });
         }
 
-        // 1. Find the Identity User first (Primary source for credentials)
-        var user = await _userManager.FindByEmailAsync(emailIdentifier.Trim());
+        // 1. Find the Identity User (Primary source for credentials)
+        // Try finding by Email first, then by Username (they are often the same)
+        var user = await _userManager.FindByEmailAsync(emailIdentifier.Trim())
+                   ?? await _userManager.FindByNameAsync(emailIdentifier.Trim());
+
         if (user == null)
             return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid email or password." });
 
-        // 2. Check Password
-        if (!await _userManager.CheckPasswordAsync(user, request.Password))
+        // 2. Check Password using SignInManager to ensure consistency with Web App (lockout, etc.)
+        var passwordResult = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: false);
+
+        if (!passwordResult.Succeeded)
+        {
+            if (passwordResult.IsLockedOut)
+                return Unauthorized(new { success = false, code = "LOCKED", message = "Account is locked." });
+
             return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid email or password." });
+        }
 
         // 3. Find the linked Employee record
         await using var db = await _dbFactory.CreateDbContextAsync();
@@ -67,7 +80,10 @@ public sealed class MobileEmployeeController : ControllerBase
             .FirstOrDefaultAsync(x => (x.AspNetUserId == user.Id || x.Email == emailIdentifier.Trim()) && !x.IsDeleted);
 
         if (employee == null)
-            return Unauthorized(new { success = false, code = "NOT_LINKED", message = "Account verified, but no active payroll link found." });
+        {
+            // If the Identity user exists but no Employee record is linked yet
+            return Unauthorized(new { success = false, code = "NOT_LINKED", message = "User found but no linked Employee record exists in Payroll." });
+        }
 
         // Check for roles
         var roles = await _userManager.GetRolesAsync(user);
