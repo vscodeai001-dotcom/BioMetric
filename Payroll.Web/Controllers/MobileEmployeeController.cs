@@ -15,6 +15,16 @@ namespace Payroll.Web.Controllers;
 [Route("api/mobile/employee")]
 public sealed class MobileEmployeeController : ControllerBase
 {
+    private const string MobileDevicePrefix = "ANDROID:";
+
+    private static string NormalizeMobileDeviceId(string deviceId)
+    {
+        var value = deviceId.Trim();
+        return value.StartsWith(MobileDevicePrefix, StringComparison.OrdinalIgnoreCase)
+            ? value
+            : MobileDevicePrefix + value;
+    }
+
     private readonly UserManager<IdentityUser> _userManager;
     private readonly SignInManager<IdentityUser> _signInManager;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
@@ -94,8 +104,13 @@ public sealed class MobileEmployeeController : ControllerBase
         var roles = await _userManager.GetRolesAsync(user);
         var primaryRole = roles.FirstOrDefault() ?? "Employee";
 
+        var suppliedDeviceId = request.DeviceId.Trim();
+        var mobileDeviceId = NormalizeMobileDeviceId(suppliedDeviceId);
+
         var existing = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == user.Id);
-        var sameDevice = existing != null && string.Equals(existing.DeviceId, request.DeviceId.Trim(), StringComparison.Ordinal);
+        var sameDevice = existing != null &&
+            (string.Equals(existing.DeviceId, mobileDeviceId, StringComparison.Ordinal) ||
+             string.Equals(existing.DeviceId, suppliedDeviceId, StringComparison.Ordinal));
 
         if (existing != null && !sameDevice && !request.ForceReplace)
         {
@@ -108,8 +123,24 @@ public sealed class MobileEmployeeController : ControllerBase
             });
         }
 
+        if (existing != null && sameDevice &&
+            !string.Equals(existing.DeviceId, mobileDeviceId, StringComparison.Ordinal))
+        {
+            // Migrate a legacy mobile lock to the explicit mobile namespace.
+            existing.DeviceId = mobileDeviceId;
+            existing.LastSeenAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
         if (existing != null && !sameDevice)
         {
+            // Replacing a mobile device is an explicit force logout of the
+            // previous device. End every active GPS session before releasing
+            // the old device lock so no live session survives replacement.
+            var endedCount = await _geo.EndAllGpsSessionsAsync(
+                employee.EmployeeID,
+                "FORCE_LOGGED_OUT");
+
             var stampResult = await _userManager.UpdateSecurityStampAsync(user);
             if (!stampResult.Succeeded)
                 return StatusCode(500, new { success = false, message = "Unable to replace the existing employee session." });
@@ -117,6 +148,11 @@ public sealed class MobileEmployeeController : ControllerBase
             db.EmployeeDeviceLocks.Remove(existing);
             await db.SaveChangesAsync();
             existing = null;
+
+            _logger.LogInformation(
+                "Mobile employee session replaced. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=FORCE_LOGGED_OUT",
+                employee.EmployeeID,
+                endedCount);
         }
 
         if (existing == null)
@@ -125,7 +161,7 @@ public sealed class MobileEmployeeController : ControllerBase
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
-                DeviceId = request.DeviceId.Trim(),
+                DeviceId = mobileDeviceId,
                 CreatedAtUtc = DateTime.UtcNow,
                 LastSeenAtUtc = DateTime.UtcNow
             });
@@ -137,7 +173,7 @@ public sealed class MobileEmployeeController : ControllerBase
             await db.SaveChangesAsync();
         }
 
-        var token = _tokens.Create(user.Id, employee.EmployeeID, request.DeviceId.Trim());
+        var token = _tokens.Create(user.Id, employee.EmployeeID, mobileDeviceId);
 
         return Ok(new MobileLoginResponse
         {
@@ -185,19 +221,17 @@ public sealed class MobileEmployeeController : ControllerBase
 
         var employeeId = GetEmployeeId();
 
-        // GPS session lifecycle must end before the device lock is released.
-        // Otherwise a stale mobile GPS session can remain visible as live in
-        // admin location screens after the employee has logged out.
-        var activeGpsSession =
-            await _geo.GetActiveGpsSessionAsync(employeeId);
+        // Logout is authoritative: end every active GPS session before the
+        // device lock is released. This also cleans up legacy duplicate
+        // sessions without changing the database design.
+        var endedCount = await _geo.EndAllGpsSessionsAsync(
+            employeeId,
+            "MANUAL_LOGOUT");
 
-        if (activeGpsSession != null)
-        {
-            await _geo.EndGpsSessionAsync(
-                employeeId,
-                activeGpsSession.SessionId,
-                "LOGGED_OUT");
-        }
+        _logger.LogInformation(
+            "Mobile employee logout completed. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=MANUAL_LOGOUT",
+            employeeId,
+            endedCount);
 
         await using var db = await _dbFactory.CreateDbContextAsync();
         var lockRecord = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == userId);
