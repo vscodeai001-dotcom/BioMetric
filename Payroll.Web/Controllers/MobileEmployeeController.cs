@@ -42,27 +42,36 @@ public sealed class MobileEmployeeController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> Login([FromBody] MobileLoginRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.EmployeeId) || string.IsNullOrWhiteSpace(request.Password) ||
+        // SSOT: Use Email/Password pattern similar to web application.
+        var emailIdentifier = !string.IsNullOrWhiteSpace(request.Email) ? request.Email : request.EmployeeId;
+
+        if (string.IsNullOrWhiteSpace(emailIdentifier) ||
+            string.IsNullOrWhiteSpace(request.Password) ||
             string.IsNullOrWhiteSpace(request.DeviceId))
-            return BadRequest(new { success = false, message = "Employee ID, password and device ID are required." });
+        {
+            return BadRequest(new { success = false, message = "Email, password and device ID are required." });
+        }
 
-        if (!int.TryParse(request.EmployeeId.Trim(), out var employeeId) || employeeId <= 0)
-            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid employee ID or password." });
+        // 1. Find the Identity User first (Primary source for credentials)
+        var user = await _userManager.FindByEmailAsync(emailIdentifier.Trim());
+        if (user == null)
+            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid email or password." });
 
+        // 2. Check Password
+        if (!await _userManager.CheckPasswordAsync(user, request.Password))
+            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid email or password." });
+
+        // 3. Find the linked Employee record
         await using var db = await _dbFactory.CreateDbContextAsync();
         var employee = await db.Employees.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.EmployeeID == employeeId && !x.IsDeleted);
+            .FirstOrDefaultAsync(x => (x.AspNetUserId == user.Id || x.Email == emailIdentifier.Trim()) && !x.IsDeleted);
 
-        if (employee == null || string.IsNullOrWhiteSpace(employee.AspNetUserId))
-            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid employee ID or password." });
+        if (employee == null)
+            return Unauthorized(new { success = false, code = "NOT_LINKED", message = "Account verified, but no active payroll link found." });
 
-        var user = await _userManager.FindByIdAsync(employee.AspNetUserId);
-        if (user == null || !await _userManager.IsInRoleAsync(user, "Employee") ||
-            await _userManager.IsInRoleAsync(user, "Admin") || await _userManager.IsInRoleAsync(user, "SuperAdmin") ||
-            !await _userManager.CheckPasswordAsync(user, request.Password))
-        {
-            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid employee ID or password." });
-        }
+        // Check for roles
+        var roles = await _userManager.GetRolesAsync(user);
+        var primaryRole = roles.FirstOrDefault() ?? "Employee";
 
         var existing = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == user.Id);
         var sameDevice = existing != null && string.Equals(existing.DeviceId, request.DeviceId.Trim(), StringComparison.Ordinal);
@@ -116,6 +125,8 @@ public sealed class MobileEmployeeController : ControllerBase
             EmployeeId = employee.EmployeeID,
             Name = employee.Name,
             Email = employee.Email ?? user.Email ?? string.Empty,
+            Role = primaryRole,
+            Message = "Login successful",
             MonthlySalary = employee.MonthlySalary,
             PaidLeaveBalance = employee.PaidLeaveBalance,
             SickLeaveBalance = employee.SickLeaveBalance
@@ -519,7 +530,8 @@ public sealed class MobileEmployeeController : ControllerBase
 
     public sealed class MobileLoginRequest
     {
-        public string EmployeeId { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string EmployeeId { get; set; } = string.Empty; // Added back for transition compatibility
         public string Password { get; set; } = string.Empty;
         public string DeviceId { get; set; } = string.Empty;
         public bool ForceReplace { get; set; }
@@ -529,9 +541,11 @@ public sealed class MobileEmployeeController : ControllerBase
     {
         public bool Success { get; set; }
         public string? Token { get; set; }
+        public string? Message { get; set; }
         public int EmployeeId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
+        public string? Role { get; set; }
         public decimal MonthlySalary { get; set; }
         public decimal PaidLeaveBalance { get; set; }
         public decimal SickLeaveBalance { get; set; }
