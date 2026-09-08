@@ -15,6 +15,16 @@ namespace Payroll.Web.Controllers;
 [Route("api/mobile/employee")]
 public sealed class MobileEmployeeController : ControllerBase
 {
+    private const string MobileDevicePrefix = "ANDROID:";
+
+    private static string NormalizeMobileDeviceId(string deviceId)
+    {
+        var value = deviceId.Trim();
+        return value.StartsWith(MobileDevicePrefix, StringComparison.OrdinalIgnoreCase)
+            ? value
+            : MobileDevicePrefix + value;
+    }
+
     private readonly UserManager<IdentityUser> _userManager;
     private readonly SignInManager<IdentityUser> _signInManager;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
@@ -94,8 +104,13 @@ public sealed class MobileEmployeeController : ControllerBase
         var roles = await _userManager.GetRolesAsync(user);
         var primaryRole = roles.FirstOrDefault() ?? "Employee";
 
+        var suppliedDeviceId = request.DeviceId.Trim();
+        var mobileDeviceId = NormalizeMobileDeviceId(suppliedDeviceId);
+
         var existing = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == user.Id);
-        var sameDevice = existing != null && string.Equals(existing.DeviceId, request.DeviceId.Trim(), StringComparison.Ordinal);
+        var sameDevice = existing != null &&
+            (string.Equals(existing.DeviceId, mobileDeviceId, StringComparison.Ordinal) ||
+             string.Equals(existing.DeviceId, suppliedDeviceId, StringComparison.Ordinal));
 
         if (existing != null && !sameDevice && !request.ForceReplace)
         {
@@ -106,6 +121,15 @@ public sealed class MobileEmployeeController : ControllerBase
                 message = "This employee is already logged in on another device.",
                 activeSinceUtc = existing.CreatedAtUtc
             });
+        }
+
+        if (existing != null && sameDevice &&
+            !string.Equals(existing.DeviceId, mobileDeviceId, StringComparison.Ordinal))
+        {
+            // Migrate a legacy mobile lock to the explicit mobile namespace.
+            existing.DeviceId = mobileDeviceId;
+            existing.LastSeenAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync();
         }
 
         if (existing != null && !sameDevice)
@@ -137,7 +161,7 @@ public sealed class MobileEmployeeController : ControllerBase
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
-                DeviceId = request.DeviceId.Trim(),
+                DeviceId = mobileDeviceId,
                 CreatedAtUtc = DateTime.UtcNow,
                 LastSeenAtUtc = DateTime.UtcNow
             });
@@ -149,7 +173,7 @@ public sealed class MobileEmployeeController : ControllerBase
             await db.SaveChangesAsync();
         }
 
-        var token = _tokens.Create(user.Id, employee.EmployeeID, request.DeviceId.Trim());
+        var token = _tokens.Create(user.Id, employee.EmployeeID, mobileDeviceId);
 
         return Ok(new MobileLoginResponse
         {

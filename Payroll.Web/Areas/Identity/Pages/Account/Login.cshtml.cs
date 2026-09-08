@@ -615,14 +615,33 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             try
             {
-                var endedCount = await _geoLocationService.EndAllGpsSessionsAsync(
-                    int.Parse(user.Id),
-                    "FORCE_LOGGED_OUT");
+                // Identity User.Id is a string and is NOT the payroll EmployeeID.
+                // Resolve the real employee key from the existing SSOT link before
+                // ending GPS sessions. This fixes force-login cleanup without any
+                // database/schema change.
+                await using var gpsDb = await _dbFactory.CreateDbContextAsync();
+                var employee = await gpsDb.Employees
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.AspNetUserId == user.Id && !x.IsDeleted);
 
-                _logger.LogInformation(
-                    "GPS sessions ended for force logout. UserId={UserId}, SessionsEnded={SessionsEnded}",
-                    user.Id,
-                    endedCount);
+                if (employee != null)
+                {
+                    var endedCount = await _geoLocationService.EndAllGpsSessionsAsync(
+                        employee.EmployeeID,
+                        "FORCE_LOGGED_OUT");
+
+                    _logger.LogInformation(
+                        "GPS sessions ended for force logout. UserId={UserId}, EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}",
+                        user.Id,
+                        employee.EmployeeID,
+                        endedCount);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "No payroll employee link found while force-replacing session. UserId={UserId}",
+                        user.Id);
+                }
             }
             catch (Exception gpsEx)
             {

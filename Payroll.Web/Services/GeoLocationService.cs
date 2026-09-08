@@ -17,8 +17,6 @@ public class GeoLocationService
     // Dual Attendance uses a small hysteresis band around the configured
     // geofence boundary. This prevents normal GPS noise from becoming
     // attendance events while leaving the existing configured radius intact.
-    private const double GeofenceHysteresisMinimumMeters = 15d;
-    private const double GeofenceHysteresisMaximumMeters = 50d;
     private const int AuthoritativePunchProtectionSeconds = 120;
     private const int FallbackReconciliationWindowSeconds = 300;
     private const long AttendanceAdvisoryLockNamespace = 0x504159524F4C4CL;
@@ -802,18 +800,6 @@ public class GeoLocationService
             lockKey);
     }
 
-    private static double GetGeofenceHysteresisMeters(
-        int allowedRadiusMeters)
-    {
-        var calculated =
-            allowedRadiusMeters * 0.10d;
-
-        return Math.Clamp(
-            calculated,
-            GeofenceHysteresisMinimumMeters,
-            GeofenceHysteresisMaximumMeters);
-    }
-
     private static bool? ResolveStableGeofenceState(
         bool? previousState,
         double distanceMeters,
@@ -825,41 +811,16 @@ public class GeoLocationService
             return null;
         }
 
-        var hysteresis =
-            GetGeofenceHysteresisMeters(allowedRadiusMeters);
-
-        var enterBoundary =
-            Math.Max(0d, allowedRadiusMeters - hysteresis);
-
-        var exitBoundary =
-            allowedRadiusMeters + hysteresis;
-
-        if (previousState == true)
-        {
-            // Once inside, remain inside until clearly beyond the exit
-            // boundary. This suppresses GPS oscillation around the radius.
-            return distanceMeters >= exitBoundary
-                ? false
-                : true;
-        }
-
-        if (previousState == false)
-        {
-            // Once outside, remain outside until clearly within the entry
-            // boundary. This also makes repeated GPS fixes idempotent.
-            return distanceMeters <= enterBoundary
-                ? true
-                : false;
-        }
-
-        // First fix: only establish a state when it is clearly classified.
-        if (distanceMeters <= enterBoundary)
-            return true;
-
-        if (distanceMeters >= exitBoundary)
-            return false;
-
-        return null;
+        // Attendance transitions use the ADMIN-CONFIGURED radius exactly.
+        // The previous implementation applied a hidden 10% hysteresis band
+        // (minimum 15m), which meant an employee inside a 100m radius at 90m
+        // could still be treated as outside. That prevented the expected
+        // Dual Attendance IN/OUT transition.
+        //
+        // Idempotency is still guaranteed by attendance parity checks in
+        // ProcessAutomaticGeofencePunchAsync, so repeated GPS fixes do not
+        // create duplicate same-direction punches.
+        return distanceMeters <= allowedRadiusMeters;
     }
 
     private static bool IsBiometricPunch(

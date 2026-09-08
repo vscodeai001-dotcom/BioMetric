@@ -2561,7 +2561,41 @@ window.ensureAdminLiveMapLayout = function (mapId) {
         // grey Leaflet canvas that appears until an employee is selected.
         [0, 50, 150, 300, 600, 1000].forEach(function (delay) {
             setTimeout(function () {
-                try { map.invalidateSize(true); } catch (e) { }
+                try {
+                    map.invalidateSize(true);
+
+                    // If the first render happened while the responsive grid
+                    // was still measuring, invalidateSize alone leaves the
+                    // original fitBounds calculated from a zero/partial map.
+                    // Refit from the actual live markers after the container
+                    // has a stable size. This does not alter map behaviour or
+                    // selection; it only completes the initial render.
+                    if (state.lastSelectedId === 0) {
+                        var points = [];
+                        if (state.officeMarker) {
+                            points.push(state.officeMarker.getLatLng());
+                        }
+                        Object.keys(state.markers || {}).forEach(function (id) {
+                            try {
+                                var marker = state.markers[id];
+                                if (marker && marker.getLatLng) {
+                                    points.push(marker.getLatLng());
+                                }
+                            } catch (e) { }
+                        });
+                        if (points.length > 1) {
+                            map.fitBounds(L.latLngBounds(points), {
+                                padding: [35, 35],
+                                maxZoom: 17,
+                                animate: false
+                            });
+                        } else if (points.length === 1) {
+                            map.setView(points[0], 17, { animate: false });
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Leaflet initial layout recovery failed:", e);
+                }
             }, delay);
         });
     } catch (e) {
