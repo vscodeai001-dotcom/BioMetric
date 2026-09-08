@@ -300,29 +300,5 @@ namespace Payroll.Web.Services
                     Timestamp = DateTime.UtcNow
                 });
         }
-
-        public async Task NotifyGpsSessionsEndedAsync(
-            IEnumerable<GpsSessionEndNotification> sessions)
-        {
-            foreach (var session in sessions)
-            {
-                await _hub.Clients.All.SendAsync(
-                    "SessionEnded",
-                    new
-                    {
-                        session.EmployeeId,
-                        session.SessionId,
-                        session.EndedAtUtc,
-                        session.EndReason
-                    });
-            }
-        }
-
-        public sealed record GpsSessionEndNotification(
-            int EmployeeId,
-            Guid SessionId,
-            DateTime EndedAtUtc,
-            string EndReason);
-
     }
 }

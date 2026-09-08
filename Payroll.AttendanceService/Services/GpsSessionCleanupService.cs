@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -41,11 +40,9 @@ public class GpsSessionCleanupService : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<GpsSessionCleanupService> _logger;
     private readonly int _checkIntervalSeconds;
-    private readonly int _mobileSessionLeaseSeconds;
-    private readonly IConfiguration _configuration;
 
     // Timeout policy constants
-    private const int NoUpdateTimeoutSeconds = 1800; // 30 minutes for normal timeout policy
+    private const int NoUpdateTimeoutSeconds = 1800; // 30 minutes
 
     public GpsSessionCleanupService(
         IServiceProvider serviceProvider,
@@ -54,15 +51,10 @@ public class GpsSessionCleanupService : BackgroundService
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _configuration = configuration;
 
         _checkIntervalSeconds = configuration.GetValue<int>(
             "GpsSessionCleanup:CheckIntervalSeconds",
             60);
-
-        _mobileSessionLeaseSeconds = configuration.GetValue<int>(
-            "GpsSessionCleanup:MobileSessionLeaseSeconds",
-            600);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -111,13 +103,6 @@ public class GpsSessionCleanupService : BackgroundService
             // ================================================================
 
             await EndSessionsWithoutDeviceLockAsync(db, stoppingToken);
-
-            // Mobile applications can disappear without sending Logout
-            // (for example uninstall, OS force-stop, or lost local token).
-            // Their explicit ANDROID device lease is therefore reconciled
-            // separately. Browser sessions keep the existing indefinite
-            // device-lock semantics.
-            await ReconcileAbandonedMobileSessionsAsync(db, stoppingToken);
 
             // ================================================================
             // PHASE 2: MARK SESSIONS AS TIMED OUT (30+ minutes no updates)
@@ -212,13 +197,6 @@ public class GpsSessionCleanupService : BackgroundService
             {
                 await db.SaveChangesAsync(stoppingToken);
 
-                await NotifyWebSessionEndedAsync(
-                    sessionsToEnd
-                        .Select(x => new GpsSessionEndNotification(
-                            x.EmployeeId, x.SessionId, x.EndedAtUtc!.Value, x.EndReason ?? "NO_DEVICE_LOCK"))
-                        .ToList(),
-                    stoppingToken);
-
                 _logger.LogInformation(
                     "Ended {Count} GPS sessions due to missing device locks",
                     sessionsToEnd.Count);
@@ -229,104 +207,6 @@ public class GpsSessionCleanupService : BackgroundService
             _logger.LogError(
                 ex,
                 "Failed to end sessions without device locks");
-        }
-    }
-
-    private async Task ReconcileAbandonedMobileSessionsAsync(
-        AppDbContext db,
-        CancellationToken stoppingToken)
-    {
-        try
-        {
-            var cutoff = DateTime.UtcNow.AddSeconds(-_mobileSessionLeaseSeconds);
-
-            var staleMobileLocks = await db.EmployeeDeviceLocks
-                .Where(x =>
-                    x.DeviceId.StartsWith("ANDROID:") &&
-                    x.LastSeenAtUtc <= cutoff)
-                .ToListAsync(stoppingToken);
-
-            if (staleMobileLocks.Count == 0)
-                return;
-
-            var userIds = staleMobileLocks
-                .Select(x => x.UserId)
-                .Distinct()
-                .ToList();
-
-            var employees = await db.Employees
-                .AsNoTracking()
-                .Where(x => userIds.Contains(x.AspNetUserId!) && !x.IsDeleted)
-                .Select(x => new { x.EmployeeID, x.AspNetUserId })
-                .ToListAsync(stoppingToken);
-
-            var employeeByUser = employees
-                .Where(x => !string.IsNullOrWhiteSpace(x.AspNetUserId))
-                .ToDictionary(x => x.AspNetUserId!, x => x.EmployeeID, StringComparer.Ordinal);
-
-            var userByEmployee = employeeByUser
-                .ToDictionary(x => x.Value, x => x.Key);
-
-            var employeeIds = employees
-                .Select(x => x.EmployeeID)
-                .ToList();
-
-            var activeSessions = await db.EmployeeGpsSessions
-                .Where(x => employeeIds.Contains(x.EmployeeId) && x.EndedAtUtc == null)
-                .ToListAsync(stoppingToken);
-
-            var staleUserIds = staleMobileLocks
-                .Select(x => x.UserId)
-                .ToHashSet(StringComparer.Ordinal);
-
-            var now = DateTime.UtcNow;
-            var ended = 0;
-
-            foreach (var session in activeSessions)
-            {
-                if (!userByEmployee.TryGetValue(session.EmployeeId, out var userId) ||
-                    !staleUserIds.Contains(userId))
-                    continue;
-
-                session.EndedAtUtc = now;
-                session.EndReason = "MOBILE_SESSION_EXPIRED";
-                ended++;
-
-                _logger.LogWarning(
-                    "Ending abandoned mobile GPS session. EmployeeId={EmployeeId}, SessionId={SessionId}, Reason=MOBILE_SESSION_EXPIRED",
-                    session.EmployeeId,
-                    session.SessionId);
-            }
-
-            foreach (var lockRecord in staleMobileLocks)
-            {
-                // The ANDROID prefix is authoritative for mobile locks.
-                // Release the stale lock even if its employee record was
-                // deleted, preventing orphaned mobile locks from blocking
-                // future login attempts.
-                db.EmployeeDeviceLocks.Remove(lockRecord);
-            }
-
-            await db.SaveChangesAsync(stoppingToken);
-
-            await NotifyWebSessionEndedAsync(
-                activeSessions.Where(x => x.EndedAtUtc.HasValue)
-                    .Select(x => new GpsSessionEndNotification(
-                        x.EmployeeId, x.SessionId, x.EndedAtUtc!.Value, x.EndReason ?? "MOBILE_SESSION_EXPIRED"))
-                    .ToList(),
-                stoppingToken);
-
-            if (ended > 0 || staleMobileLocks.Count > 0)
-            {
-                _logger.LogInformation(
-                    "Mobile session lease reconciliation completed. LocksReleased={LocksReleased}, GpsSessionsEnded={GpsSessionsEnded}",
-                    staleMobileLocks.Count,
-                    ended);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to reconcile abandoned mobile sessions");
         }
     }
 
@@ -430,13 +310,6 @@ public class GpsSessionCleanupService : BackgroundService
             {
                 await db.SaveChangesAsync(stoppingToken);
 
-                await NotifyWebSessionEndedAsync(
-                    sessionsToTimeout
-                        .Select(x => new GpsSessionEndNotification(
-                            x.EmployeeId, x.SessionId, x.EndedAtUtc!.Value, x.EndReason ?? "TIMED_OUT"))
-                        .ToList(),
-                    stoppingToken);
-
                 _logger.LogInformation(
                     "Marked {Count} GPS sessions as timed out",
                     sessionsToTimeout.Count);
@@ -449,56 +322,5 @@ public class GpsSessionCleanupService : BackgroundService
                 "Failed to mark timed-out GPS sessions");
         }
     }
-
-    private async Task NotifyWebSessionEndedAsync(
-        IReadOnlyCollection<GpsSessionEndNotification> sessions,
-        CancellationToken stoppingToken)
-    {
-        if (sessions.Count == 0)
-            return;
-
-        var webBaseUrl = _configuration["AttendanceRefresh:WebBaseUrl"];
-        var secret = _configuration["AttendanceRefresh:Secret"];
-
-        if (string.IsNullOrWhiteSpace(webBaseUrl) ||
-            string.IsNullOrWhiteSpace(secret))
-        {
-            return;
-        }
-
-        try
-        {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post,
-                $"{webBaseUrl.TrimEnd('/')}/api/internal/gps-session-ended");
-
-            request.Headers.Add("X-Attendance-Refresh-Secret", secret);
-            request.Content = JsonContent.Create(sessions);
-
-            using var response = await client.SendAsync(request, stoppingToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "GPS session-end realtime notification failed. HTTP {StatusCode}.",
-                    (int)response.StatusCode);
-            }
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "Failed to notify Web application about GPS session endings.");
-        }
-    }
-
-    private sealed record GpsSessionEndNotification(
-        int EmployeeId,
-        Guid SessionId,
-        DateTime EndedAtUtc,
-        string EndReason);
 }
 

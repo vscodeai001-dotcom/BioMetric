@@ -40,37 +40,14 @@ public sealed class MobileTokenAuthenticationHandler : AuthenticationHandler<Aut
 
         await using var db = await _dbFactory.CreateDbContextAsync(Context.RequestAborted);
         var lockRecord = await db.EmployeeDeviceLocks
+            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.UserId == payload.UserId, Context.RequestAborted);
 
-        if (lockRecord == null)
+        if (lockRecord == null ||
+            !string.Equals(lockRecord.DeviceId, payload.DeviceId, StringComparison.Ordinal))
         {
             return AuthenticateResult.Fail("Mobile session is no longer active on this device.");
         }
-
-        const string mobilePrefix = "ANDROID:";
-        var normalizedPayloadDeviceId = payload.DeviceId.StartsWith(
-            mobilePrefix, StringComparison.OrdinalIgnoreCase)
-            ? payload.DeviceId
-            : mobilePrefix + payload.DeviceId;
-
-        var deviceMatches =
-            string.Equals(lockRecord.DeviceId, payload.DeviceId, StringComparison.Ordinal) ||
-            string.Equals(lockRecord.DeviceId, normalizedPayloadDeviceId, StringComparison.Ordinal);
-
-        if (!deviceMatches)
-        {
-            return AuthenticateResult.Fail("Mobile session is no longer active on this device.");
-        }
-
-        // Upgrade legacy mobile locks on the first authenticated request and
-        // refresh the mobile lease. No schema change is required.
-        if (!string.Equals(lockRecord.DeviceId, normalizedPayloadDeviceId, StringComparison.Ordinal))
-        {
-            lockRecord.DeviceId = normalizedPayloadDeviceId;
-        }
-
-        lockRecord.LastSeenAtUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync(Context.RequestAborted);
 
         var employee = await db.Employees
             .AsNoTracking()
@@ -85,7 +62,7 @@ public sealed class MobileTokenAuthenticationHandler : AuthenticationHandler<Aut
             new Claim(ClaimTypes.Name, employee.Name),
             new Claim(ClaimTypes.Role, "Employee"),
             new Claim("employee_id", payload.EmployeeId.ToString()),
-            new Claim("device_id", normalizedPayloadDeviceId),
+            new Claim("device_id", payload.DeviceId),
             new Claim("mobile_session", "true")
         };
 
