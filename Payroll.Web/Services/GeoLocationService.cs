@@ -14,9 +14,12 @@ public class GeoLocationService
     private readonly AttendanceRefreshService _refreshService;
     private readonly IHubContext<AttendanceRefreshHub> _hubContext;
 
-    // Dual Attendance uses a small hysteresis band around the configured
-    // geofence boundary. This prevents normal GPS noise from becoming
-    // attendance events while leaving the existing configured radius intact.
+    // Dual Attendance treats the configured geofence as a reconciliation
+    // signal. GPS state is checked against the authoritative attendance
+    // parity on every valid fix, so missed transitions can self-heal after
+    // reconnects, app suspension, browser sleep, or a session starting
+    // outside the office. Physical biometric/mobile punches remain
+    // authoritative and are protected by a short conflict window.
     private const int AuthoritativePunchProtectionSeconds = 120;
     private const int FallbackReconciliationWindowSeconds = 300;
     private const long AttendanceAdvisoryLockNamespace = 0x504159524F4C4CL;
@@ -351,12 +354,23 @@ public class GeoLocationService
                     safeDistance,
                     allowedRadiusMeters);
 
+                // A radius change is configuration, not employee movement.
+                // Re-baseline the session against the new radius instead of
+                // manufacturing an automatic IN/OUT merely because Admin
+                // changed the allowed distance while the employee was
+                // stationary. The next genuine boundary transition is then
+                // evaluated normally.
+                var radiusChanged =
+                    session.LastAllowedRadiusMeters.HasValue &&
+                    session.LastAllowedRadiusMeters.Value != allowedRadiusMeters;
+
                 // Automatic attendance is evaluated while the session lock is
                 // held, so logout cannot interleave with the decision.
                 if (stableLocationState.HasValue)
                 {
-                    var attendanceEvaluationCompleted =
-                        await ProcessAutomaticGeofencePunchAsync(
+                    var attendanceEvaluationCompleted = radiusChanged
+                        ? true
+                        : await ProcessAutomaticGeofencePunchAsync(
                             db,
                             employeeId,
                             sessionId,
@@ -385,6 +399,17 @@ public class GeoLocationService
                             "Dual Attendance evaluation did not complete. Geofence state was not advanced so the transition can be retried. EmployeeId={EmployeeId}, SessionId={SessionId}",
                             employeeId,
                             sessionId);
+                    }
+
+                    if (radiusChanged)
+                    {
+                        _logger.LogInformation(
+                            "Geofence radius changed during active GPS session; state re-baselined without an automatic punch. EmployeeId={EmployeeId}, SessionId={SessionId}, PreviousRadius={PreviousRadius}, NewRadius={NewRadius}, State={State}",
+                            employeeId,
+                            sessionId,
+                            session.LastAllowedRadiusMeters,
+                            allowedRadiusMeters,
+                            stableLocationState.Value ? "INSIDE" : "OUTSIDE");
                     }
                 }
 
@@ -502,12 +527,15 @@ public class GeoLocationService
     // AUTOMATIC GEOFENCE ATTENDANCE FALLBACK
     // ================================================================
     //
-    // Geofence attendance is a FALLBACK only.
+    // Geofence attendance is a FALLBACK/RECONCILIATION source.
     //
-    // ENTER radius  -> automatic IN, only when the current attendance
-    //                   state is OUT.
-    // EXIT radius   -> automatic OUT, only when the current attendance
-    //                   state is IN.
+    // INSIDE  + attendance OUT -> automatic IN
+    // OUTSIDE + attendance IN  -> automatic OUT
+    //
+    // The decision is evaluated on every valid GPS fix rather than only on
+    // a previous-state transition. This makes the system self-healing when
+    // the first fix is outside, a transition was missed, or the browser/app
+    // was suspended.
     //
     // Physical biometric punches remain the priority source. If a
     // biometric punch arrives shortly after an automatic geofence punch,
@@ -536,25 +564,16 @@ public class GeoLocationService
         if (features?.EnableDualAttendance != true)
             return true;
 
-        // A first GPS fix establishes location state but is not itself a
-        // transition unless the fix is clearly inside the configured radius.
-        var previousState = previousLocationState ?? false;
-
-        // A brand-new GPS session that starts OUTSIDE does not prove that
-        // the employee just left the office. Do not invent an OUT punch.
-        // Existing sessions still produce normal INSIDE -> OUTSIDE exits.
-        if (!previousLocationState.HasValue &&
-            !currentLocationState)
-        {
-            return true;
-        }
-
-        if (previousLocationState.HasValue &&
-            previousState == currentLocationState)
-        {
-            return true;
-        }
-
+        // The GPS state is nullable because a session can begin before the
+        // first valid fix, after a browser reconnect, or after legacy data.
+        // A null state is therefore a bootstrap condition, not an automatic
+        // reason to suppress OUT. Attendance state below decides whether the
+        // first valid fix should create IN, OUT, or simply establish state.
+        // Do not use the previous GPS state as a hard gate. The previous
+        // state can be null or stale after reconnects, app suspension,
+        // legacy sessions, or a missed GPS transition. Attendance parity
+        // plus the CURRENT geofence state is the authoritative reconciliation
+        // decision, which makes the feature self-healing.
         if (allowedRadiusMeters <= 0)
             return true;
 
@@ -602,12 +621,21 @@ public class GeoLocationService
                     ? "IN"
                     : "OUT";
 
-            // GPS location alone never creates an OUT for an employee who is
-            // already OUT, nor an IN for an employee who is already IN.
-            if (currentLocationState && attendanceCurrentlyOpen)
-                return true;
-
-            if (!currentLocationState && !attendanceCurrentlyOpen)
+            // Attendance state is the safety gate on EVERY valid GPS fix.
+            // This is deliberately reconciliation-based rather than relying
+            // only on a detected GPS transition. It covers: fresh sessions,
+            // reconnects, missed fixes, browser sleep, Android suspension,
+            // legacy sessions with a null LastIsWithinAllowedRadius, and an
+            // employee who starts tracking after already leaving/entering.
+            //
+            //   GPS INSIDE  + attendance OUT -> automatic IN
+            //   GPS OUTSIDE + attendance IN  -> automatic OUT
+            //   GPS INSIDE  + attendance IN  -> no duplicate IN
+            //   GPS OUTSIDE + attendance OUT -> no duplicate OUT
+            //
+            // Once the required parity is reached, every later fix is
+            // naturally idempotent because the same condition becomes true.
+            if (currentLocationState == attendanceCurrentlyOpen)
                 return true;
 
             /*
@@ -675,7 +703,7 @@ public class GeoLocationService
                 accuracyMeters,
                 distanceMeters,
                 allowedRadiusMeters,
-                true,
+                currentLocationState,
                 result,
                 log.LogID,
                 "GEOFENCE_AUTO");
