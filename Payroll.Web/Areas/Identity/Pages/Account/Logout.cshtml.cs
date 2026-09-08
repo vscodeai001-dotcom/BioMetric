@@ -152,7 +152,9 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                         "Employee");
 
                 if (!isEmployee)
+                {
                     return;
+                }
 
                 await using var db =
                     await _dbFactory.CreateDbContextAsync();
@@ -164,19 +166,19 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                             e => e.AspNetUserId == user.Id);
 
                 if (employee == null)
+                {
                     return;
+                }
 
-                // End every active GPS session under the same employee-level
-                // advisory lock used by GPS updates/session starts. This makes
-                // manual logout authoritative and prevents a race from leaving
-                // an active session behind.
-                var endedCount = await _geoLocationService
-                    .EndAllGpsSessionsAsync(
-                        employee.EmployeeID,
-                        "LOGGED_OUT");
+                // Logout is authoritative: close every active GPS session
+                // under one employee-level lifecycle lock. This prevents a
+                // second active/legacy session from surviving the logout.
+                var endedCount = await _geoLocationService.EndAllGpsSessionsAsync(
+                    employee.EmployeeID,
+                    "MANUAL_LOGOUT");
 
                 _logger.LogInformation(
-                    "GPS SESSION CLEANUP COMPLETED DURING MANUAL LOGOUT. EmployeeId={EmployeeId}, EndedSessions={EndedSessions}",
+                    "GPS SESSION CLEANUP DURING MANUAL LOGOUT. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=MANUAL_LOGOUT",
                     employee.EmployeeID,
                     endedCount);
             }

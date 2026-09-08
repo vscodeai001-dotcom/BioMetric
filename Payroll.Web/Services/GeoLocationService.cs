@@ -121,10 +121,9 @@ public class GeoLocationService
 
             try
             {
-                // Serialize session start/reconnect with logout, session-end,
-                // and GPS updates for this employee. This prevents an old
-                // browser request from creating a new active session while
-                // logout is closing the employee's session.
+                // Serialize session start/end/update lifecycle operations for
+                // this employee. This prevents an old GPS request from racing
+                // a new login and leaving two active sessions behind.
                 await db.Database.ExecuteSqlRawAsync(
                     "SELECT pg_advisory_lock({0})",
                     lockKey);
@@ -136,10 +135,10 @@ public class GeoLocationService
 
                 if (existing != null)
                 {
-                    if (!existing.EndedAtUtc.HasValue)
-                        return true;
+                    if (existing.EmployeeId != employeeId)
+                        return false;
 
-                    return false;
+                    return !existing.EndedAtUtc.HasValue;
                 }
 
                 var previousSessions = await db.EmployeeGpsSessions
@@ -156,39 +155,9 @@ public class GeoLocationService
                     previous.EndedAtUtc = now;
                     previous.EndReason = "NEW_SESSION";
 
-                    try
-                    {
-                        LiveLocationStore.Remove(
-                            previous.EmployeeId,
-                            previous.SessionId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(
-                            ex,
-                            "Failed to remove previous LiveLocationStore entry for employee {EmployeeId}",
-                            employeeId);
-                    }
-
-                    try
-                    {
-                        await _hubContext.Clients.All.SendAsync(
-                            "SessionEnded",
-                            new
-                            {
-                                EmployeeId = previous.EmployeeId,
-                                SessionId = previous.SessionId,
-                                EndedAtUtc = now,
-                                EndReason = previous.EndReason
-                            });
-                    }
-                    catch (Exception signalREx)
-                    {
-                        _logger.LogWarning(
-                            signalREx,
-                            "Failed to broadcast previous GPS session end for employee {EmployeeId}",
-                            employeeId);
-                    }
+                    LiveLocationStore.Remove(
+                        previous.EmployeeId,
+                        previous.SessionId);
                 }
 
                 var session = new EmployeeGpsSession
@@ -206,6 +175,31 @@ public class GeoLocationService
 
                 db.EmployeeGpsSessions.Add(session);
                 await db.SaveChangesAsync();
+
+                // Broadcast only after the database commit so every admin
+                // refresh triggered by SessionEnded observes EndedAtUtc.
+                foreach (var previous in previousSessions)
+                {
+                    try
+                    {
+                        await _hubContext.Clients.All.SendAsync(
+                            "SessionEnded",
+                            new
+                            {
+                                EmployeeId = previous.EmployeeId,
+                                SessionId = previous.SessionId,
+                                EndedAtUtc = previous.EndedAtUtc,
+                                EndReason = previous.EndReason
+                            });
+                    }
+                    catch (Exception signalREx)
+                    {
+                        _logger.LogWarning(
+                            signalREx,
+                            "Failed to broadcast previous GPS session end for employee {EmployeeId}",
+                            previous.EmployeeId);
+                    }
+                }
 
                 _logger.LogInformation(
                     "GPS session started. EmployeeId={EmployeeId}, SessionId={SessionId}",
@@ -266,6 +260,7 @@ public class GeoLocationService
             return false;
         }
     }
+
 
     // ================================================================
     // UPDATE GPS SESSION
@@ -1022,6 +1017,137 @@ public class GeoLocationService
 
 
     // ================================================================
+    // END ALL ACTIVE GPS SESSIONS FOR AN EMPLOYEE
+    // ================================================================
+
+    public async Task<int> EndAllGpsSessionsAsync(
+        int employeeId,
+        string endReason)
+    {
+        if (employeeId <= 0)
+            return 0;
+
+        var safeReason = string.IsNullOrWhiteSpace(endReason)
+            ? "ENDED"
+            : endReason.Length > 40
+                ? endReason[..40]
+                : endReason;
+
+        try
+        {
+            await using var db =
+                await _dbFactory.CreateDbContextAsync();
+
+            await db.Database.OpenConnectionAsync();
+            var lockKey = GpsSessionAdvisoryLockNamespace + (uint)employeeId;
+            var lockHeld = false;
+
+            try
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    "SELECT pg_advisory_lock({0})",
+                    lockKey);
+                lockHeld = true;
+
+                var sessions = await db.EmployeeGpsSessions
+                    .Where(x =>
+                        x.EmployeeId == employeeId &&
+                        x.EndedAtUtc == null)
+                    .ToListAsync();
+
+                if (sessions.Count == 0)
+                {
+                    // Even if the database is already clean, remove only the
+                    // currently stored location for this employee. This clears
+                    // stale process-local state without touching another
+                    // employee/session.
+                    var liveSessionId = LiveLocationStore.GetSessionId(employeeId);
+                    if (liveSessionId.HasValue)
+                        LiveLocationStore.Remove(employeeId, liveSessionId.Value);
+
+                    return 0;
+                }
+
+                var now = DateTime.UtcNow;
+                foreach (var session in sessions)
+                {
+                    session.EndedAtUtc = now;
+                    session.EndReason = safeReason;
+                }
+
+                await db.SaveChangesAsync();
+
+                foreach (var session in sessions)
+                {
+                    LiveLocationStore.Remove(
+                        session.EmployeeId,
+                        session.SessionId);
+
+                    try
+                    {
+                        await _hubContext.Clients.All.SendAsync(
+                            "SessionEnded",
+                            new
+                            {
+                                EmployeeId = session.EmployeeId,
+                                SessionId = session.SessionId,
+                                EndedAtUtc = session.EndedAtUtc,
+                                EndReason = session.EndReason
+                            });
+                    }
+                    catch (Exception signalREx)
+                    {
+                        _logger.LogWarning(
+                            signalREx,
+                            "Failed to broadcast GPS session end for employee {EmployeeId}, SessionId={SessionId}",
+                            session.EmployeeId,
+                            session.SessionId);
+                    }
+                }
+
+                _logger.LogInformation(
+                    "Ended {Count} active GPS sessions. EmployeeId={EmployeeId}, Reason={Reason}",
+                    sessions.Count,
+                    employeeId,
+                    safeReason);
+
+                return sessions.Count;
+            }
+            finally
+            {
+                if (lockHeld)
+                {
+                    try
+                    {
+                        await db.Database.ExecuteSqlRawAsync(
+                            "SELECT pg_advisory_unlock({0})",
+                            lockKey);
+                    }
+                    catch (Exception unlockEx)
+                    {
+                        _logger.LogWarning(
+                            unlockEx,
+                            "Failed to release GPS session advisory lock after ending all sessions. EmployeeId={EmployeeId}",
+                            employeeId);
+                    }
+                }
+
+                await db.Database.CloseConnectionAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to end all GPS sessions. EmployeeId={EmployeeId}, Reason={Reason}",
+                employeeId,
+                safeReason);
+            return 0;
+        }
+    }
+
+
+    // ================================================================
     // MARK SESSION TIMED OUT
     // ================================================================
     //
@@ -1114,130 +1240,6 @@ public class GeoLocationService
             _logger.LogError(
                 ex,
                 "Failed to mark timed-out GPS sessions.");
-        }
-    }
-
-    // ================================================================
-    // END ALL GPS SESSIONS FOR EMPLOYEE
-    // ================================================================
-
-    public async Task<int> EndAllGpsSessionsAsync(
-        int employeeId,
-        string endReason = "LOGGED_OUT")
-    {
-        if (employeeId <= 0)
-            return 0;
-
-        try
-        {
-            await using var db =
-                await _dbFactory.CreateDbContextAsync();
-
-            await db.Database.OpenConnectionAsync();
-            var lockKey = GpsSessionAdvisoryLockNamespace + (uint)employeeId;
-            var lockHeld = false;
-
-            try
-            {
-                // Take the same employee-level lock used by GPS updates and
-                // session starts/ends. Query and close all active sessions
-                // while holding it so logout cannot miss a concurrently
-                // created session.
-                await db.Database.ExecuteSqlRawAsync(
-                    "SELECT pg_advisory_lock({0})",
-                    lockKey);
-                lockHeld = true;
-
-                var sessions = await db.EmployeeGpsSessions
-                    .Where(x =>
-                        x.EmployeeId == employeeId &&
-                        x.EndedAtUtc == null)
-                    .OrderByDescending(x => x.StartedAtUtc)
-                    .ToListAsync();
-
-                if (sessions.Count == 0)
-                    return 0;
-
-                var now = DateTime.UtcNow;
-                var reason = string.IsNullOrWhiteSpace(endReason)
-                    ? "ENDED"
-                    : endReason.Length > 40
-                        ? endReason[..40]
-                        : endReason;
-
-                foreach (var session in sessions)
-                {
-                    session.EndedAtUtc = now;
-                    session.EndReason = reason;
-
-                    LiveLocationStore.Remove(
-                        employeeId,
-                        session.SessionId);
-                }
-
-                await db.SaveChangesAsync();
-
-                foreach (var session in sessions)
-                {
-                    try
-                    {
-                        await _hubContext.Clients.All.SendAsync(
-                            "SessionEnded",
-                            new
-                            {
-                                EmployeeId = employeeId,
-                                SessionId = session.SessionId,
-                                EndedAtUtc = session.EndedAtUtc,
-                                EndReason = session.EndReason
-                            });
-                    }
-                    catch (Exception signalREx)
-                    {
-                        _logger.LogWarning(
-                            signalREx,
-                            "Failed to broadcast bulk GPS session end for employee {EmployeeId}, SessionId={SessionId}",
-                            employeeId,
-                            session.SessionId);
-                    }
-                }
-
-                _logger.LogInformation(
-                    "Ended {Count} GPS sessions during employee logout. EmployeeId={EmployeeId}, Reason={Reason}",
-                    sessions.Count,
-                    employeeId,
-                    reason);
-
-                return sessions.Count;
-            }
-            finally
-            {
-                if (lockHeld)
-                {
-                    try
-                    {
-                        await db.Database.ExecuteSqlRawAsync(
-                            "SELECT pg_advisory_unlock({0})",
-                            lockKey);
-                    }
-                    catch (Exception unlockEx)
-                    {
-                        _logger.LogWarning(
-                            unlockEx,
-                            "Failed to release GPS session advisory lock after bulk logout. EmployeeId={EmployeeId}",
-                            employeeId);
-                    }
-                }
-
-                await db.Database.CloseConnectionAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(
-                ex,
-                "Failed to end all GPS sessions. EmployeeId={EmployeeId}",
-                employeeId);
-            return 0;
         }
     }
 

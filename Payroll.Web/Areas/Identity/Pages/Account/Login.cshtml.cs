@@ -604,19 +604,23 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                 return false;
 
             // ============================================================
-            // END ALL GPS SESSIONS FOR FORCE LOGOUT
+            // END GPS SESSION FOR FORCE LOGOUT
             // ============================================================
-            // Close every unfinished GPS session before replacing the
-            // employee's device session, and notify admin clients immediately.
+            //
+            // When forcing logout, we need to:
+            // 1. End any active GPS session in the database
+            // 2. Remove it from the in-memory live location store
+            // 3. This ensures the admin dashboard immediately shows offline
+            // ============================================================
+
             try
             {
-                var endedCount = await _geoLocationService
-                    .EndAllGpsSessionsAsync(
-                        int.Parse(user.Id),
-                        "FORCE_LOGGED_OUT");
+                var endedCount = await _geoLocationService.EndAllGpsSessionsAsync(
+                    int.Parse(user.Id),
+                    "FORCE_LOGGED_OUT");
 
                 _logger.LogInformation(
-                    "GPS sessions ended for force logout. UserId={UserId}, EndedSessions={EndedSessions}",
+                    "GPS sessions ended for force logout. UserId={UserId}, SessionsEnded={SessionsEnded}",
                     user.Id,
                     endedCount);
             }

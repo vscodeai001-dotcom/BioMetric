@@ -2541,6 +2541,34 @@ window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selec
     return byId;
 };
 
+window.ensureAdminLiveMapLayout = function (mapId) {
+    try {
+        var state = window.adminLiveMaps && window.adminLiveMaps[mapId];
+        if (!state || !state.map) return;
+
+        var map = state.map;
+        var container = map.getContainer();
+
+        if (!state._layoutObserver && typeof ResizeObserver !== 'undefined') {
+            state._layoutObserver = new ResizeObserver(function () {
+                try { map.invalidateSize(true); } catch (e) { }
+            });
+            state._layoutObserver.observe(container);
+        }
+
+        // The Live Staff panel can become measurable only after Blazor has
+        // completed its first layout. Multiple passes prevent the initial
+        // grey Leaflet canvas that appears until an employee is selected.
+        [0, 50, 150, 300, 600, 1000].forEach(function (delay) {
+            setTimeout(function () {
+                try { map.invalidateSize(true); } catch (e) { }
+            }, delay);
+        });
+    } catch (e) {
+        console.warn('Admin live map layout refresh failed:', e);
+    }
+};
+
 window.updateAdminLiveStaffMap =
     async function (
         mapId,
@@ -2664,19 +2692,7 @@ window.updateAdminLiveStaffMap =
                 window.adminLiveMaps[mapId] =
                     state;
 
-                // The dashboard can finish its first layout pass after
-                // Leaflet is initialized. Recalculate the container size
-                // across the first few frames so tiles/markers render without
-                // requiring the admin to select an employee first.
-                map.whenReady(function () {
-                    [0, 150, 500, 1000].forEach(function (delay) {
-                        setTimeout(function () {
-                            try {
-                                map.invalidateSize({ pan: false });
-                            } catch { }
-                        }, delay);
-                    });
-                });
+                window.ensureAdminLiveMapLayout(mapId);
             }
 
             state.officeMarker
@@ -3423,16 +3439,7 @@ window.updateAdminLiveStaffMap =
             state.lastStaffSignature = staffSignature;
             state.lastSelectedId = Number(selectedId);
 
-            // Keep the map synchronized with the final rendered container
-            // size. This is especially important on the initial dashboard
-            // render when multiple live employees are present.
-            [0, 100, 350].forEach(function (delay) {
-                setTimeout(function () {
-                    try {
-                        state.map.invalidateSize({ pan: false });
-                    } catch { }
-                }, delay);
-            });
+            window.ensureAdminLiveMapLayout(mapId);
         }
         catch (error) {
             console.error(
@@ -3848,12 +3855,9 @@ window.updateAdminHistoryRoute =
                 }
             );
 
-            setTimeout(
-                function () {
-                    state.map.invalidateSize();
-                },
-                100
-            );
+            setTimeout(function () {
+                try { state.map.invalidateSize(true); } catch (e) { }
+            }, 100);
         }
         catch (error) {
             console.error(

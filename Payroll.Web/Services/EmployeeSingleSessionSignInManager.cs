@@ -654,34 +654,41 @@ namespace Payroll.Web.Services
 
 
                 // ----------------------------------------------------
-                // End any GPS sessions belonging to the invalidated
-                // employee session before releasing the device lock.
-                // This keeps the database session state and the admin
-                // live-location state synchronized for new-device login.
+                // Remove old device lock.
                 // ----------------------------------------------------
 
                 await using var db =
                     await _dbFactory.CreateDbContextAsync();
 
-                var employee = await db.Employees
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(e => e.AspNetUserId == userId);
-
-                if (employee != null)
+                // End all GPS sessions before removing the old device lock.
+                // This makes force login an explicit GPS session termination,
+                // rather than waiting for background cleanup.
+                try
                 {
-                    var activeSessionIds = await db.EmployeeGpsSessions
+                    var employee = await db.Employees
                         .AsNoTracking()
-                        .Where(x => x.EmployeeId == employee.EmployeeID && x.EndedAtUtc == null)
-                        .Select(x => x.SessionId)
-                        .ToListAsync();
+                        .FirstOrDefaultAsync(x => x.AspNetUserId == userId);
 
-                    foreach (var activeSessionId in activeSessionIds)
+                    if (employee != null)
                     {
-                        await _geoLocationService.EndGpsSessionAsync(
+                        var endedCount = await _geoLocationService
+                            .EndAllGpsSessionsAsync(
+                                employee.EmployeeID,
+                                "FORCE_LOGGED_OUT");
+
+                        _logger.LogInformation(
+                            "GPS sessions ended while invalidating employee session. UserId={UserId}, EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=FORCE_LOGGED_OUT",
+                            userId,
                             employee.EmployeeID,
-                            activeSessionId,
-                            "NEW_LOGIN");
+                            endedCount);
                     }
+                }
+                catch (Exception gpsEx)
+                {
+                    _logger.LogWarning(
+                        gpsEx,
+                        "Failed to end GPS sessions while invalidating employee session. UserId={UserId}",
+                        userId);
                 }
 
 

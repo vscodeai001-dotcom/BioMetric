@@ -110,6 +110,13 @@ public sealed class MobileEmployeeController : ControllerBase
 
         if (existing != null && !sameDevice)
         {
+            // Replacing a mobile device is an explicit force logout of the
+            // previous device. End every active GPS session before releasing
+            // the old device lock so no live session survives replacement.
+            var endedCount = await _geo.EndAllGpsSessionsAsync(
+                employee.EmployeeID,
+                "FORCE_LOGGED_OUT");
+
             var stampResult = await _userManager.UpdateSecurityStampAsync(user);
             if (!stampResult.Succeeded)
                 return StatusCode(500, new { success = false, message = "Unable to replace the existing employee session." });
@@ -117,6 +124,11 @@ public sealed class MobileEmployeeController : ControllerBase
             db.EmployeeDeviceLocks.Remove(existing);
             await db.SaveChangesAsync();
             existing = null;
+
+            _logger.LogInformation(
+                "Mobile employee session replaced. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=FORCE_LOGGED_OUT",
+                employee.EmployeeID,
+                endedCount);
         }
 
         if (existing == null)
@@ -185,12 +197,17 @@ public sealed class MobileEmployeeController : ControllerBase
 
         var employeeId = GetEmployeeId();
 
-        // GPS session lifecycle must end before the device lock is released.
-        // End every unfinished session atomically for this employee so stale
-        // or duplicate sessions cannot remain visible as live after logout.
-        await _geo.EndAllGpsSessionsAsync(
+        // Logout is authoritative: end every active GPS session before the
+        // device lock is released. This also cleans up legacy duplicate
+        // sessions without changing the database design.
+        var endedCount = await _geo.EndAllGpsSessionsAsync(
             employeeId,
-            "LOGGED_OUT");
+            "MANUAL_LOGOUT");
+
+        _logger.LogInformation(
+            "Mobile employee logout completed. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=MANUAL_LOGOUT",
+            employeeId,
+            endedCount);
 
         await using var db = await _dbFactory.CreateDbContextAsync();
         var lockRecord = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == userId);
