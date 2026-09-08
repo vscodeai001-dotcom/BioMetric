@@ -2664,12 +2664,19 @@ window.updateAdminLiveStaffMap =
                 window.adminLiveMaps[mapId] =
                     state;
 
-                setTimeout(
-                    function () {
-                        map.invalidateSize();
-                    },
-                    150
-                );
+                // The dashboard can finish its first layout pass after
+                // Leaflet is initialized. Recalculate the container size
+                // across the first few frames so tiles/markers render without
+                // requiring the admin to select an employee first.
+                map.whenReady(function () {
+                    [0, 150, 500, 1000].forEach(function (delay) {
+                        setTimeout(function () {
+                            try {
+                                map.invalidateSize({ pan: false });
+                            } catch { }
+                        }, delay);
+                    });
+                });
             }
 
             state.officeMarker
@@ -3416,12 +3423,16 @@ window.updateAdminLiveStaffMap =
             state.lastStaffSignature = staffSignature;
             state.lastSelectedId = Number(selectedId);
 
-            setTimeout(
-                function () {
-                    state.map.invalidateSize();
-                },
-                100
-            );
+            // Keep the map synchronized with the final rendered container
+            // size. This is especially important on the initial dashboard
+            // render when multiple live employees are present.
+            [0, 100, 350].forEach(function (delay) {
+                setTimeout(function () {
+                    try {
+                        state.map.invalidateSize({ pan: false });
+                    } catch { }
+                }, delay);
+            });
         }
         catch (error) {
             console.error(

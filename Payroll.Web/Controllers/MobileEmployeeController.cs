@@ -186,27 +186,11 @@ public sealed class MobileEmployeeController : ControllerBase
         var employeeId = GetEmployeeId();
 
         // GPS session lifecycle must end before the device lock is released.
-        // Otherwise a stale mobile GPS session can remain visible as live in
-        // admin location screens after the employee has logged out.
-        // End every unfinished GPS session for this employee. Normally
-        // there is only one, but this makes logout authoritative if a
-        // legacy/race condition left more than one active record.
-        await using (var sessionDb = await _dbFactory.CreateDbContextAsync())
-        {
-            var activeSessionIds = await sessionDb.EmployeeGpsSessions
-                .AsNoTracking()
-                .Where(x => x.EmployeeId == employeeId && x.EndedAtUtc == null)
-                .Select(x => x.SessionId)
-                .ToListAsync();
-
-            foreach (var activeSessionId in activeSessionIds)
-            {
-                await _geo.EndGpsSessionAsync(
-                    employeeId,
-                    activeSessionId,
-                    "LOGGED_OUT");
-            }
-        }
+        // End every unfinished session atomically for this employee so stale
+        // or duplicate sessions cannot remain visible as live after logout.
+        await _geo.EndAllGpsSessionsAsync(
+            employeeId,
+            "LOGGED_OUT");
 
         await using var db = await _dbFactory.CreateDbContextAsync();
         var lockRecord = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == userId);
