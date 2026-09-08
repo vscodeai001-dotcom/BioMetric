@@ -2541,6 +2541,68 @@ window.payrollBuildAdminMarkerDisplayPositions = function (map, liveStaff, selec
     return byId;
 };
 
+window.ensureAdminLiveMapLayout = function (mapId) {
+    try {
+        var state = window.adminLiveMaps && window.adminLiveMaps[mapId];
+        if (!state || !state.map) return;
+
+        var map = state.map;
+        var container = map.getContainer();
+
+        if (!state._layoutObserver && typeof ResizeObserver !== 'undefined') {
+            state._layoutObserver = new ResizeObserver(function () {
+                try { map.invalidateSize(true); } catch (e) { }
+            });
+            state._layoutObserver.observe(container);
+        }
+
+        // The Live Staff panel can become measurable only after Blazor has
+        // completed its first layout. Multiple passes prevent the initial
+        // grey Leaflet canvas that appears until an employee is selected.
+        [0, 50, 150, 300, 600, 1000].forEach(function (delay) {
+            setTimeout(function () {
+                try {
+                    map.invalidateSize(true);
+
+                    // If the first render happened while the responsive grid
+                    // was still measuring, invalidateSize alone leaves the
+                    // original fitBounds calculated from a zero/partial map.
+                    // Refit from the actual live markers after the container
+                    // has a stable size. This does not alter map behaviour or
+                    // selection; it only completes the initial render.
+                    if (state.lastSelectedId === 0) {
+                        var points = [];
+                        if (state.officeMarker) {
+                            points.push(state.officeMarker.getLatLng());
+                        }
+                        Object.keys(state.markers || {}).forEach(function (id) {
+                            try {
+                                var marker = state.markers[id];
+                                if (marker && marker.getLatLng) {
+                                    points.push(marker.getLatLng());
+                                }
+                            } catch (e) { }
+                        });
+                        if (points.length > 1) {
+                            map.fitBounds(L.latLngBounds(points), {
+                                padding: [35, 35],
+                                maxZoom: 17,
+                                animate: false
+                            });
+                        } else if (points.length === 1) {
+                            map.setView(points[0], 17, { animate: false });
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Leaflet initial layout recovery failed:", e);
+                }
+            }, delay);
+        });
+    } catch (e) {
+        console.warn('Admin live map layout refresh failed:', e);
+    }
+};
+
 window.updateAdminLiveStaffMap =
     async function (
         mapId,
@@ -2664,12 +2726,7 @@ window.updateAdminLiveStaffMap =
                 window.adminLiveMaps[mapId] =
                     state;
 
-                setTimeout(
-                    function () {
-                        map.invalidateSize();
-                    },
-                    150
-                );
+                window.ensureAdminLiveMapLayout(mapId);
             }
 
             state.officeMarker
@@ -3416,12 +3473,7 @@ window.updateAdminLiveStaffMap =
             state.lastStaffSignature = staffSignature;
             state.lastSelectedId = Number(selectedId);
 
-            setTimeout(
-                function () {
-                    state.map.invalidateSize();
-                },
-                100
-            );
+            window.ensureAdminLiveMapLayout(mapId);
         }
         catch (error) {
             console.error(
@@ -3837,12 +3889,9 @@ window.updateAdminHistoryRoute =
                 }
             );
 
-            setTimeout(
-                function () {
-                    state.map.invalidateSize();
-                },
-                100
-            );
+            setTimeout(function () {
+                try { state.map.invalidateSize(true); } catch (e) { }
+            }, 100);
         }
         catch (error) {
             console.error(

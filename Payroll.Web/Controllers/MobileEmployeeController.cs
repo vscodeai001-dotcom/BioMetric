@@ -15,7 +15,18 @@ namespace Payroll.Web.Controllers;
 [Route("api/mobile/employee")]
 public sealed class MobileEmployeeController : ControllerBase
 {
+    private const string MobileDevicePrefix = "ANDROID:";
+
+    private static string NormalizeMobileDeviceId(string deviceId)
+    {
+        var value = deviceId.Trim();
+        return value.StartsWith(MobileDevicePrefix, StringComparison.OrdinalIgnoreCase)
+            ? value
+            : MobileDevicePrefix + value;
+    }
+
     private readonly UserManager<IdentityUser> _userManager;
+    private readonly SignInManager<IdentityUser> _signInManager;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly MobileEmployeeTokenService _tokens;
     private readonly GeoLocationService _geo;
@@ -24,6 +35,7 @@ public sealed class MobileEmployeeController : ControllerBase
 
     public MobileEmployeeController(
         UserManager<IdentityUser> userManager,
+        SignInManager<IdentityUser> signInManager,
         IDbContextFactory<AppDbContext> dbFactory,
         MobileEmployeeTokenService tokens,
         GeoLocationService geo,
@@ -31,6 +43,7 @@ public sealed class MobileEmployeeController : ControllerBase
         ILogger<MobileEmployeeController> logger)
     {
         _userManager = userManager;
+        _signInManager = signInManager;
         _dbFactory = dbFactory;
         _tokens = tokens;
         _geo = geo;
@@ -42,30 +55,62 @@ public sealed class MobileEmployeeController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> Login([FromBody] MobileLoginRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.EmployeeId) || string.IsNullOrWhiteSpace(request.Password) ||
+        // SSOT: Use Email/Password pattern similar to web application.
+        var emailIdentifier = !string.IsNullOrWhiteSpace(request.Email) ? request.Email : request.EmployeeId;
+
+        if (string.IsNullOrWhiteSpace(emailIdentifier) ||
+            string.IsNullOrWhiteSpace(request.Password) ||
             string.IsNullOrWhiteSpace(request.DeviceId))
-            return BadRequest(new { success = false, message = "Employee ID, password and device ID are required." });
-
-        if (!int.TryParse(request.EmployeeId.Trim(), out var employeeId) || employeeId <= 0)
-            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid employee ID or password." });
-
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var employee = await db.Employees.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.EmployeeID == employeeId && !x.IsDeleted);
-
-        if (employee == null || string.IsNullOrWhiteSpace(employee.AspNetUserId))
-            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid employee ID or password." });
-
-        var user = await _userManager.FindByIdAsync(employee.AspNetUserId);
-        if (user == null || !await _userManager.IsInRoleAsync(user, "Employee") ||
-            await _userManager.IsInRoleAsync(user, "Admin") || await _userManager.IsInRoleAsync(user, "SuperAdmin") ||
-            !await _userManager.CheckPasswordAsync(user, request.Password))
         {
-            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid employee ID or password." });
+            return BadRequest(new { success = false, message = "Email, password and device ID are required." });
         }
 
+        // 1. Find Identity User: Try Email first, then UserName (SSOT handles both)
+        var user = await _userManager.FindByEmailAsync(emailIdentifier.Trim())
+                   ?? await _userManager.FindByNameAsync(emailIdentifier.Trim());
+
+        if (user == null)
+            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid email or password." });
+
+        // 2. Verify confirmation if required by SSOT policy
+        if (!await _userManager.IsEmailConfirmedAsync(user) && _userManager.Options.SignIn.RequireConfirmedEmail)
+        {
+            return Unauthorized(new { success = false, code = "EMAIL_NOT_CONFIRMED", message = "Please confirm your email address before signing in." });
+        }
+
+        // 3. Check Password using SignInManager to ensure consistency with Web App (lockout, etc.)
+        var passwordResult = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: false);
+
+        if (!passwordResult.Succeeded)
+        {
+            if (passwordResult.IsLockedOut)
+                return Unauthorized(new { success = false, code = "LOCKED", message = "This account is temporarily locked. Please try again later." });
+
+            if (passwordResult.IsNotAllowed)
+                return Unauthorized(new { success = false, code = "NOT_ALLOWED", message = "This account is currently not allowed to sign in." });
+
+            return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid email or password." });
+        }
+
+        // 4. Find the linked Employee record in SSOT Payroll database
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var employee = await db.Employees.AsNoTracking()
+            .FirstOrDefaultAsync(x => (x.AspNetUserId == user.Id || x.Email == user.Email || x.Email == emailIdentifier.Trim()) && !x.IsDeleted);
+
+        if (employee == null)
+            return Unauthorized(new { success = false, code = "NOT_LINKED", message = "Identity account verified, but no active payroll link found." });
+
+        // Check for roles
+        var roles = await _userManager.GetRolesAsync(user);
+        var primaryRole = roles.FirstOrDefault() ?? "Employee";
+
+        var suppliedDeviceId = request.DeviceId.Trim();
+        var mobileDeviceId = NormalizeMobileDeviceId(suppliedDeviceId);
+
         var existing = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == user.Id);
-        var sameDevice = existing != null && string.Equals(existing.DeviceId, request.DeviceId.Trim(), StringComparison.Ordinal);
+        var sameDevice = existing != null &&
+            (string.Equals(existing.DeviceId, mobileDeviceId, StringComparison.Ordinal) ||
+             string.Equals(existing.DeviceId, suppliedDeviceId, StringComparison.Ordinal));
 
         if (existing != null && !sameDevice && !request.ForceReplace)
         {
@@ -78,8 +123,24 @@ public sealed class MobileEmployeeController : ControllerBase
             });
         }
 
+        if (existing != null && sameDevice &&
+            !string.Equals(existing.DeviceId, mobileDeviceId, StringComparison.Ordinal))
+        {
+            // Migrate a legacy mobile lock to the explicit mobile namespace.
+            existing.DeviceId = mobileDeviceId;
+            existing.LastSeenAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
         if (existing != null && !sameDevice)
         {
+            // Replacing a mobile device is an explicit force logout of the
+            // previous device. End every active GPS session before releasing
+            // the old device lock so no live session survives replacement.
+            var endedCount = await _geo.EndAllGpsSessionsAsync(
+                employee.EmployeeID,
+                "FORCE_LOGGED_OUT");
+
             var stampResult = await _userManager.UpdateSecurityStampAsync(user);
             if (!stampResult.Succeeded)
                 return StatusCode(500, new { success = false, message = "Unable to replace the existing employee session." });
@@ -87,6 +148,11 @@ public sealed class MobileEmployeeController : ControllerBase
             db.EmployeeDeviceLocks.Remove(existing);
             await db.SaveChangesAsync();
             existing = null;
+
+            _logger.LogInformation(
+                "Mobile employee session replaced. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=FORCE_LOGGED_OUT",
+                employee.EmployeeID,
+                endedCount);
         }
 
         if (existing == null)
@@ -95,7 +161,7 @@ public sealed class MobileEmployeeController : ControllerBase
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
-                DeviceId = request.DeviceId.Trim(),
+                DeviceId = mobileDeviceId,
                 CreatedAtUtc = DateTime.UtcNow,
                 LastSeenAtUtc = DateTime.UtcNow
             });
@@ -107,7 +173,7 @@ public sealed class MobileEmployeeController : ControllerBase
             await db.SaveChangesAsync();
         }
 
-        var token = _tokens.Create(user.Id, employee.EmployeeID, request.DeviceId.Trim());
+        var token = _tokens.Create(user.Id, employee.EmployeeID, mobileDeviceId);
 
         return Ok(new MobileLoginResponse
         {
@@ -116,6 +182,8 @@ public sealed class MobileEmployeeController : ControllerBase
             EmployeeId = employee.EmployeeID,
             Name = employee.Name,
             Email = employee.Email ?? user.Email ?? string.Empty,
+            Role = primaryRole,
+            Message = "Login successful",
             MonthlySalary = employee.MonthlySalary,
             PaidLeaveBalance = employee.PaidLeaveBalance,
             SickLeaveBalance = employee.SickLeaveBalance
@@ -153,19 +221,17 @@ public sealed class MobileEmployeeController : ControllerBase
 
         var employeeId = GetEmployeeId();
 
-        // GPS session lifecycle must end before the device lock is released.
-        // Otherwise a stale mobile GPS session can remain visible as live in
-        // admin location screens after the employee has logged out.
-        var activeGpsSession =
-            await _geo.GetActiveGpsSessionAsync(employeeId);
+        // Logout is authoritative: end every active GPS session before the
+        // device lock is released. This also cleans up legacy duplicate
+        // sessions without changing the database design.
+        var endedCount = await _geo.EndAllGpsSessionsAsync(
+            employeeId,
+            "MANUAL_LOGOUT");
 
-        if (activeGpsSession != null)
-        {
-            await _geo.EndGpsSessionAsync(
-                employeeId,
-                activeGpsSession.SessionId,
-                "LOGGED_OUT");
-        }
+        _logger.LogInformation(
+            "Mobile employee logout completed. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=MANUAL_LOGOUT",
+            employeeId,
+            endedCount);
 
         await using var db = await _dbFactory.CreateDbContextAsync();
         var lockRecord = await db.EmployeeDeviceLocks.FirstOrDefaultAsync(x => x.UserId == userId);
@@ -519,7 +585,8 @@ public sealed class MobileEmployeeController : ControllerBase
 
     public sealed class MobileLoginRequest
     {
-        public string EmployeeId { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string EmployeeId { get; set; } = string.Empty; // Added back for transition compatibility
         public string Password { get; set; } = string.Empty;
         public string DeviceId { get; set; } = string.Empty;
         public bool ForceReplace { get; set; }
@@ -529,9 +596,11 @@ public sealed class MobileEmployeeController : ControllerBase
     {
         public bool Success { get; set; }
         public string? Token { get; set; }
+        public string? Message { get; set; }
         public int EmployeeId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
+        public string? Role { get; set; }
         public decimal MonthlySalary { get; set; }
         public decimal PaidLeaveBalance { get; set; }
         public decimal SickLeaveBalance { get; set; }
