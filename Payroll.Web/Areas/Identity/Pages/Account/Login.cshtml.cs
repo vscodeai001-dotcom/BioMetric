@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.Data;
 using System.Security.Claims;
 
@@ -615,42 +615,35 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
 
             try
             {
-                // Identity User.Id is a string and is NOT the payroll EmployeeID.
-                // Resolve the real employee key from the existing SSOT link before
-                // ending GPS sessions. This fixes force-login cleanup without any
-                // database/schema change.
-                await using var gpsDb = await _dbFactory.CreateDbContextAsync();
-                var employee = await gpsDb.Employees
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(x => x.AspNetUserId == user.Id && !x.IsDeleted);
+                var activeSession = await _geoLocationService
+                    .GetActiveGpsSessionAsync(
+                        int.Parse(user.Id));
 
-                if (employee != null)
+                if (activeSession != null && activeSession.SessionId != Guid.Empty)
                 {
-                    var endedCount = await _geoLocationService.EndAllGpsSessionsAsync(
-                        employee.EmployeeID,
+                    await _geoLocationService.EndGpsSessionAsync(
+                        activeSession.EmployeeId,
+                        activeSession.SessionId,
                         "FORCE_LOGGED_OUT");
 
+                    LiveLocationStore.Remove(
+                        activeSession.EmployeeId,
+                        activeSession.SessionId);
+
                     _logger.LogInformation(
-                        "GPS sessions ended for force logout. UserId={UserId}, EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}",
+                        "GPS session ended for force logout. UserId={UserId}, SessionId={SessionId}",
                         user.Id,
-                        employee.EmployeeID,
-                        endedCount);
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "No payroll employee link found while force-replacing session. UserId={UserId}",
-                        user.Id);
+                        activeSession.SessionId);
                 }
             }
             catch (Exception gpsEx)
             {
                 _logger.LogWarning(
                     gpsEx,
-                    "Failed to end GPS sessions during force logout. UserId={UserId}",
+                    "Failed to end GPS session during force logout. UserId={UserId}",
                     user.Id);
 
-                // GPS cleanup failure should not block session replacement.
+                // GPS cleanup failure should not block session replacement
             }
 
             var stampResult = await _userManager.UpdateSecurityStampAsync(user);

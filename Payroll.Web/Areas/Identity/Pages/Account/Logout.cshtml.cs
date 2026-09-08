@@ -170,17 +170,35 @@ namespace Payroll.Web.Areas.Identity.Pages.Account
                     return;
                 }
 
-                // Logout is authoritative: close every active GPS session
-                // under one employee-level lifecycle lock. This prevents a
-                // second active/legacy session from surviving the logout.
-                var endedCount = await _geoLocationService.EndAllGpsSessionsAsync(
-                    employee.EmployeeID,
-                    "MANUAL_LOGOUT");
+                // End every unfinished GPS session for this employee.
+                // Normally there is only one, but cleaning all active records
+                // makes logout authoritative even if legacy/race conditions
+                // left more than one session behind.
+                var activeSessionIds = await db.EmployeeGpsSessions
+                    .AsNoTracking()
+                    .Where(x =>
+                        x.EmployeeId == employee.EmployeeID &&
+                        x.EndedAtUtc == null)
+                    .Select(x => x.SessionId)
+                    .ToListAsync();
 
-                _logger.LogInformation(
-                    "GPS SESSION CLEANUP DURING MANUAL LOGOUT. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=MANUAL_LOGOUT",
-                    employee.EmployeeID,
-                    endedCount);
+                foreach (var activeSessionId in activeSessionIds)
+                {
+                    await _geoLocationService.EndGpsSessionAsync(
+                        employee.EmployeeID,
+                        activeSessionId,
+                        "LOGGED_OUT");
+
+                    LiveLocationStore.Remove(
+                        employee.EmployeeID,
+                        activeSessionId);
+
+                    _logger.LogInformation(
+                        "GPS SESSION ENDED DURING MANUAL LOGOUT. " +
+                        "EmployeeId={EmployeeId}, SessionId={SessionId}",
+                        employee.EmployeeID,
+                        activeSessionId);
+                }
             }
             catch (Exception ex)
             {
