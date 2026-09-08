@@ -2209,15 +2209,16 @@
                     .ToList();
 
                 // A GPS session is live only when it belongs to a current
-                // employee and that employee still owns the single active
-                // device lock. This eliminates orphaned sessions from old
-                // mobile installs and prevents counts such as 3 Live / 2.
+                // employee and the session itself is still active in the
+                // authoritative database. Device locks are intentionally NOT
+                // required here: web-browser employees have a valid GPS
+                // session even when their device-lock lifecycle is different
+                // from the mobile bearer lifecycle. Abandoned mobile sessions
+                // are closed by the dedicated mobile lease cleanup service.
                 var activeSessions = await (
                     from session in db.EmployeeGpsSessions.AsNoTracking()
                     join employee in db.Employees.AsNoTracking()
                         on session.EmployeeId equals employee.EmployeeID
-                    join deviceLock in db.EmployeeDeviceLocks.AsNoTracking()
-                        on employee.AspNetUserId equals deviceLock.UserId
                     where employeeIds.Contains(session.EmployeeId)
                           && !employee.IsDeleted
                           && !session.EndedAtUtc.HasValue
