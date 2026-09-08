@@ -55,35 +55,40 @@ public sealed class MobileEmployeeController : ControllerBase
             return BadRequest(new { success = false, message = "Email, password and device ID are required." });
         }
 
-        // 1. Find the Identity User (Primary source for credentials)
-        // Try finding by Email first, then by Username (they are often the same)
+        // 1. Find Identity User: Try Email first, then UserName (SSOT handles both)
         var user = await _userManager.FindByEmailAsync(emailIdentifier.Trim())
                    ?? await _userManager.FindByNameAsync(emailIdentifier.Trim());
 
         if (user == null)
             return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid email or password." });
 
-        // 2. Check Password using SignInManager to ensure consistency with Web App (lockout, etc.)
+        // 2. Verify confirmation if required by SSOT policy
+        if (!await _userManager.IsEmailConfirmedAsync(user) && _userManager.Options.SignIn.RequireConfirmedEmail)
+        {
+            return Unauthorized(new { success = false, code = "EMAIL_NOT_CONFIRMED", message = "Please confirm your email address before signing in." });
+        }
+
+        // 3. Check Password using SignInManager to ensure consistency with Web App (lockout, etc.)
         var passwordResult = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: false);
 
         if (!passwordResult.Succeeded)
         {
             if (passwordResult.IsLockedOut)
-                return Unauthorized(new { success = false, code = "LOCKED", message = "Account is locked." });
+                return Unauthorized(new { success = false, code = "LOCKED", message = "This account is temporarily locked. Please try again later." });
+
+            if (passwordResult.IsNotAllowed)
+                return Unauthorized(new { success = false, code = "NOT_ALLOWED", message = "This account is currently not allowed to sign in." });
 
             return Unauthorized(new { success = false, code = "INVALID_CREDENTIALS", message = "Invalid email or password." });
         }
 
-        // 3. Find the linked Employee record
+        // 4. Find the linked Employee record in SSOT Payroll database
         await using var db = await _dbFactory.CreateDbContextAsync();
         var employee = await db.Employees.AsNoTracking()
-            .FirstOrDefaultAsync(x => (x.AspNetUserId == user.Id || x.Email == emailIdentifier.Trim()) && !x.IsDeleted);
+            .FirstOrDefaultAsync(x => (x.AspNetUserId == user.Id || x.Email == user.Email || x.Email == emailIdentifier.Trim()) && !x.IsDeleted);
 
         if (employee == null)
-        {
-            // If the Identity user exists but no Employee record is linked yet
-            return Unauthorized(new { success = false, code = "NOT_LINKED", message = "User found but no linked Employee record exists in Payroll." });
-        }
+            return Unauthorized(new { success = false, code = "NOT_LINKED", message = "Identity account verified, but no active payroll link found." });
 
         // Check for roles
         var roles = await _userManager.GetRolesAsync(user);
