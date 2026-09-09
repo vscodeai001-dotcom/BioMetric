@@ -839,6 +839,18 @@ try
 
     await db.Database.MigrateAsync();
 
+    // Defensive schema repair for deployments where a feature-toggle migration
+    // was recorded in __EFMigrationsHistory but the physical column was later
+    // removed manually. This is idempotent and prevents settings pages from
+    // failing with PostgreSQL 42703 (undefined_column).
+    await db.Database.ExecuteSqlRawAsync(@"
+        ALTER TABLE public.feature_settings
+        ADD COLUMN IF NOT EXISTS enable_dual_attendance boolean NOT NULL DEFAULT false;
+
+        ALTER TABLE public.feature_settings
+        ADD COLUMN IF NOT EXISTS enable_automatic_geofence_punching boolean NOT NULL DEFAULT false;
+    ");
+
     await ValidateDatabaseSchemaAsync(
         db,
         app.Services

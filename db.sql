@@ -421,6 +421,8 @@ CREATE TABLE IF NOT EXISTS public.feature_settings
     enable_year_end_summary boolean NOT NULL DEFAULT true,
     enable_tax_declarations boolean NOT NULL DEFAULT false,
     enable_geo_fencing boolean NOT NULL DEFAULT false,
+    enable_dual_attendance boolean NOT NULL DEFAULT false,
+    enable_automatic_geofence_punching boolean NOT NULL DEFAULT false,
     enable_resignation_module boolean NOT NULL DEFAULT false,
     employee_can_view_resignation boolean NOT NULL DEFAULT true,
     employee_can_view_tax boolean NOT NULL DEFAULT true,
