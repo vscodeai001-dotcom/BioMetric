@@ -2741,6 +2741,34 @@ window.registerAdminLiveLocationRealtime = function (mapId) {
                                 state.journeyLabels[employeeId]
                                     .setLatLng(animatedPosition);
                             }
+
+                            // Smoother road route line connection
+                            if (state.roadRouteLines?.[employeeId]) {
+                                const current = state.roadRouteLines[employeeId].getLatLngs();
+                                if (current?.length >= 2) {
+                                    const dFirst = window.payrollHaversineMeters([current[0].lat, current[0].lng], animatedPosition);
+                                    const dLast = window.payrollHaversineMeters([current[current.length - 1].lat, current[current.length - 1].lng], animatedPosition);
+                                    if (dFirst < dLast) {
+                                        current[0] = animatedPosition;
+                                    } else {
+                                        current[current.length - 1] = animatedPosition;
+                                    }
+                                    state.roadRouteLines[employeeId].setLatLngs(current);
+                                }
+                            }
+                            if (state.roadRouteCasings?.[employeeId]) {
+                                const current = state.roadRouteCasings[employeeId].getLatLngs();
+                                if (current?.length >= 2) {
+                                    const dFirst = window.payrollHaversineMeters([current[0].lat, current[0].lng], animatedPosition);
+                                    const dLast = window.payrollHaversineMeters([current[current.length - 1].lat, current[current.length - 1].lng], animatedPosition);
+                                    if (dFirst < dLast) {
+                                        current[0] = animatedPosition;
+                                    } else {
+                                        current[current.length - 1] = animatedPosition;
+                                    }
+                                    state.roadRouteCasings[employeeId].setLatLngs(current);
+                                }
+                            }
                         }
                         catch { }
                     }
@@ -3306,6 +3334,18 @@ window.updateAdminLiveStaffMap =
                                 catch { }
                             }
                         );
+
+                        // Smooth camera focus if this employee is selected
+                        // Triggered on every SignalR fix (Blazor render)
+                        if (isSelected && !isPlaybackFullscreen) {
+                            const bounds = L.latLngBounds([office, position]);
+                            state.map.fitBounds(bounds, {
+                                padding: [80, 80],
+                                maxZoom: 17,
+                                animate: true,
+                                duration: 1.2
+                            });
+                        }
                     }
 
                     if (markerCreated) {

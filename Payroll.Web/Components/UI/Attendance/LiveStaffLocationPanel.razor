@@ -1959,8 +1959,12 @@
     body.dark .selected-close { background:rgba(255,255,255,.07); color:#a9b5c5; }
     body.dark .avatar-status-dot { border-color:#101826; }
 
+    body.dark .admin-live-map .leaflet-tile-pane {
+        filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(1.1) saturate(0.6) sepia(0.1) hue-rotate(200deg);
+    }
+
     body.dark .admin-live-map {
-        background: #212529;
+        background: #0b1425;
     }
 
     body.dark .map-empty-overlay {
