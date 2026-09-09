@@ -30,9 +30,16 @@
 
         <div class="d-flex align-items-center gap-2">
 
+            <div class="status-filters d-flex gap-1 me-3">
+                <button type="button" class="filter-chip @(statusFilter == "All" ? "active" : "")" @onclick='() => SetStatusFilter("All")'>All</button>
+                <button type="button" class="filter-chip live @(statusFilter == "Live" ? "active" : "")" @onclick='() => SetStatusFilter("Live")'>Live</button>
+                <button type="button" class="filter-chip stale @(statusFilter == "Stale" ? "active" : "")" @onclick='() => SetStatusFilter("Stale")'>Stale</button>
+                <button type="button" class="filter-chip offline @(statusFilter == "Offline" ? "active" : "")" @onclick='() => SetStatusFilter("Offline")'>Offline</button>
+            </div>
+
             <span class="live-count">
                 <span class="live-count-dot"></span>
-                @liveCount Live / @employees.Count
+                @GetFilteredDisplayCount()
             </span>
 
             <button type="button"
@@ -943,6 +950,17 @@
 
 
 <style>
+    .status-filters { background: rgba(0,0,0,.05); padding: 3px; border-radius: 12px; }
+    .filter-chip { border: 0; background: transparent; padding: 4px 10px; border-radius: 9px; font-size: .68rem; font-weight: 700; color: #64748b; transition: .15s; }
+    .filter-chip:hover { background: rgba(255,255,255,.5); }
+    .filter-chip.active { background: #fff; color: #1e293b; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+    .filter-chip.live.active { color: #16a34a; }
+    .filter-chip.stale.active { color: #d97706; }
+    .filter-chip.offline.active { color: #ef4444; }
+
+    body.dark .status-filters { background: rgba(255,255,255,.05); }
+    body.dark .filter-chip.active { background: #1e293b; color: #f8fafc; }
+
     .gps-session-summary {
         border-top: 1px solid #e9ecef;
         background: #fbfcfe
@@ -2398,6 +2416,18 @@
     private bool isRefreshing;
     private bool refreshQueued;
 
+    private string statusFilter = "All";
+
+    private void SetStatusFilter(string filter)
+    {
+        if (statusFilter != filter)
+        {
+            statusFilter = filter;
+            mapNeedsUpdate = true;
+            StateHasChanged();
+        }
+    }
+
     private bool mapNeedsUpdate;
 
     private int selectedEmployeeId;
@@ -2443,6 +2473,14 @@
         Math.Max(
             0,
             employees.Count - liveCount - staleCount);
+
+    private string GetFilteredDisplayCount()
+    {
+        if (statusFilter == "Live") return $"{liveCount} Live";
+        if (statusFilter == "Stale") return $"{staleCount} Stale";
+        if (statusFilter == "Offline") return $"{offlineCount} Offline";
+        return $"{liveCount} Live / {employees.Count}";
+    }
 
     private IReadOnlyList<EmployeeLocationHistory> PlaybackPoints =>
         selectedPlaybackSessionId.HasValue
@@ -3115,6 +3153,7 @@
                     Status = GetLocationStatus(x).ToString(),
                     SpeedMps = x.SpeedMps
                 })
+                .Where(x => statusFilter == "All" || x.Status == statusFilter)
                 .ToList();
 
             await JSRuntime.InvokeVoidAsync(
