@@ -9,7 +9,7 @@
 @inject LocationHistoryService LocationHistoryService
 @inject IDbContextFactory<AppDbContext> DbFactory
 
-<div class="live-staff-card card border-0 shadow-sm mb-4">
+<div class="live-staff-card card border-0 shadow-sm mb-4 @(workforceReplayActive ? "workforce-replay-active" : "")">
 
     <!-- ============================================================
          LIVE STAFF HEADER
@@ -78,6 +78,17 @@
                 <span><i class="legend-dot within"></i> Within range</span>
                 <span><i class="legend-dot outside"></i> Outside range</span>
             </div>
+
+            @if (workforceReplayActive)
+            {
+                <button type="button"
+                        class="workforce-replay-exit"
+                        @onclick="ExitWorkforceJourneyReplay"
+                        aria-label="Exit journey replay and return to live location view">
+                    <i class="bi bi-x-lg"></i>
+                    <span>Exit Replay</span>
+                </button>
+            }
 
         </div>
 
@@ -2133,6 +2144,160 @@
         }
     }
 
+
+    /* ============================================================
+       FULL-SCREEN WORKFORCE JOURNEY REPLAY
+       Keeps the existing live map and temporarily turns this
+       component into a focused replay surface.
+       ============================================================ */
+    .live-staff-card.workforce-replay-active {
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: 99999 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .live-staff-card.workforce-replay-active > .live-staff-header,
+    .live-staff-card.workforce-replay-active > .live-staff-footer,
+    .live-staff-card.workforce-replay-active > .geo-punch-audit-card,
+    .live-staff-card.workforce-replay-active > .geo-audit-modal-backdrop,
+    .live-staff-card.workforce-replay-active > .location-history-card {
+        display: none !important;
+    }
+
+    .live-staff-card.workforce-replay-active > .live-staff-body {
+        display: block !important;
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        background: #0b1220 !important;
+    }
+
+    .live-staff-card.workforce-replay-active .selected-live-card {
+        display: none !important;
+    }
+
+    .live-staff-card.workforce-replay-active .admin-map-wrapper {
+        position: absolute !important;
+        inset: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        background: #0b1220 !important;
+    }
+
+    .live-staff-card.workforce-replay-active .admin-live-map {
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 100% !important;
+        border-radius: 0 !important;
+    }
+
+    .live-staff-card.workforce-replay-active .map-live-legend {
+        left: 18px;
+        bottom: 18px;
+        z-index: 7600;
+    }
+
+    .workforce-replay-exit {
+        position: absolute;
+        top: 18px;
+        right: 18px;
+        z-index: 7800;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 40px;
+        padding: 8px 13px;
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 11px;
+        background: rgba(15,23,42,.88);
+        color: #f8fafc;
+        font-size: .72rem;
+        font-weight: 800;
+        box-shadow: 0 10px 28px rgba(0,0,0,.28);
+        backdrop-filter: blur(12px);
+        cursor: pointer;
+    }
+
+    .workforce-replay-exit:hover {
+        background: rgba(30,41,59,.96);
+    }
+
+    .live-staff-card.workforce-replay-active .payroll-workforce-replay-panel {
+        left: 18px;
+        right: 18px;
+        bottom: 18px;
+        max-width: none;
+        padding: 14px 16px;
+        border-radius: 16px;
+        background: rgba(255,255,255,.95);
+        color: #172033;
+        border-color: rgba(15,23,42,.10);
+        box-shadow: 0 18px 48px rgba(15,23,42,.22);
+    }
+
+    .live-staff-card.workforce-replay-active .pwr-kicker,
+    .live-staff-card.workforce-replay-active .pwr-foot {
+        color: #64748b;
+    }
+
+    .live-staff-card.workforce-replay-active .pwr-head strong,
+    .live-staff-card.workforce-replay-active .pwr-summary b,
+    .live-staff-card.workforce-replay-active .pwr-foot strong {
+        color: #172033;
+    }
+
+    .live-staff-card.workforce-replay-active .pwr-summary span,
+    .live-staff-card.workforce-replay-active .pwr-filters button,
+    .live-staff-card.workforce-replay-active .pwr-controls button,
+    .live-staff-card.workforce-replay-active .pwr-controls select {
+        background: rgba(15,23,42,.035);
+        border-color: rgba(15,23,42,.10);
+        color: #172033;
+    }
+
+    .live-staff-card.workforce-replay-active .pwr-filters button.active,
+    .live-staff-card.workforce-replay-active .pwr-controls button:first-child {
+        color: #fff;
+    }
+
+    body.dark .live-staff-card.workforce-replay-active .payroll-workforce-replay-panel {
+        background: rgba(10,18,29,.94);
+        color: #edf5ff;
+        border-color: rgba(140,164,189,.20);
+        box-shadow: 0 18px 48px rgba(0,0,0,.38);
+    }
+
+    body.dark .live-staff-card.workforce-replay-active .pwr-kicker,
+    body.dark .live-staff-card.workforce-replay-active .pwr-foot {
+        color: #8ca4bd;
+    }
+
+    body.dark .live-staff-card.workforce-replay-active .pwr-head strong,
+    body.dark .live-staff-card.workforce-replay-active .pwr-summary b,
+    body.dark .live-staff-card.workforce-replay-active .pwr-foot strong {
+        color: #edf5ff;
+    }
+
+    body.dark .live-staff-card.workforce-replay-active .pwr-summary span,
+    body.dark .live-staff-card.workforce-replay-active .pwr-filters button,
+    body.dark .live-staff-card.workforce-replay-active .pwr-controls button,
+    body.dark .live-staff-card.workforce-replay-active .pwr-controls select {
+        background: rgba(255,255,255,.045);
+        border-color: rgba(140,164,189,.22);
+        color: #edf5ff;
+    }
+
+    body.dark .live-staff-card.workforce-replay-active .workforce-replay-exit {
+        background: rgba(10,18,29,.90);
+        color: #edf5ff;
+        border-color: rgba(255,255,255,.16);
+    }
 </style>
 
 
@@ -3051,6 +3216,14 @@
         var value = sessionId.ToString("N");
         return value.Length <= 8 ? value : value[..8];
     }
+
+    private async Task ExitWorkforceJourneyReplay()
+    {
+        await StopPlayback();
+        workforceReplayActive = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
 
     private async Task PlayAllEmployeesJourney()
     {

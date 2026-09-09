@@ -4922,10 +4922,12 @@ window.startAdminWorkforceJourneyReplay = async function (mapId, tracks, dateTex
             currentStats: null,
             playButton: null,
             speedSelect: null,
-            filterButtons: []
+            filterButtons: [],
+            bodyOverflow: document.body.style.overflow
         };
         state.workforceReplay = replay;
         window.adminWorkforceJourneyReplay[mapId] = replay;
+        document.body.style.overflow = 'hidden';
         window.setAdminLiveLayersVisible(state, false);
 
         const office = state.officeMarker?.getLatLng?.();
@@ -5064,6 +5066,11 @@ window.startAdminWorkforceJourneyReplay = async function (mapId, tracks, dateTex
         });
 
         window.renderAdminWorkforceJourneyReplay(replay, true);
+        requestAnimationFrame(function () {
+            try { state.map.invalidateSize({ animate: false }); } catch { }
+            setTimeout(function () { try { state.map.invalidateSize({ animate: false }); } catch { } }, 120);
+            setTimeout(function () { try { state.map.invalidateSize({ animate: false }); } catch { } }, 420);
+        });
     } catch (error) {
         console.error('Admin workforce journey replay error:', error);
     }
@@ -5227,8 +5234,14 @@ window.stopAdminWorkforceJourneyReplay = function (mapId) {
         if (replay.overlay?.parentNode) replay.overlay.parentNode.removeChild(replay.overlay);
     } catch { }
     delete window.adminWorkforceJourneyReplay[mapId];
+    if (replay?.bodyOverflow !== undefined) {
+        document.body.style.overflow = replay.bodyOverflow;
+    }
     if (state) {
         state.workforceReplay = null;
         window.setAdminLiveLayersVisible(state, true);
+        try {
+            requestAnimationFrame(function () { state.map?.invalidateSize?.({ animate: false }); });
+        } catch { }
     }
 };
