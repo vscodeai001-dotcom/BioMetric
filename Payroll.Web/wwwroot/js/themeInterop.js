@@ -2603,6 +2603,248 @@ window.ensureAdminLiveMapLayout = function (mapId) {
     }
 };
 
+
+// ============================================================
+// ADMIN LIVE LOCATION - DIRECT REALTIME GPS BRIDGE
+// ============================================================
+//
+// The AttendanceRefresh SignalR connection already receives
+// LocationChanged events. This bridge consumes the browser event
+// immediately so the existing Leaflet marker can move smoothly
+// without waiting for a Blazor render + database round-trip.
+//
+// It is presentation-only. Authoritative lifecycle/state remains
+// in LiveStaffLocationPanel and EmployeeGpsSessions.
+// ============================================================
+
+window.registerAdminLiveLocationRealtime = function (mapId) {
+    if (!mapId) return;
+
+    window.__adminLiveRealtime =
+        window.__adminLiveRealtime || {};
+
+    const existing =
+        window.__adminLiveRealtime[mapId];
+
+    if (existing) {
+        return;
+    }
+
+    const handler = function (event) {
+        try {
+            const data = event?.detail;
+            if (!data || typeof data !== 'object') {
+                return;
+            }
+
+            const employeeId =
+                Number(data.EmployeeId ?? data.employeeId);
+
+            const latitude =
+                Number(data.Latitude ?? data.latitude);
+
+            const longitude =
+                Number(data.Longitude ?? data.longitude);
+
+            if (
+                !Number.isFinite(employeeId) ||
+                employeeId <= 0 ||
+                !Number.isFinite(latitude) ||
+                !Number.isFinite(longitude)
+            ) {
+                return;
+            }
+
+            const state =
+                window.adminLiveMaps?.[mapId];
+
+            if (!state?.map || !state.markers?.[employeeId]) {
+                // The Blazor listener remains responsible for adding a new
+                // employee marker or recovering an initial map snapshot.
+                return;
+            }
+
+            const marker =
+                state.markers[employeeId];
+
+            const target = [
+                latitude,
+                longitude
+            ];
+
+            const displayItems =
+                typeof window.payrollBuildAdminMarkerDisplayPositions === 'function'
+                    ? window.payrollBuildAdminMarkerDisplayPositions(
+                        state.map,
+                        [{
+                            employeeId: employeeId,
+                            latitude: latitude,
+                            longitude: longitude
+                        }],
+                        state.lastSelectedId || 0)
+                    : {};
+
+            const displayItem =
+                displayItems[employeeId];
+
+            const displayTarget = displayItem
+                ? [
+                    latitude + Number(displayItem.offsetY || 0),
+                    longitude + Number(displayItem.offsetX || 0)
+                ]
+                : target;
+
+            const now = Date.now();
+            const previousAt =
+                Number(state.realtimeLastAt?.[employeeId]) || 0;
+
+            const elapsed =
+                previousAt > 0
+                    ? now - previousAt
+                    : 2500;
+
+            state.realtimeLastAt =
+                state.realtimeLastAt || {};
+
+            state.realtimeLastAt[employeeId] =
+                now;
+
+            // Match the real GPS cadence while preventing either a jump or
+            // an excessively slow animation when the browser/network pauses.
+            const duration =
+                Math.max(
+                    700,
+                    Math.min(
+                        9000,
+                        elapsed > 250
+                            ? elapsed * 0.86
+                            : 1800
+                    )
+                );
+
+            if (typeof window.payrollSmoothMoveMarker === 'function') {
+                window.payrollSmoothMoveMarker(
+                    marker,
+                    'admin-realtime:' + mapId + ':' + employeeId,
+                    displayTarget,
+                    duration,
+                    function (animatedPosition) {
+                        try {
+                            if (state.collisionConnectors?.[employeeId]) {
+                                state.collisionConnectors[employeeId].setLatLngs([
+                                    target,
+                                    animatedPosition
+                                ]);
+                            }
+
+                            if (state.journeyLabels?.[employeeId]) {
+                                state.journeyLabels[employeeId]
+                                    .setLatLng(animatedPosition);
+                            }
+                        }
+                        catch { }
+                    }
+                );
+            }
+            else {
+                marker.setLatLng(displayTarget);
+            }
+
+            // Keep the visual journey trail continuous between SignalR fixes.
+            if (!Array.isArray(state.trailPoints?.[employeeId])) {
+                state.trailPoints =
+                    state.trailPoints || {};
+                state.trailPoints[employeeId] = [];
+            }
+
+            const points =
+                state.trailPoints[employeeId];
+
+            const last =
+                points[points.length - 1];
+
+            if (
+                !last ||
+                last[0] !== target[0] ||
+                last[1] !== target[1]
+            ) {
+                points.push(target);
+
+                if (points.length > 120) {
+                    points.shift();
+                }
+            }
+
+            if (state.trails?.[employeeId]) {
+                state.trails[employeeId]
+                    .setLatLngs(points);
+            }
+
+            // Keep the existing live route endpoint synchronized with the
+            // actual GPS coordinate, without changing its routing logic.
+            if (state.roadRouteLines?.[employeeId]) {
+                const current =
+                    state.roadRouteLines[employeeId]
+                        .getLatLngs();
+
+                if (current?.length >= 2) {
+                    current[current.length - 1] =
+                        target;
+                    state.roadRouteLines[employeeId]
+                        .setLatLngs(current);
+                }
+            }
+
+            if (state.roadRouteCasings?.[employeeId]) {
+                const current =
+                    state.roadRouteCasings[employeeId]
+                        .getLatLngs();
+
+                if (current?.length >= 2) {
+                    current[current.length - 1] =
+                        target;
+                    state.roadRouteCasings[employeeId]
+                        .setLatLngs(current);
+                }
+            }
+        }
+        catch (error) {
+            console.warn(
+                'Admin live realtime marker update failed:',
+                error
+            );
+        }
+    };
+
+    window.__adminLiveRealtime[mapId] = {
+        handler: handler
+    };
+
+    window.addEventListener(
+        'location-data-changed',
+        handler
+    );
+};
+
+window.unregisterAdminLiveLocationRealtime = function (mapId) {
+    const registry =
+        window.__adminLiveRealtime;
+
+    if (!registry || !registry[mapId]) {
+        return;
+    }
+
+    try {
+        window.removeEventListener(
+            'location-data-changed',
+            registry[mapId].handler
+        );
+    }
+    catch { }
+
+    delete registry[mapId];
+};
+
 window.updateAdminLiveStaffMap =
     async function (
         mapId,
@@ -2717,7 +2959,8 @@ window.updateAdminLiveStaffMap =
                     routeStates: {},
                     roadRouteLines: {},
                     roadRouteCasings: {},
-                    journeyStartedAt: {}
+                    journeyStartedAt: {},
+                     realtimeLastAt: {}
                 };
 
                 window.adminLiveMaps[mapId] =

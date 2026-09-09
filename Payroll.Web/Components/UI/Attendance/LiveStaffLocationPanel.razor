@@ -1058,6 +1058,71 @@
                 border-right: 0
             }
     }
+
+    /* ============================================================
+       GPS / HISTORY SURFACE THEME HARDENING
+       ============================================================ */
+    body.dark .location-history-card,
+    body.dark .location-history-card.card,
+    body.dark .location-history-card .card-body,
+    body.dark .location-history-card .table-responsive,
+    body.dark .gps-session-summary,
+    body.dark .gps-session-timeline,
+    body.dark .gps-session-table,
+    body.dark .location-history-table {
+        background-color: #161f2d !important;
+        color: #e7edf6 !important;
+        border-color: rgba(255,255,255,.09) !important;
+    }
+
+    body.dark .gps-session-table > :not(caption) > * > *,
+    body.dark .location-history-table > :not(caption) > * > * {
+        background-color: #161f2d !important;
+        color: #e7edf6 !important;
+        border-color: rgba(255,255,255,.09) !important;
+    }
+
+    body.dark .gps-session-table thead th,
+    body.dark .location-history-table thead th {
+        background-color: #1b2635 !important;
+        color: #aebbd0 !important;
+    }
+
+    body.dark .gps-session-table tbody tr:hover > *,
+    body.dark .location-history-table tbody tr:hover > * {
+        background-color: rgba(13,110,253,.10) !important;
+        color: #f4f8ff !important;
+    }
+
+    body.dark .history-playback-toolbar,
+    body.dark .history-playback-progress,
+    body.dark .history-playback-status,
+    body.dark .gps-session-title {
+        background-color: #1b2635 !important;
+        color: #e7edf6 !important;
+        border-color: rgba(255,255,255,.09) !important;
+    }
+
+    body.dark .history-playback-toolbar .form-control,
+    body.dark .history-playback-toolbar .form-select,
+    body.dark .history-playback-progress input,
+    body.dark .location-history-card input,
+    body.dark .location-history-card select {
+        background-color: #111a27 !important;
+        color: #e7edf6 !important;
+        border-color: rgba(255,255,255,.16) !important;
+    }
+
+    body.dark .history-playback-toolbar .form-control::placeholder,
+    body.dark .location-history-card input::placeholder {
+        color: #8492a6 !important;
+    }
+
+    body.dark .location-history-card .text-muted,
+    body.dark .gps-session-summary .text-muted {
+        color: #91a0b4 !important;
+    }
+
 </style>
 
 <style>
@@ -2392,27 +2457,242 @@
 
         try
         {
-            // Never trust the pushed location payload as an authoritative
-            // membership source. A delayed packet can belong to a session
-            // that has already logged out. Always rebuild the active list from
-            // EmployeeGpsSessions, which is the lifecycle source of truth.
-            await RefreshLocations();
-
-            // Refresh the selected employee's session records immediately so
-            // the timeline cannot retain a stale Active badge after logout.
-            if (selectedEmployeeId > 0)
+            /*
+             * Fast path:
+             * the browser-side SignalR listener updates the existing Leaflet
+             * marker immediately. Keep the Blazor state in sync without
+             * forcing a database round-trip for every GPS fix.
+             *
+             * If the payload is not a normal coordinate update, or it belongs
+             * to a new session/employee, fall back to the authoritative DB
+             * snapshot. This preserves the existing lifecycle safety rules.
+             */
+            if (!TryApplyLocationPayload(data, out var needsAuthoritativeRefresh))
             {
-                await LoadSelectedEmployeeHistory();
+                needsAuthoritativeRefresh = true;
             }
 
-            mapNeedsUpdate = true;
-            await InvokeAsync(StateHasChanged);
+            if (needsAuthoritativeRefresh)
+            {
+                await RefreshLocations();
+            }
+            else
+            {
+                mapNeedsUpdate = true;
+                await InvokeAsync(StateHasChanged);
+            }
+
+            // Refresh selected history only when the selected employee's
+            // current session actually changed. Normal GPS fixes do not need
+            // to reload the entire history table.
+            if (selectedEmployeeId > 0 &&
+                TryGetPayloadEmployeeId(data, out var changedEmployeeId) &&
+                changedEmployeeId == selectedEmployeeId)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine(
                 $"Admin SignalR location update failed: {ex}");
         }
+    }
+
+    [JSInvokable]
+    public async Task SessionStarted(object? data = null)
+    {
+        if (disposed)
+            return;
+
+        try
+        {
+            // A new employee can start tracking after this admin page has
+            // already rendered. Refresh the authoritative membership once.
+            await RefreshLocations();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Admin GPS session-start refresh failed: {ex}");
+        }
+    }
+
+    private static bool TryGetPayloadEmployeeId(
+        object? data,
+        out int employeeId)
+    {
+        employeeId = 0;
+
+        if (data is not JsonElement json ||
+            json.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (!json.TryGetProperty("EmployeeId", out var idProperty) &&
+            !json.TryGetProperty("employeeId", out idProperty))
+        {
+            return false;
+        }
+
+        return idProperty.TryGetInt32(out employeeId) && employeeId > 0;
+    }
+
+    private bool TryApplyLocationPayload(
+        object? data,
+        out bool needsAuthoritativeRefresh)
+    {
+        needsAuthoritativeRefresh = false;
+
+        if (data is not JsonElement json ||
+            json.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (!TryGetPayloadEmployeeId(data, out var employeeId))
+        {
+            return false;
+        }
+
+        if (!TryGetJsonDouble(json, "Latitude", out var latitude) ||
+            !TryGetJsonDouble(json, "Longitude", out var longitude) ||
+            !double.IsFinite(latitude) ||
+            !double.IsFinite(longitude))
+        {
+            return false;
+        }
+
+        var sessionId = Guid.Empty;
+
+        if (TryGetJsonString(json, "SessionId", out var sessionText))
+        {
+            Guid.TryParse(sessionText, out sessionId);
+        }
+
+        var existing = locations.FirstOrDefault(
+            x => x.EmployeeId == employeeId);
+
+        if (existing == null)
+        {
+            needsAuthoritativeRefresh = true;
+            return true;
+        }
+
+        // A delayed packet from an older GPS session must never overwrite
+        // the current session's coordinates.
+        if (sessionId != Guid.Empty &&
+            existing.SessionId != Guid.Empty &&
+            existing.SessionId != sessionId)
+        {
+            needsAuthoritativeRefresh = true;
+            return true;
+        }
+
+        existing.Latitude = latitude;
+        existing.Longitude = longitude;
+
+        if (TryGetJsonDouble(json, "AccuracyMeters", out var accuracy))
+            existing.AccuracyMeters = accuracy;
+
+        if (TryGetJsonDouble(json, "DistanceMeters", out var distance))
+            existing.DistanceMeters = distance;
+
+        if (TryGetJsonDouble(json, "AllowedRadiusMeters", out var radius))
+            existing.AllowedRadiusMeters = radius;
+
+        if (TryGetJsonBool(json, "IsWithinAllowedRadius", out var within))
+            existing.IsWithinAllowedRadius = within;
+
+        if (TryGetJsonDateTime(json, "LastUpdatedUtc", out var updated))
+            existing.LastUpdatedUtc = updated;
+        else
+            existing.LastUpdatedUtc = DateTime.UtcNow;
+
+        if (sessionId != Guid.Empty)
+            existing.SessionId = sessionId;
+
+        return true;
+    }
+
+    private static bool TryGetJsonDouble(
+        JsonElement json,
+        string name,
+        out double value)
+    {
+        value = 0;
+
+        if (!json.TryGetProperty(name, out var property) &&
+            !json.TryGetProperty(
+                char.ToLowerInvariant(name[0]) + name[1..],
+                out property))
+        {
+            return false;
+        }
+
+        return property.ValueKind == JsonValueKind.Number &&
+               property.TryGetDouble(out value);
+    }
+
+    private static bool TryGetJsonBool(
+        JsonElement json,
+        string name,
+        out bool value)
+    {
+        value = false;
+
+        if (!json.TryGetProperty(name, out var property) &&
+            !json.TryGetProperty(
+                char.ToLowerInvariant(name[0]) + name[1..],
+                out property))
+        {
+            return false;
+        }
+
+        return property.ValueKind == JsonValueKind.True ||
+               property.ValueKind == JsonValueKind.False
+            ? property.TryGetBoolean(out value)
+            : false;
+    }
+
+    private static bool TryGetJsonString(
+        JsonElement json,
+        string name,
+        out string value)
+    {
+        value = string.Empty;
+
+        if (!json.TryGetProperty(name, out var property) &&
+            !json.TryGetProperty(
+                char.ToLowerInvariant(name[0]) + name[1..],
+                out property))
+        {
+            return false;
+        }
+
+        if (property.ValueKind != JsonValueKind.String)
+            return false;
+
+        value = property.GetString() ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryGetJsonDateTime(
+        JsonElement json,
+        string name,
+        out DateTime value)
+    {
+        value = default;
+
+        if (!TryGetJsonString(json, name, out var text))
+            return false;
+
+        return DateTime.TryParse(
+            text,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind,
+            out value);
     }
 
     [JSInvokable]
@@ -2709,6 +2989,31 @@
                 await JSRuntime.InvokeVoidAsync(
                     "attendanceRefresh.registerLocationHealth",
                     liveLocationSignalRReference);
+            }
+            catch { }
+
+            // Register a browser-side fast path for GPS coordinates. This
+            // animates the existing Leaflet marker immediately when a
+            // LocationChanged SignalR event arrives, while Blazor continues
+            // to own authoritative state and lifecycle decisions.
+            try
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "registerAdminLiveLocationRealtime",
+                    mapId);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"Unable to register admin live location realtime bridge: {ex}");
+            }
+
+            // The first snapshot can race an employee login. One additional
+            // authoritative snapshot after the component is interactive makes
+            // initial markers appear without requiring the Refresh button.
+            try
+            {
+                await RefreshLocations();
             }
             catch { }
         }
@@ -3930,6 +4235,14 @@
                 await JSRuntime.InvokeVoidAsync(
                     "attendanceRefresh.unregisterLocationHealth",
                     liveLocationSignalRReference);
+            }
+            catch { }
+
+            try
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "unregisterAdminLiveLocationRealtime",
+                    mapId);
             }
             catch { }
 
