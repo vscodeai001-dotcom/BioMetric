@@ -1,0 +1,18 @@
+/* Theme-aware empty state. Keeps the existing layout while preventing Bootstrap's
+   alert-light white surface from leaking into the application's dark theme. */
+.manual-punch-empty-state {
+    background-color: #ffffff;
+    color: #6c757d;
+    border-color: #dee2e6 !important;
+    border-radius: 0.25rem;
+}
+
+:global(body.dark) .manual-punch-empty-state {
+    background-color: #1b222c !important;
+    color: #b4bfcc !important;
+    border-color: #3a4654 !important;
+}
+
+:global(body.dark) .manual-punch-empty-state em {
+    color: #b4bfcc !important;
+}

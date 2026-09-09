@@ -1,4 +1,4 @@
-﻿@using global::Payroll.Shared
+@using global::Payroll.Shared
 @using global::Payroll.Shared.Data
 @using Microsoft.EntityFrameworkCore
 @using System.Globalization
@@ -94,9 +94,16 @@
                 Console.Error.WriteLine($"Failed to broadcast advance creation: {ex.Message}");
             }
             
-            // Reset form
-            NewAdvance = new SalaryAdvance() { AdvanceDate = DateTime.Now.Date, AdvanceType = "General" };
-            
+            // Reset the existing parameter instance in place.
+            // The parent owns this object, so replacing the reference here would
+            // leave the parent holding the already-saved entity/primary key.
+            NewAdvance.AdvanceID = 0;
+            NewAdvance.EmployeeID = 0;
+            NewAdvance.AdvanceDate = DateTime.Now.Date;
+            NewAdvance.AdvanceType = "General";
+            NewAdvance.Amount = 0m;
+            NewAdvance.PayrollID_Paid = null;
+
             await OnSaved.InvokeAsync();
         }
         catch (Exception ex)

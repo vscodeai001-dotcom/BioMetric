@@ -1,4 +1,4 @@
-﻿@using global::Payroll.Shared
+@using global::Payroll.Shared
 @using global::Payroll.Shared.Data
 @using Microsoft.EntityFrameworkCore
 @inject IToastService toastService
@@ -71,7 +71,17 @@
             await dbContext.SaveChangesAsync();
 
             toastService.ShowSuccess("Bonus issued successfully.");
-            NewBonus = new BonusRecord { BonusDate = DateTime.Now, Description = "Performance Bonus" };
+
+            // Reset the existing parameter instance in place. The parent owns this
+            // object; replacing the reference here can make the next save reuse
+            // the already-generated BonusID.
+            NewBonus.BonusID = 0;
+            NewBonus.EmployeeID = 0;
+            NewBonus.BonusDate = DateTime.Now;
+            NewBonus.Amount = 0m;
+            NewBonus.Description = "Performance Bonus";
+            NewBonus.PayrollID_Paid = null;
+
             await OnSaved.InvokeAsync();
         }
         catch (Exception ex)
