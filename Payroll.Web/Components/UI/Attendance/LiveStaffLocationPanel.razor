@@ -115,7 +115,11 @@
                             </div>
                             <div class="selected-identity-text">
                                 <strong>@selectedEmployee.Name</strong>
-                                <span>📍 Destination • To Office</span>
+                                <div class="mt-1">
+                                    <span class="staff-range-pill @(selectedLocation.IsWithinAllowedRadius ? "within" : "outside")">
+                                        @(selectedLocation.IsWithinAllowedRadius ? "Within range" : "Outside range")
+                                    </span>
+                                </div>
                             </div>
                         </div>
                         <button type="button" class="selected-close" @onclick="() => SelectEmployee(selectedEmployeeId)" aria-label="Close employee details">
@@ -135,41 +139,28 @@
                             </span>
                         </div>
 
-                        <div class="selected-metrics">
-                            <div class="selected-metric primary">
-                                <span><i class="bi bi-geo-fill"></i> Air Distance</span>
+                        <div class="selected-metrics-grid">
+                            <div class="metric-item">
+                                <small>DISTANCE</small>
                                 <strong>@FormatDistance(selectedLocation.DistanceMeters)</strong>
                             </div>
-                            <div class="selected-metric">
-                                <span><i class="bi bi-signpost-2-fill"></i> Road distance</span>
-                                <strong data-selected-route-distance="@selectedEmployee.EmployeeID">Calculating…</strong>
+                            <div class="metric-item">
+                                <small>ETA</small>
+                                <strong data-selected-eta="@selectedEmployee.EmployeeID">Calculating…</strong>
                             </div>
-                            <div class="selected-metric">
-                                <span><i class="bi bi-bullseye"></i> Geofence</span>
-                                <strong class="@(selectedLocation.IsWithinAllowedRadius ? "text-success" : "text-danger")">
-                                    @(selectedLocation.IsWithinAllowedRadius ? "Within range" : "Outside range")
-                                </strong>
-                            </div>
-                            <div class="selected-metric">
-                                <span><i class="bi bi-crosshair"></i> GPS accuracy</span>
-                                <strong>@FormatAccuracy(selectedLocation.AccuracyMeters)</strong>
-                            </div>
-                            <div class="selected-metric">
-                                <span><i class="bi bi-hourglass-split"></i> Tracking</span>
-                                <strong>@FormatDuration(GetSessionDuration(selectedLocation))</strong>
-                            </div>
-                            <div class="selected-metric">
-                                <span><i class="bi bi-speedometer2"></i> Speed</span>
+                            <div class="metric-item">
+                                <small>SPEED</small>
                                 <strong>@FormatSpeed(selectedLocation.SpeedMps)</strong>
                             </div>
-                            <div class="selected-metric">
-                                <span><i class="bi bi-broadcast-pin"></i> Last update</span>
-                                <strong>@ToLocalTime(selectedLocation.LastUpdatedUtc).ToString("HH:mm:ss")</strong>
+                            <div class="metric-item">
+                                <small>ACCURACY</small>
+                                <strong>@FormatAccuracy(selectedLocation.AccuracyMeters)</strong>
                             </div>
-                            <div class="selected-metric">
-                                <span><i class="bi bi-rulers"></i> Allowed radius</span>
-                                <strong>@selectedLocation.AllowedRadiusMeters m</strong>
-                            </div>
+                        </div>
+
+                        <div class="metric-item-full mt-2">
+                            <small>ROAD DISTANCE</small>
+                            <strong data-selected-route-distance="@selectedEmployee.EmployeeID">Calculating…</strong>
                         </div>
 
                         <div class="selected-coordinates">
@@ -1176,30 +1167,40 @@
 
     .selected-live-card {
         position: absolute; top: 16px; right: 16px; z-index: 1000;
-        width: 330px; padding: 18px;
-        background: rgba(255,255,255,.94);
-        backdrop-filter: blur(16px);
-        box-shadow: 0 12px 40px rgba(0,0,0,0.18);
-        border-radius: 20px;
-        border: 1px solid rgba(13,110,253,0.15);
-        animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        width: 340px; padding: 20px;
+        background: rgba(255,255,255,0.92);
+        backdrop-filter: blur(20px) saturate(160%);
+        box-shadow: 0 15px 45px rgba(0,0,0,0.15);
+        border-radius: 24px;
+        border: 1px solid rgba(255,255,255,0.5);
+        animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    @@keyframes slideInRight {
-        from { transform: translateX(30px); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-    }
+    .selected-identity { gap: 14px; min-width: 0; flex: 1; }
+    .selected-identity-text strong { font-size: 1.1rem; color: #1e293b; letter-spacing: -0.2px; }
 
-    .selected-live-card-header, .selected-identity, .selected-status-row {
-        display: flex;
-        align-items: center;
+    .staff-range-pill {
+        padding: 4px 10px; border-radius: 999px; font-size: 9px; font-weight: 850;
+        text-transform: uppercase; letter-spacing: 0.4px;
     }
+    .staff-range-pill.within { background: rgba(34,197,94,0.1); color: #16a34a; }
+    .staff-range-pill.outside { background: rgba(239,68,68,0.1); color: #ef4444; }
 
-    .selected-live-card-header { justify-content: space-between; gap: 12px; }
-    .selected-identity { gap: 11px; min-width: 0; }
-    .selected-identity-text { min-width: 0; display:flex; flex-direction:column; gap:2px; }
-    .selected-identity-text strong { font-size: .98rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .selected-identity-text span, .selected-updated { font-size:.68rem; color:#7c899b; }
+    .selected-metrics-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;
+    }
+    .metric-item, .metric-item-full {
+        background: rgba(15,23,42,0.04); padding: 12px; border-radius: 14px;
+        border: 1px solid rgba(0,0,0,0.03);
+    }
+    .metric-item small, .metric-item-full small {
+        display: block; font-size: 8px; font-weight: 800; color: #64748b; margin-bottom: 4px; letter-spacing: 0.5px;
+    }
+    .metric-item strong, .metric-item-full strong {
+        display: block; font-size: 13px; color: #1e293b; font-weight: 800;
+    }
+    .metric-item-full { grid-column: 1/-1; background: rgba(59,130,246,0.06); border-color: rgba(59,130,246,0.1); }
+    .metric-item-full strong { color: #2563eb; }
 
     .premium-avatar {
         position:relative; width:46px; height:46px; flex:0 0 46px; border-radius:15px;
@@ -1263,30 +1264,34 @@
     .payroll-map-user {
         position: relative; width: 44px; height: 52px;
         display:flex; align-items:center; justify-content:center;
-        color:#fff; font-size:11px; font-weight:850; letter-spacing:.5px;
+        color:#fff; font-size:12px; font-weight:850; letter-spacing:.5px;
         filter: drop-shadow(0 4px 8px rgba(15,23,42,0.35));
         transition: transform 0.2s ease;
     }
     .payroll-map-user::before {
         content: ""; position: absolute; inset: 0;
         background: currentColor;
-        clip-path: polygon(50% 100%, 0% 40%, 0% 20%, 10% 5%, 30% 0%, 70% 0%, 90% 5%, 100% 20%, 100% 40%);
-        border-radius: 22px 22px 4px 4px;
+        clip-path: polygon(50% 100%, 0% 35%, 0% 15%, 10% 4%, 30% 0%, 70% 0%, 90% 4%, 100% 15%, 100% 35%);
+        border-radius: 22px 22px 5px 5px;
         z-index: -1;
     }
     .payroll-map-user:hover { transform:translateY(-2px) scale(1.05); }
-    .payroll-map-user-within { color: #3b82f6; } /* Premium Blue */
-    .payroll-map-user-outside { color: #ef4444; } /* Premium Red */
+    .payroll-map-user-within { color: #3b82f6; } /* Enterprise Blue */
+    .payroll-map-user-outside { color: #ef4444; } /* Enterprise Red */
+    .payroll-map-user-stale { color: #f59e0b; } /* Enterprise Amber */
 
     .payroll-map-user-status {
-        position:absolute; right:2px; top:2px; width:12px; height:12px; border-radius:50%;
+        position:absolute; right:3px; top:3px; width:11px; height:11px; border-radius:50%;
         background:#22c55e; border:2px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.2);
+        z-index: 2;
     }
-    .payroll-map-user-outside .payroll-map-user-status { background:#ef4444; }
+    .payroll-map-user-status.stale { background:#f59e0b; }
+    .payroll-map-user-status.offline { background:#94a3b8; }
+
     .payroll-map-user-initials {
         line-height: 1; user-select: none; z-index: 1;
-        margin-top: -14px; /* Centered in the top bulb of the pin */
-        font-size: 10px; text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        margin-top: -15px; /* Centered in the top bulb of the pin */
+        font-size: 11px; text-shadow: 0 1px 2px rgba(0,0,0,0.2);
     }
 
     .admin-office-tooltip, .admin-live-hover-tooltip {

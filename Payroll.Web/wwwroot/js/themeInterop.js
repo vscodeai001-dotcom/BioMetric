@@ -1659,9 +1659,9 @@ window.payrollFormatRouteDuration = function (seconds) {
 
 window.payrollFormatSpeed = function (metersPerSecond) {
     const speed = Number(metersPerSecond);
-    if (!Number.isFinite(speed) || speed <= 0.15) return 'Stationary';
+    if (!Number.isFinite(speed) || speed <= 0.15) return 'Stopped';
     const kmh = speed * 3.6;
-    if (kmh < 1) return 'Crawling';
+    if (kmh < 1) return 'Slow';
     return `${kmh.toFixed(1)} km/h`;
 };
 
@@ -1959,28 +1959,27 @@ window.updateGeoMap = async function (
                 });
 
             // ------------------------------------------------
-            // USER ICON
+            // USER ICON (IDENTITY BASED)
             // ------------------------------------------------
+
+            const rawName = String(employeeName || 'You').trim();
+            const nameParts = rawName.split(/\s+/).filter(Boolean);
+            const initials = nameParts.length === 1
+                ? nameParts[0].slice(0, 1)
+                : (nameParts[0][0] + nameParts[nameParts.length - 1][0]);
+
+            const avatarClass = isWithin ? 'within' : 'outside';
 
             const userIcon =
                 L.divIcon({
-                    className:
-                        "payroll-user-marker",
-
+                    className: "payroll-user-marker",
                     html:
-                        '<div class="payroll-map-user">' +
-                        '<i class="bi bi-geo-alt-fill"></i>' +
+                        '<div class="payroll-map-user payroll-map-user-' + avatarClass + '">' +
+                        '<span class="payroll-map-user-initials">' + window.escapeAdminHtml(initials.toUpperCase()) + '</span>' +
+                        '<span class="payroll-map-user-status"></span>' +
                         '</div>',
-
-                    iconSize: [
-                        40,
-                        40
-                    ],
-
-                    iconAnchor: [
-                        20,
-                        36
-                    ]
+                    iconSize: [46, 54],
+                    iconAnchor: [23, 54]
                 });
 
             // ------------------------------------------------
@@ -3215,13 +3214,15 @@ window.updateAdminLiveStaffMap =
                         ? nameParts[0].slice(0, 1)
                         : (nameParts[0][0] + nameParts[nameParts.length - 1][0]);
                     const avatarClass = withinRange ? 'within' : 'outside';
+                    const statusDotClass = status === 'stale' ? ' stale' : (status === 'offline' ? ' offline' : '');
+
                     const icon =
                         L.divIcon({
                             className: 'payroll-user-marker',
                             html:
                                 '<div class="payroll-map-user payroll-map-user-' + avatarClass + '">' +
                                 '<span class="payroll-map-user-initials">' + window.escapeAdminHtml(initials.toUpperCase()) + '</span>' +
-                                '<span class="payroll-map-user-status"></span>' +
+                                '<span class="payroll-map-user-status' + statusDotClass + '"></span>' +
                                 '</div>',
                             iconSize: [46, 54],
                             iconAnchor: [23, 54] // Exact bottom tip anchoring
@@ -3563,6 +3564,11 @@ window.updateAdminLiveStaffMap =
                         const distanceElement = document.querySelector(`[data-selected-route-distance="${employeeId}"]`);
                         if (distanceElement) {
                             distanceElement.innerText = routeDistance;
+                        }
+
+                        const etaElement = document.querySelector(`[data-selected-eta="${employeeId}"]`);
+                        if (etaElement) {
+                            etaElement.innerText = eta;
                         }
 
                         const name = window.payrollEscapeHtml(x.name || 'Employee');
