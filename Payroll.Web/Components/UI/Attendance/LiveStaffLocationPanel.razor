@@ -2571,14 +2571,16 @@
             Guid.TryParse(sessionText, out sessionId);
         }
 
-        var existing = locations.FirstOrDefault(
+        var existingIndex = locations.FindIndex(
             x => x.EmployeeId == employeeId);
 
-        if (existing == null)
+        if (existingIndex < 0)
         {
             needsAuthoritativeRefresh = true;
             return true;
         }
+
+        var existing = locations[existingIndex];
 
         // A delayed packet from an older GPS session must never overwrite
         // the current session's coordinates.
@@ -2590,29 +2592,35 @@
             return true;
         }
 
-        existing.Latitude = latitude;
-        existing.Longitude = longitude;
+        // LiveEmployeeLocation intentionally exposes init-only properties.
+        // Replace the immutable snapshot item instead of mutating it.
+        var updatedLocation = new LiveEmployeeLocation
+        {
+            EmployeeId = existing.EmployeeId,
+            Latitude = latitude,
+            Longitude = longitude,
+            AccuracyMeters = TryGetJsonDouble(json, "AccuracyMeters", out var accuracy)
+                ? accuracy
+                : existing.AccuracyMeters,
+            DistanceMeters = TryGetJsonDouble(json, "DistanceMeters", out var distance)
+                ? distance
+                : existing.DistanceMeters,
+            AllowedRadiusMeters = TryGetJsonInt(json, "AllowedRadiusMeters", out var radius)
+                ? radius
+                : existing.AllowedRadiusMeters,
+            IsWithinAllowedRadius = TryGetJsonBool(json, "IsWithinAllowedRadius", out var within)
+                ? within
+                : existing.IsWithinAllowedRadius,
+            LastUpdatedUtc = TryGetJsonDateTime(json, "LastUpdatedUtc", out var updated)
+                ? updated
+                : DateTime.UtcNow,
+            SessionStartedUtc = existing.SessionStartedUtc,
+            SessionId = sessionId != Guid.Empty
+                ? sessionId
+                : existing.SessionId
+        };
 
-        if (TryGetJsonDouble(json, "AccuracyMeters", out var accuracy))
-            existing.AccuracyMeters = accuracy;
-
-        if (TryGetJsonDouble(json, "DistanceMeters", out var distance))
-            existing.DistanceMeters = distance;
-
-        if (TryGetJsonDouble(json, "AllowedRadiusMeters", out var radius))
-            existing.AllowedRadiusMeters = radius;
-
-        if (TryGetJsonBool(json, "IsWithinAllowedRadius", out var within))
-            existing.IsWithinAllowedRadius = within;
-
-        if (TryGetJsonDateTime(json, "LastUpdatedUtc", out var updated))
-            existing.LastUpdatedUtc = updated;
-        else
-            existing.LastUpdatedUtc = DateTime.UtcNow;
-
-        if (sessionId != Guid.Empty)
-            existing.SessionId = sessionId;
-
+        locations[existingIndex] = updatedLocation;
         return true;
     }
 
@@ -2650,10 +2658,38 @@
             return false;
         }
 
-        return property.ValueKind == JsonValueKind.True ||
-               property.ValueKind == JsonValueKind.False
-            ? property.TryGetBoolean(out value)
-            : false;
+        if (property.ValueKind != JsonValueKind.True &&
+            property.ValueKind != JsonValueKind.False)
+        {
+            return false;
+        }
+
+        value = property.GetBoolean();
+        return true;
+    }
+
+    private static bool TryGetJsonInt(
+        JsonElement json,
+        string name,
+        out int value)
+    {
+        value = 0;
+
+        if (!json.TryGetProperty(name, out var property) &&
+            !json.TryGetProperty(
+                char.ToLowerInvariant(name[0]) + name[1..],
+                out property))
+        {
+            return false;
+        }
+
+        if (property.ValueKind != JsonValueKind.Number ||
+            !property.TryGetInt32(out value))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private static bool TryGetJsonString(
