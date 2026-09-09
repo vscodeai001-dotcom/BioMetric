@@ -2146,6 +2146,66 @@
 
 
     /* ============================================================
+       GPS POINTS - DARK MODE
+       ============================================================ */
+    body.dark .gps-points-collapse {
+        border-color: #344150 !important;
+        background: #151c25 !important;
+        color: #f3f6fa !important;
+    }
+
+    body.dark .gps-points-collapse > summary {
+        background: #1b222c !important;
+        color: #f3f6fa !important;
+        border-color: #344150 !important;
+    }
+
+    body.dark .gps-points-collapse > summary::after {
+        color: #b4bfcc !important;
+    }
+
+    body.dark .gps-points-summary-meta {
+        color: #9eacbb !important;
+    }
+
+    body.dark .gps-points-collapse[open] > .table-responsive {
+        border-top-color: #344150 !important;
+    }
+
+    body.dark .gps-points-collapse .location-history-table {
+        --bs-table-bg: #151c25 !important;
+        --bs-table-color: #edf5ff !important;
+        --bs-table-border-color: #344150 !important;
+        color: #edf5ff !important;
+        background: #151c25 !important;
+    }
+
+    body.dark .gps-points-collapse .location-history-table thead th {
+        background: #1b2632 !important;
+        color: #dce7f3 !important;
+        border-color: #344150 !important;
+    }
+
+    body.dark .gps-points-collapse .location-history-table tbody tr,
+    body.dark .gps-points-collapse .location-history-table tbody td {
+        background: #151c25 !important;
+        color: #edf5ff !important;
+        border-color: #344150 !important;
+    }
+
+    body.dark .gps-points-collapse .location-history-table tbody tr:hover > *,
+    body.dark .gps-points-collapse .location-history-table tbody tr.history-row-active > * {
+        background-color: rgba(103,164,255,.10) !important;
+        color: #ffffff !important;
+    }
+
+    body.dark .gps-points-collapse .history-point-number {
+        color: #dce7f3 !important;
+        background: #163d6d !important;
+        border-color: #2f67a5 !important;
+    }
+
+    /* ============================================================
        FULL-SCREEN WORKFORCE JOURNEY REPLAY
        Keeps the existing live map and temporarily turns this
        component into a focused replay surface.
@@ -2160,37 +2220,6 @@
         border-radius: 0 !important;
         overflow: hidden !important;
     }
-
-    /*
-       REPLAY ISOLATION
-       Keep the existing application DOM and layout intact, but visually
-       isolate the replay surface while it is active. A viewport overlay
-       sits behind the replay card, so dashboard cards outside this component
-       cannot remain visible during playback. Exiting replay removes the body
-       class and everything returns to the normal page immediately.
-    */
-    body.payroll-workforce-replay-mode::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        z-index: 99990;
-        background: #f4f7fb;
-        pointer-events: none;
-    }
-
-    body.dark.payroll-workforce-replay-mode::before {
-        background: #0b1220;
-    }
-
-    body.payroll-workforce-replay-mode {
-        overflow: hidden !important;
-    }
-
-    body.payroll-workforce-replay-mode .live-staff-card.workforce-replay-active {
-        visibility: visible !important;
-        pointer-events: auto !important;
-    }
-
 
     .live-staff-card.workforce-replay-active > .live-staff-header,
     .live-staff-card.workforce-replay-active > .live-staff-footer,
@@ -3250,6 +3279,7 @@
 
     private async Task ExitWorkforceJourneyReplay()
     {
+        try { await JSRuntime.InvokeVoidAsync("setAdminWorkforceReplayMode", false); } catch { }
         await StopPlayback();
         workforceReplayActive = false;
         await InvokeAsync(StateHasChanged);
