@@ -9,7 +9,7 @@
 @inject LocationHistoryService LocationHistoryService
 @inject IDbContextFactory<AppDbContext> DbFactory
 
-<div class="live-staff-card card border-0 shadow-sm mb-4">
+<div class="live-staff-card card border-0 shadow-sm mb-4 @(isPlaybackFullscreen ? "replay-fullscreen" : "")">
 
     <!-- ============================================================
          LIVE STAFF HEADER
@@ -64,6 +64,17 @@
             <div id="@mapId"
                  class="admin-live-map">
             </div>
+
+            @if (isPlaybackFullscreen)
+            {
+                <button type="button"
+                        class="replay-exit-button"
+                        @onclick="ExitPlayback"
+                        aria-label="Exit journey replay">
+                    <i class="bi bi-x-lg me-1"></i>
+                    Exit Replay
+                </button>
+            }
 
             @if (liveCount == 0)
             {
@@ -1922,6 +1933,230 @@
         background: rgba(13,110,253,.2);
     }
 
+    /* GPS/history cards follow the application theme in dark mode. */
+    body.dark .live-staff-card,
+    body.dark .location-history-card,
+    body.dark .gps-session-summary,
+    body.dark .gps-session-timeline,
+    body.dark .gps-session-table,
+    body.dark .location-history-table {
+        background: #161f2d;
+        color: #e7edf6;
+    }
+
+    body.dark .live-staff-header,
+    body.dark .location-history-header,
+    body.dark .history-playback-toolbar,
+    body.dark .history-playback-progress,
+    body.dark .history-playback-status,
+    body.dark .gps-session-title {
+        background: #1b2635;
+        color: #e7edf6;
+    }
+
+    body.dark .gps-quality-grid > div,
+    body.dark .location-history-summary > div {
+        background: #161f2d;
+        border-color: rgba(255,255,255,.09);
+    }
+
+    body.dark .gps-session-table,
+    body.dark .location-history-table {
+        --bs-table-bg: #161f2d;
+        --bs-table-color: #e7edf6;
+        --bs-table-border-color: rgba(255,255,255,.09);
+        --bs-table-hover-bg: rgba(13,110,253,.10);
+        --bs-table-hover-color: #f4f8ff;
+    }
+
+    body.dark .gps-session-table th,
+    body.dark .location-history-table th,
+    body.dark .gps-quality-grid small,
+    body.dark .location-history-summary small,
+    body.dark .playback-progress-top,
+    body.dark .playback-progress-bottom,
+    body.dark .history-playback-status {
+        color: #91a0b4;
+    }
+
+    body.dark .gps-session-table td,
+    body.dark .location-history-table td,
+    body.dark .gps-session-title,
+    body.dark .location-history-summary strong,
+    body.dark .gps-quality-grid strong {
+        color: #e7edf6;
+    }
+
+    body.dark .gps-session-table tbody tr:hover,
+    body.dark .location-history-table tbody tr:hover {
+        background: rgba(13,110,253,.10) !important;
+    }
+
+    body.dark .history-playback-progress {
+        background: #121b29;
+    }
+
+    body.dark .history-playback-status {
+        border-color: rgba(255,255,255,.09);
+    }
+
+    /* Office marker is deliberately visible in both map modes. */
+    .payroll-office-marker {
+        background: transparent !important;
+        border: 0 !important;
+    }
+
+    .payroll-map-office {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        background: linear-gradient(145deg,#0d6efd,#5b5fe8);
+        border: 2px solid rgba(255,255,255,.95);
+        box-shadow: 0 0 0 5px rgba(13,110,253,.14), 0 8px 22px rgba(13,110,253,.35);
+        font-size: 17px;
+    }
+
+    .payroll-map-office::after {
+        content: "";
+        position: absolute;
+        inset: -7px;
+        border-radius: 50%;
+        border: 1px solid rgba(13,110,253,.35);
+        pointer-events: none;
+    }
+
+    /* Replay presentation. The existing map becomes the only primary surface. */
+    .live-staff-card.replay-fullscreen {
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: 5000 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: none !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+        overflow: hidden !important;
+        display: block !important;
+    }
+
+    .replay-fullscreen .live-staff-header,
+    .replay-fullscreen .selected-live-card,
+    .replay-fullscreen .live-staff-list,
+    .replay-fullscreen .map-empty-overlay,
+    .replay-fullscreen .location-history-header,
+    .replay-fullscreen .location-history-summary,
+    .replay-fullscreen .gps-session-summary,
+    .replay-fullscreen .location-history-card > .table-responsive {
+        display: none !important;
+    }
+
+    .replay-fullscreen .live-staff-body {
+        display: block !important;
+        min-height: 100vh !important;
+        height: 100vh !important;
+        background: #0b1220 !important;
+    }
+
+    .replay-fullscreen .admin-map-wrapper {
+        position: absolute !important;
+        inset: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    .replay-fullscreen .admin-live-map {
+        position: absolute !important;
+        inset: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    .replay-fullscreen .map-live-legend {
+        bottom: 150px;
+    }
+
+    .replay-fullscreen .location-history-card {
+        position: absolute !important;
+        left: 16px !important;
+        right: 16px !important;
+        bottom: 14px !important;
+        z-index: 5100 !important;
+        margin: 0 !important;
+        overflow: visible !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        pointer-events: none;
+    }
+
+    .replay-fullscreen .history-playback-toolbar,
+    .replay-fullscreen .history-playback-progress,
+    .replay-fullscreen .history-playback-status {
+        pointer-events: auto;
+        backdrop-filter: blur(16px);
+        box-shadow: 0 10px 35px rgba(0,0,0,.28);
+    }
+
+    .replay-fullscreen .history-playback-toolbar {
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 14px 14px 0 0;
+    }
+
+    .replay-fullscreen .history-playback-progress {
+        border-left: 1px solid rgba(255,255,255,.14);
+        border-right: 1px solid rgba(255,255,255,.14);
+    }
+
+    .replay-fullscreen .history-playback-status {
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 0 0 14px 14px;
+    }
+
+    .replay-fullscreen .history-playback-toolbar,
+    .replay-fullscreen .history-playback-progress,
+    .replay-fullscreen .history-playback-status {
+        background: rgba(18,28,43,.92);
+        color: #e7edf6;
+    }
+
+    body:not(.dark) .replay-fullscreen .history-playback-toolbar,
+    body:not(.dark) .replay-fullscreen .history-playback-progress,
+    body:not(.dark) .replay-fullscreen .history-playback-status {
+        background: rgba(255,255,255,.94);
+        color: #1f2937;
+        border-color: rgba(15,23,42,.12);
+    }
+
+    .replay-exit-button {
+        position: absolute;
+        top: 18px;
+        left: 18px;
+        z-index: 5200;
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 11px;
+        padding: 9px 13px;
+        color: #fff;
+        background: rgba(15,23,42,.82);
+        backdrop-filter: blur(12px);
+        box-shadow: 0 8px 24px rgba(0,0,0,.24);
+        font-size: .75rem;
+        font-weight: 700;
+    }
+
+    .replay-exit-button:hover {
+        background: rgba(13,110,253,.92);
+        color: #fff;
+    }
+
+    body:not(.dark) .replay-exit-button {
+        color: #1f2937;
+        background: rgba(255,255,255,.94);
+        border-color: rgba(15,23,42,.12);
+    }
+
     @@media(max-width:991px) {
 
         .live-staff-body,
@@ -2090,6 +2325,11 @@
     private int playbackIndex;
 
     private CancellationTokenSource? playbackStateCts;
+
+    // Presentation-only state. It does not change GPS, attendance, session,
+    // database, or business logic. It temporarily presents the existing map
+    // as a focused journey-replay workspace.
+    private bool isPlaybackFullscreen;
 
 
     private int liveCount =>
@@ -3037,6 +3277,9 @@
             playbackIndex = 0;
 
         playbackStatus = "Playing";
+        isPlaybackFullscreen = true;
+
+        await InvokeAsync(StateHasChanged);
 
         await JSRuntime.InvokeVoidAsync(
             "startAdminHistoryPlayback",
@@ -3049,6 +3292,30 @@
         StartPlaybackPolling();
 
         await InvokeAsync(StateHasChanged);
+    }
+
+
+    private async Task ExitPlayback()
+    {
+        isPlaybackFullscreen = false;
+
+        await StopPlayback();
+
+        mapNeedsUpdate = true;
+
+        await InvokeAsync(StateHasChanged);
+
+        // Restore the normal map dimensions after the fullscreen presentation
+        // has been removed. The map data itself remains untouched.
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "restoreAdminHistoryPlaybackLayout",
+                mapId);
+        }
+        catch
+        {
+        }
     }
 
 
@@ -3302,6 +3569,7 @@
     private async Task StopPlayback()
     {
         StopPlaybackPolling();
+        isPlaybackFullscreen = false;
 
         try
         {
