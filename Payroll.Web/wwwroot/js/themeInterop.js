@@ -2603,6 +2603,31 @@ window.ensureAdminLiveMapLayout = function (mapId) {
     }
 };
 
+window.setAdminLiveLayersVisible = function (state, visible) {
+    if (!state || !state.map) return;
+    const opacity = visible ? null : 0;
+    const apply = function (layer, fallbackOpacity) {
+        if (!layer || !layer.setStyle) return;
+        try {
+            if (visible) {
+                layer.setStyle({ opacity: fallbackOpacity });
+            } else {
+                layer.setStyle({ opacity: 0 });
+            }
+        } catch { }
+    };
+    Object.keys(state.markers || {}).forEach(function (id) {
+        try { state.markers[id].setOpacity(visible ? 1 : 0); } catch { }
+    });
+    Object.keys(state.lines || {}).forEach(function (id) { apply(state.lines[id], .8); });
+    Object.keys(state.trails || {}).forEach(function (id) { apply(state.trails[id], .45); });
+    Object.keys(state.roadRouteLines || {}).forEach(function (id) { apply(state.roadRouteLines[id], .72); });
+    Object.keys(state.roadRouteCasings || {}).forEach(function (id) { apply(state.roadRouteCasings[id], .72); });
+    Object.keys(state.labels || {}).forEach(function (id) { try { visible ? state.map.addLayer(state.labels[id]) : state.map.removeLayer(state.labels[id]); } catch { } });
+    Object.keys(state.journeyLabels || {}).forEach(function (id) { try { visible ? state.map.addLayer(state.journeyLabels[id]) : state.map.removeLayer(state.journeyLabels[id]); } catch { } });
+    Object.keys(state.collisionConnectors || {}).forEach(function (id) { try { visible ? state.map.addLayer(state.collisionConnectors[id]) : state.map.removeLayer(state.collisionConnectors[id]); } catch { } });
+};
+
 window.updateAdminLiveStaffMap =
     async function (
         mapId,
@@ -3350,6 +3375,10 @@ window.updateAdminLiveStaffMap =
                 );
             }
 
+            if (state.workforceReplay?.active) {
+                window.setAdminLiveLayersVisible(state, false);
+            }
+
             if (
                 Number(selectedId) <= 0 &&
                 (!state.hasInitialFit || membershipChanged)
@@ -4026,57 +4055,1180 @@ window.destroyAdminLiveStaffMap =
 window.adminHistoryPlayback =
     window.adminHistoryPlayback || {};
 
-window.startAdminHistoryPlayback = function (mapId, history, employeeName, speed, startIndex) {
-    try {
-        const state = window.adminLiveMaps?.[mapId];
-        if (!state?.map || !Array.isArray(history) || history.length === 0) return;
-        window.stopAdminHistoryPlayback(mapId);
-        const points = history.map(x => ({
-            id: x.id ?? x.Id ?? null,
-            latitude: Number(x.latitude ?? x.Latitude), longitude: Number(x.longitude ?? x.Longitude),
-            distance: Number(x.distanceFromOfficeMeters ?? x.DistanceFromOfficeMeters) || 0,
-            allowed: Number(x.allowedRadiusMeters ?? x.AllowedRadiusMeters) || 0,
-            within: Boolean(x.isWithinAllowedRadius ?? x.IsWithinAllowedRadius),
-            accuracy: Number(x.accuracyMeters ?? x.AccuracyMeters) || 0,
-            recordedAt: x.recordedAtUtc ?? x.RecordedAtUtc
-        })).filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
-        if (!points.length) return;
-        const initial = Math.max(0, Math.min(points.length - 1, Number(startIndex) || 0));
-        const playback = { mapId, points, employeeName: employeeName || "Employee", speed: Math.max(.25, Number(speed) || 1), index: initial,
-            marker:null, startMarker:null, endMarker:null, stopMarkers:[], geofenceMarkers:[], travelledLine:null, remainingLine:null,
-            withinLines:[], outsideLines:[], timer:null, animationFrame:null, completed:initial >= points.length-1, manualView:false };
-        window.adminHistoryPlayback = window.adminHistoryPlayback || {};
-        window.adminHistoryPlayback[mapId] = playback;
-        const pin = (kind, label, color) => L.divIcon({ className:"admin-replay-marker", html:'<div class="admin-replay-pin" style="--pin-color:'+color+'"><span>'+label+'</span></div>', iconSize:[30,30], iconAnchor:[15,15] });
-        const eventTooltip = (title,p,code) => '<div class="admin-replay-tooltip-card"><strong>'+window.escapeAdminHtml(title)+'</strong><span>'+code+' · '+window.formatAdminHistoryTime(p.recordedAt)+'</span><span>'+Number(p.latitude).toFixed(6)+', '+Number(p.longitude).toFixed(6)+'</span><span>'+window.formatAdminDistance(p.distance)+' from office</span></div>';
-        playback.marker = L.marker([points[initial].latitude,points[initial].longitude], {icon:L.divIcon({className:"payroll-playback-marker",html:'<div class="admin-replay-avatar"><i class="bi bi-person-walking"></i><span></span></div>',iconSize:[46,46],iconAnchor:[23,23]}),zIndexOffset:6000}).addTo(state.map);
-        playback.marker.bindTooltip(window.buildAdminPlaybackTooltip(playback.employeeName,points[initial]), {direction:"top",offset:[0,-22],className:"admin-replay-tooltip"});
-        playback.startMarker = L.marker([points[0].latitude,points[0].longitude],{icon:pin("start","S","#16a34a"),zIndexOffset:4500}).addTo(state.map);
-        playback.startMarker.bindTooltip(eventTooltip("Journey start",points[0],"START"),{direction:"top",offset:[0,-10],className:"admin-replay-tooltip"});
-        if(points.length>1){const p=points[points.length-1]; playback.endMarker=L.marker([p.latitude,p.longitude],{icon:pin("end","E","#dc2626"),zIndexOffset:4500}).addTo(state.map); playback.endMarker.bindTooltip(eventTooltip("Journey end",p,"END"),{direction:"top",offset:[0,-10],className:"admin-replay-tooltip"});}
-        for(let i=1;i<points.length-1;i++){
-            const t1=new Date(points[i-1].recordedAt).getTime(),t2=new Date(points[i+1].recordedAt).getTime();
-            const gap=(Number.isFinite(t1)&&Number.isFinite(t2))?(t2-t1)/1000:0;
-            const d1=window.adminReplayDistanceMeters(points[i-1].latitude,points[i-1].longitude,points[i].latitude,points[i].longitude);
-            const d2=window.adminReplayDistanceMeters(points[i].latitude,points[i].longitude,points[i+1].latitude,points[i+1].longitude);
-            if(gap>=300&&d1<=120&&d2<=120){const m=L.marker([points[i].latitude,points[i].longitude],{icon:pin("stop","•","#f59e0b"),zIndexOffset:4700}).addTo(state.map);m.bindTooltip(eventTooltip("Detected stop",points[i],"STOP · "+Math.round(gap/60)+" min"),{direction:"top",offset:[0,-10],className:"admin-replay-tooltip"});playback.stopMarkers.push(m);}
+window.startAdminHistoryPlayback =
+    async function (
+        mapId,
+        history,
+        employeeName,
+        speed,
+        startIndex
+    ) {
+        try {
+            const state =
+                window.adminLiveMaps?.[mapId];
+
+            if (
+                !state ||
+                !state.map ||
+                !Array.isArray(history) ||
+                history.length === 0
+            ) {
+                return;
+            }
+
+            /*
+             * Stop any previous playback for this map.
+             * Do not remove the historical route itself.
+             */
+            window.pauseAdminHistoryPlayback(mapId);
+
+            const points =
+                history
+                    .map(function (x, index) {
+
+                        const latitude =
+                            Number(
+                                x.latitude ??
+                                x.Latitude
+                            );
+
+                        const longitude =
+                            Number(
+                                x.longitude ??
+                                x.Longitude
+                            );
+
+                        if (
+                            !Number.isFinite(latitude) ||
+                            !Number.isFinite(longitude)
+                        ) {
+                            return null;
+                        }
+
+                        return {
+                            index: index,
+
+                            latitude:
+                                latitude,
+
+                            longitude:
+                                longitude,
+
+                            distance:
+                                Number(
+                                    x.distanceFromOfficeMeters ??
+                                    x.DistanceFromOfficeMeters
+                                ) || 0,
+
+                            allowed:
+                                Number(
+                                    x.allowedRadiusMeters ??
+                                    x.AllowedRadiusMeters
+                                ) || 0,
+
+                            within:
+                                Boolean(
+                                    x.isWithinAllowedRadius ??
+                                    x.IsWithinAllowedRadius
+                                ),
+
+                            accuracy:
+                                Number(
+                                    x.accuracyMeters ??
+                                    x.AccuracyMeters
+                                ) || 0,
+
+                            recordedAt:
+                                x.recordedAtUtc ??
+                                x.RecordedAtUtc
+                        };
+                    })
+                    .filter(Boolean);
+
+            if (points.length === 0) {
+                return;
+            }
+
+            /*
+             * Preserve the currently selected index when possible.
+             */
+            const previous =
+                window.adminHistoryPlayback[mapId];
+
+            const requestedIndex =
+                Number.isFinite(
+                    Number(startIndex)
+                )
+                    ? Number(startIndex)
+                    : (
+                        previous?.index ?? 0
+                    );
+
+            const initialIndex =
+                Math.max(
+                    0,
+                    Math.min(
+                        points.length - 1,
+                        requestedIndex
+                    )
+                );
+
+            const playback = {
+
+                mapId:
+                    mapId,
+
+                points:
+                    points,
+
+                employeeName:
+                    employeeName ||
+                    "Employee",
+
+                speed:
+                    Math.max(
+                        0.25,
+                        Number(speed) || 1
+                    ),
+
+                index:
+                    initialIndex,
+
+                timer:
+                    null,
+
+                animationFrame:
+                    null,
+
+                marker:
+                    null,
+
+                routeLine:
+                    null,
+
+                completed:
+                    initialIndex >=
+                    points.length - 1,
+
+                lastTickTime:
+                    0
+            };
+
+            window.adminHistoryPlayback[mapId] =
+                playback;
+
+            /*
+             * Playback employee marker.
+             */
+            const icon =
+                L.divIcon({
+                    className:
+                        "payroll-playback-marker",
+
+                    html:
+                        '<div style="' +
+                        'width:42px;' +
+                        'height:42px;' +
+                        'border-radius:50%;' +
+                        'display:flex;' +
+                        'align-items:center;' +
+                        'justify-content:center;' +
+                        'background:#6610f2;' +
+                        'color:#fff;' +
+                        'border:4px solid #fff;' +
+                        'box-shadow:0 3px 12px rgba(0,0,0,.4);' +
+                        'font-size:19px">' +
+                        '<i class="bi bi-person-walking"></i>' +
+                        '</div>',
+
+                    iconSize:
+                        [42, 42],
+
+                    iconAnchor:
+                        [21, 21]
+                });
+
+            const initialPoint =
+                points[initialIndex];
+
+            playback.marker =
+                L.marker(
+                    [
+                        initialPoint.latitude,
+                        initialPoint.longitude
+                    ],
+                    {
+                        icon:
+                            icon,
+
+                        zIndexOffset:
+                            5000
+                    }
+                ).addTo(
+                    state.map
+                );
+
+            playback.marker.bindPopup(
+                window.buildAdminPlaybackPopup(
+                    playback.employeeName,
+                    initialPoint,
+                    initialIndex,
+                    points.length
+                )
+            );
+
+            /*
+             * Progressive playback route.
+             */
+            playback.routeLine =
+                L.polyline(
+                    points
+                        .slice(
+                            0,
+                            initialIndex + 1
+                        )
+                        .map(function (point) {
+                            return [
+                                point.latitude,
+                                point.longitude
+                            ];
+                        }),
+                    {
+                        color:
+                            "#6610f2",
+
+                        weight:
+                            5,
+
+                        opacity:
+                            0.9,
+
+                        lineJoin:
+                            "round",
+
+                        lineCap:
+                            "round"
+                    }
+                ).addTo(
+                    state.map
+                );
+
+            window.moveAdminPlaybackMarker(
+                playback,
+                initialIndex
+            );
+
+            /*
+             * Keep playback map focused on selected point.
+             */
+            state.map.panTo(
+                [
+                    initialPoint.latitude,
+                    initialPoint.longitude
+                ],
+                {
+                    animate:
+                        false
+                }
+            );
+
+            if (
+                initialIndex <
+                points.length - 1
+            ) {
+                window.resumeAdminHistoryPlayback(
+                    mapId
+                );
+            }
+
         }
-        for(let i=1;i<points.length;i++) if(points[i].within!==points[i-1].within){const p=points[i],m=L.circleMarker([p.latitude,p.longitude],{radius:5,weight:2,color:p.within?"#16a34a":"#ef4444",fillColor:"#fff",fillOpacity:1}).addTo(state.map);m.bindTooltip(eventTooltip(p.within?"Entered allowed radius":"Left allowed radius",p,p.within?"ENTER":"EXIT"),{direction:"top",offset:[0,-8],className:"admin-replay-tooltip"});playback.geofenceMarkers.push(m);}
-        playback.travelledLine=L.polyline([],{color:"#2563eb",weight:4,opacity:.95,lineCap:"round",lineJoin:"round"}).addTo(state.map);
-        playback.remainingLine=L.polyline(points.map(p=>[p.latitude,p.longitude]),{color:"#94a3b8",weight:3,opacity:.42,dashArray:"6 8",lineCap:"round",lineJoin:"round"}).addTo(state.map);
-        window.updateAdminReplayLayers(playback);
-        window.moveAdminPlaybackMarker(playback,initial,false);
-        if(initial===0) state.map.fitBounds(L.latLngBounds(points.map(p=>[p.latitude,p.longitude])),{padding:[45,45],maxZoom:16,animate:false});
-    } catch(error){ console.error("Admin journey replay initialization failed:",error); }
+        catch (error) {
+
+            console.error(
+                "Admin history playback error:",
+                error
+            );
+        }
+    };
+
+
+window.resumeAdminHistoryPlayback =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (
+            !playback ||
+            !playback.marker ||
+            playback.points.length === 0
+        ) {
+            return;
+        }
+
+        window.pauseAdminHistoryPlayback(
+            mapId
+        );
+
+        if (
+            playback.index >=
+            playback.points.length - 1
+        ) {
+            playback.completed = true;
+            return;
+        }
+
+        playback.completed = false;
+
+        /*
+         * One GPS history point normally represents a 10-second
+         * recording interval. Speed controls how quickly the
+         * history is replayed.
+         */
+        const interval =
+            Math.max(
+                150,
+                Math.round(
+                    1500 /
+                    playback.speed
+                )
+            );
+
+        playback.timer =
+            setInterval(
+                function () {
+
+                    const current =
+                        window.adminHistoryPlayback?.[mapId];
+
+                    if (!current) {
+                        return;
+                    }
+
+                    if (
+                        current.index >=
+                        current.points.length - 1
+                    ) {
+                        window.pauseAdminHistoryPlayback(
+                            mapId
+                        );
+
+                        current.completed =
+                            true;
+
+                        window.moveAdminPlaybackMarker(
+                            current,
+                            current.index
+                        );
+
+                        return;
+                    }
+
+                    current.index++;
+
+                    window.moveAdminPlaybackMarker(
+                        current,
+                        current.index
+                    );
+                },
+                interval
+            );
+    };
+
+
+window.pauseAdminHistoryPlayback =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (!playback) {
+            return;
+        }
+
+        if (playback.timer) {
+
+            clearInterval(
+                playback.timer
+            );
+
+            playback.timer =
+                null;
+        }
+
+        if (
+            playback.animationFrame
+        ) {
+
+            cancelAnimationFrame(
+                playback.animationFrame
+            );
+
+            playback.animationFrame =
+                null;
+        }
+    };
+
+
+window.resetAdminHistoryPlayback =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (!playback) {
+            return;
+        }
+
+        window.pauseAdminHistoryPlayback(
+            mapId
+        );
+
+        playback.index =
+            0;
+
+        playback.completed =
+            false;
+
+        window.moveAdminPlaybackMarker(
+            playback,
+            0
+        );
+    };
+
+
+window.stopAdminHistoryPlayback =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (!playback) {
+            return;
+        }
+
+        window.pauseAdminHistoryPlayback(
+            mapId
+        );
+
+        try {
+
+            const state =
+                window.adminLiveMaps?.[mapId];
+
+            if (
+                state?.map &&
+                playback.marker
+            ) {
+                state.map.removeLayer(
+                    playback.marker
+                );
+            }
+
+            if (
+                state?.map &&
+                playback.routeLine
+            ) {
+                state.map.removeLayer(
+                    playback.routeLine
+                );
+            }
+
+        }
+        catch {
+        }
+
+        delete window.adminHistoryPlayback[
+            mapId
+        ];
+    };
+
+
+window.seekAdminHistoryPlayback =
+    function (
+        mapId,
+        index
+    ) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (!playback) {
+            return;
+        }
+
+        const target =
+            Math.max(
+                0,
+                Math.min(
+                    playback.points.length - 1,
+                    Number(index) || 0
+                )
+            );
+
+        playback.index =
+            target;
+
+        playback.completed =
+            target >=
+            playback.points.length - 1;
+
+        window.moveAdminPlaybackMarker(
+            playback,
+            target
+        );
+    };
+
+
+window.moveAdminPlaybackMarker =
+    function (
+        playback,
+        index
+    ) {
+
+        if (
+            !playback ||
+            !playback.marker
+        ) {
+            return;
+        }
+
+        const point =
+            playback.points[index];
+
+        if (!point) {
+            return;
+        }
+
+        const position = [
+            point.latitude,
+            point.longitude
+        ];
+
+        playback.marker.setLatLng(
+            position
+        );
+
+        playback.marker.setPopupContent(
+            window.buildAdminPlaybackPopup(
+                playback.employeeName,
+                point,
+                index,
+                playback.points.length
+            )
+        );
+
+        /*
+         * Update progressive playback route.
+         */
+        if (
+            playback.routeLine
+        ) {
+
+            playback.routeLine.setLatLngs(
+                playback.points
+                    .slice(
+                        0,
+                        index + 1
+                    )
+                    .map(function (item) {
+                        return [
+                            item.latitude,
+                            item.longitude
+                        ];
+                    })
+            );
+        }
+
+        const state =
+            window.adminLiveMaps?.[
+            playback.mapId
+            ];
+
+        if (
+            state?.map
+        ) {
+
+            /*
+             * Do not open a popup every timer tick.
+             * The popup is opened when the marker is clicked
+             * or when playback starts.
+             */
+            if (
+                index === 0 ||
+                index ===
+                playback.points.length - 1
+            ) {
+                playback.marker.openPopup();
+            }
+
+            state.map.panTo(
+                position,
+                {
+                    animate:
+                        true,
+
+                    duration:
+                        0.35
+                }
+            );
+        }
+    };
+
+
+window.buildAdminPlaybackPopup =
+    function (
+        employeeName,
+        point,
+        index,
+        total
+    ) {
+
+        const safeName =
+            window.escapeAdminHtml(
+                employeeName
+            );
+
+        const time =
+            window.formatAdminHistoryTime(
+                point.recordedAt
+            );
+
+        const distance =
+            window.formatAdminDistance(
+                point.distance
+            );
+
+        const allowed =
+            point.allowed > 0
+                ? point.allowed + " m"
+                : "-";
+
+        const accuracy =
+            point.accuracy > 0
+                ? Math.round(
+                    point.accuracy
+                ) + " m"
+                : "-";
+
+        const status =
+            point.within
+                ? "Within allowed range"
+                : "Outside allowed range";
+
+        const statusColor =
+            point.within
+                ? "#198754"
+                : "#dc3545";
+
+        return (
+            '<div style="min-width:230px">' +
+
+            "<strong>" +
+            safeName +
+            "</strong>" +
+
+            '<hr style="margin:6px 0">' +
+
+            "<strong>GPS Point " +
+            (index + 1) +
+            " / " +
+            total +
+            "</strong><br>" +
+
+            "<span>Time: " +
+            time +
+            "</span><br>" +
+
+            "<span>Distance: " +
+            distance +
+            "</span><br>" +
+
+            "<span>Allowed: " +
+            allowed +
+            "</span><br>" +
+
+            "<span>Accuracy: " +
+            accuracy +
+            "</span><br>" +
+
+            "<span>Latitude: " +
+            point.latitude.toFixed(6) +
+            "</span><br>" +
+
+            "<span>Longitude: " +
+            point.longitude.toFixed(6) +
+            "</span><br>" +
+
+            '<strong style="color:' +
+            statusColor +
+            '">' +
+            status +
+            "</strong>" +
+
+            "</div>"
+        );
+    };
+
+
+window.setAdminHistoryPlaybackSpeed =
+    function (
+        mapId,
+        speed
+    ) {
+
+        const playback =
+            window.adminHistoryPlayback?.[
+            mapId
+            ];
+
+        if (!playback) {
+            return;
+        }
+
+        const wasPlaying =
+            !!playback.timer;
+
+        playback.speed =
+            Math.max(
+                0.25,
+                Number(speed) || 1
+            );
+
+        window.pauseAdminHistoryPlayback(
+            mapId
+        );
+
+        if (
+            wasPlaying &&
+            playback.index <
+            playback.points.length - 1
+        ) {
+            window.resumeAdminHistoryPlayback(
+                mapId
+            );
+        }
+    };
+
+
+window.getAdminHistoryPlaybackState =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[
+            mapId
+            ];
+
+        if (!playback) {
+            return null;
+        }
+
+        return {
+            index:
+                playback.index,
+
+            total:
+                playback.points.length,
+
+            playing:
+                !!playback.timer,
+
+            completed:
+                !!playback.completed,
+
+            speed:
+                playback.speed
+        };
+    };
+
+// ============================================================
+// ADMIN WORKFORCE JOURNEY REPLAY
+// ============================================================
+// Historical replay on the SAME Leaflet map used by Live Staff.
+// All employees are synchronized to one virtual clock. The live
+// markers are temporarily hidden, not replaced by another map.
+// ============================================================
+
+window.adminWorkforceJourneyReplay = window.adminWorkforceJourneyReplay || {};
+
+window.startAdminWorkforceJourneyReplay = async function (mapId, tracks, dateText) {
+    try {
+        await window.loadPayrollLeaflet();
+        const state = window.adminLiveMaps?.[mapId];
+        if (!state?.map || !Array.isArray(tracks)) return;
+
+        window.stopAdminHistoryPlayback?.(mapId);
+        window.stopAdminWorkforceJourneyReplay?.(mapId);
+
+        const normalized = tracks.map(function (track, trackIndex) {
+            const points = (Array.isArray(track.points) ? track.points : [])
+                .map(function (p) {
+                    const lat = Number(p.latitude ?? p.Latitude);
+                    const lng = Number(p.longitude ?? p.Longitude);
+                    const recorded = Date.parse(p.recordedAtUtc ?? p.RecordedAtUtc);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(recorded)) return null;
+                    return {
+                        latitude: lat,
+                        longitude: lng,
+                        accuracy: Number(p.accuracyMeters ?? p.AccuracyMeters) || 0,
+                        distance: Number(p.distanceFromOfficeMeters ?? p.DistanceFromOfficeMeters) || 0,
+                        allowed: Number(p.allowedRadiusMeters ?? p.AllowedRadiusMeters) || 0,
+                        within: Boolean(p.isWithinAllowedRadius ?? p.IsWithinAllowedRadius),
+                        recordedAt: recorded
+                    };
+                })
+                .filter(Boolean)
+                .sort(function (a, b) { return a.recordedAt - b.recordedAt; });
+            return {
+                employeeId: Number(track.employeeId ?? track.EmployeeId),
+                name: String(track.name ?? track.Name ?? 'Employee'),
+                color: ['#2f80ed', '#27ae60', '#f2994a', '#9b51e0', '#eb5757', '#00a6a6', '#d66dff', '#7f8c8d'][trackIndex % 8],
+                points: points,
+                marker: null,
+                travelled: null,
+                remaining: null,
+                startMarker: null,
+                endMarker: null,
+                eventMarkers: [],
+                stopMarkers: [],
+                current: null
+            };
+        }).filter(function (x) { return x.points.length > 0; });
+
+        if (!normalized.length) return;
+
+        const startMs = Math.min.apply(null, normalized.map(function (x) { return x.points[0].recordedAt; }));
+        const endMs = Math.max.apply(null, normalized.map(function (x) { return x.points[x.points.length - 1].recordedAt; }));
+        const spanMs = Math.max(1000, endMs - startMs);
+        const replayTargetMs = 120000;
+
+        const replay = {
+            active: true,
+            mapId: mapId,
+            tracks: normalized,
+            startMs: startMs,
+            endMs: endMs,
+            spanMs: spanMs,
+            currentMs: startMs,
+            speed: 1,
+            playing: false,
+            lastFrame: 0,
+            animationFrame: null,
+            filter: 'all',
+            userInteracting: false,
+            overlay: null,
+            timeline: null,
+            currentTimeLabel: null,
+            currentStats: null,
+            playButton: null,
+            speedSelect: null,
+            filterButtons: []
+        };
+        state.workforceReplay = replay;
+        window.adminWorkforceJourneyReplay[mapId] = replay;
+        window.setAdminLiveLayersVisible(state, false);
+
+        const office = state.officeMarker?.getLatLng?.();
+        const officeLatLng = office ? [office.lat, office.lng] : null;
+
+        normalized.forEach(function (track) {
+            const first = track.points[0];
+            const last = track.points[track.points.length - 1];
+            const route = track.points.map(function (p) { return [p.latitude, p.longitude]; });
+
+            track.travelled = L.polyline([], {
+                color: track.color, weight: 6, opacity: .95, lineJoin: 'round', lineCap: 'round'
+            }).addTo(state.map);
+            track.remaining = L.polyline(route, {
+                color: track.color, weight: 4, opacity: .28, dashArray: '5 8', lineJoin: 'round', lineCap: 'round'
+            }).addTo(state.map);
+
+            const initialsParts = track.name.trim().split(/\s+/).filter(Boolean);
+            const initials = (initialsParts.length > 1
+                ? initialsParts[0][0] + initialsParts[initialsParts.length - 1][0]
+                : (initialsParts[0] || 'E')[0]).toUpperCase();
+            const icon = L.divIcon({
+                className: 'payroll-workforce-replay-marker',
+                html: '<div style="width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:' + track.color + ';color:#fff;border:3px solid #fff;box-shadow:0 3px 12px rgba(0,0,0,.35);font-size:11px;font-weight:800;">' + window.escapeAdminHtml(initials) + '</div>',
+                iconSize: [34, 34], iconAnchor: [17, 17]
+            });
+            track.marker = L.marker([first.latitude, first.longitude], { icon: icon, zIndexOffset: 6000 }).addTo(state.map);
+            track.marker.bindTooltip('', { permanent: false, direction: 'top', offset: [0, -18], sticky: true, opacity: .98, className: 'admin-live-hover-tooltip' });
+
+            const startIcon = L.divIcon({
+                className: 'payroll-replay-start',
+                html: '<div style="width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#1fa463;color:#fff;border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.28);font-size:11px;"><i class="bi bi-play-fill"></i></div>',
+                iconSize: [24, 24], iconAnchor: [12, 12]
+            });
+            const endIcon = L.divIcon({
+                className: 'payroll-replay-end',
+                html: '<div style="width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;background:#d9534f;color:#fff;border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.28);font-size:11px;"><i class="bi bi-flag-fill"></i></div>',
+                iconSize: [24, 24], iconAnchor: [12, 12]
+            });
+            track.startMarker = L.marker([first.latitude, first.longitude], { icon: startIcon, zIndexOffset: 5500 }).addTo(state.map);
+            track.endMarker = L.marker([last.latitude, last.longitude], { icon: endIcon, zIndexOffset: 5400 }).addTo(state.map);
+
+            track.eventMarkers = [];
+            for (let i = 1; i < track.points.length; i++) {
+                const previous = track.points[i - 1];
+                const point = track.points[i];
+                if (previous.within !== point.within) {
+                    const eventIcon = L.divIcon({
+                        className: 'payroll-replay-event',
+                        html: '<div style="width:14px;height:14px;border-radius:50%;background:' + (point.within ? '#1fa463' : '#d9534f') + ';border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35);"></div>',
+                        iconSize: [14, 14], iconAnchor: [7, 7]
+                    });
+                    const marker = L.marker([point.latitude, point.longitude], { icon: eventIcon, zIndexOffset: 5000 }).addTo(state.map);
+                    marker.bindTooltip((point.within ? 'ENTERED' : 'LEFT') + ' radius · ' + new Date(point.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), { direction: 'top', offset: [0, -8], sticky: true });
+                    marker.__replayEventTime = point.recordedAt;
+                    track.eventMarkers.push(marker);
+                }
+            }
+
+            track.stopMarkers = [];
+            for (let i = 1; i < track.points.length - 1; i++) {
+                const a = track.points[i - 1];
+                const b = track.points[i];
+                const dt = b.recordedAt - a.recordedAt;
+                const distance = window.payrollHaversineMeters([a.latitude, a.longitude], [b.latitude, b.longitude]);
+                if (dt >= 180000 && distance <= 40) {
+                    const stopIcon = L.divIcon({
+                        className: 'payroll-replay-stop',
+                        html: '<div style="width:16px;height:16px;border-radius:50%;background:#f0ad4e;color:#fff;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:8px;"><i class="bi bi-pause-fill"></i></div>',
+                        iconSize: [16, 16], iconAnchor: [8, 8]
+                    });
+                    const marker = L.marker([b.latitude, b.longitude], { icon: stopIcon, zIndexOffset: 4900 }).addTo(state.map);
+                    marker.bindTooltip('Stop · ' + Math.round(dt / 60000) + ' min · ' + new Date(a.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), { direction: 'top', offset: [0, -8], sticky: true });
+                    marker.__replayStopTime = b.recordedAt;
+                    track.stopMarkers.push(marker);
+                }
+            }
+        });
+
+        const boundsPoints = [];
+        normalized.forEach(function (track) {
+            track.points.forEach(function (p) { boundsPoints.push([p.latitude, p.longitude]); });
+        });
+        if (officeLatLng) boundsPoints.push(officeLatLng);
+        if (boundsPoints.length > 1) {
+            state.map.fitBounds(L.latLngBounds(boundsPoints), { padding: [42, 42], maxZoom: 17, animate: true, duration: .6 });
+        }
+
+        if (!document.getElementById('payroll-workforce-replay-style')) {
+            const style = document.createElement('style');
+            style.id = 'payroll-workforce-replay-style';
+            style.textContent = '.payroll-workforce-replay-panel{position:absolute;z-index:7000;left:14px;right:14px;bottom:14px;max-width:980px;margin:auto;padding:12px 14px;border:1px solid rgba(120,145,175,.24);border-radius:14px;background:rgba(10,18,29,.93);color:#edf5ff;box-shadow:0 14px 38px rgba(0,0,0,.32);backdrop-filter:blur(12px);font-family:inherit}.payroll-workforce-replay-panel .pwr-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.pwr-kicker{display:block;font-size:9px;letter-spacing:1.3px;font-weight:900;color:#8ca4bd}.pwr-head strong{display:block;font-size:13px;margin-top:2px}.pwr-live{font-size:9px;font-weight:900;color:#72e2a5;white-space:nowrap}.pwr-live i{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px}.pwr-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:9px 0}.pwr-summary span{padding:6px 7px;border:1px solid rgba(140,164,189,.14);border-radius:8px;background:rgba(255,255,255,.035)}.pwr-summary small{display:block;font-size:7px;color:#8ca4bd;font-weight:800;letter-spacing:.4px}.pwr-summary b{font-size:12px}.pwr-filters,.pwr-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.pwr-filters button,.pwr-controls button,.pwr-controls select{border:1px solid rgba(140,164,189,.28);border-radius:8px;background:rgba(255,255,255,.05);color:#edf5ff;padding:6px 9px;font-size:9px;font-weight:800;cursor:pointer}.pwr-filters button.active,.pwr-controls button:first-child{background:#1976e8;border-color:#1976e8}.pwr-controls{margin-top:8px}.pwr-controls select{min-width:58px}.pwr-controls button:disabled{opacity:.5}.pwr-foot{display:flex;justify-content:space-between;gap:8px;margin-top:5px;font-size:8px;color:#8ca4bd}.pwr-foot strong{color:#edf5ff}.pwr-foot+*{margin-top:0}.payroll-workforce-replay-panel input[type=range]{width:100%;margin:7px 0 0}.payroll-workforce-replay-panel button:focus,.payroll-workforce-replay-panel select:focus,.payroll-workforce-replay-panel input:focus{outline:2px solid rgba(80,160,255,.55);outline-offset:1px}@media(max-width:700px){.payroll-workforce-replay-panel{left:6px;right:6px;bottom:6px;padding:9px;border-radius:11px}.pwr-summary{grid-template-columns:repeat(3,minmax(0,1fr))}.pwr-summary span:nth-child(n+4){display:none}.pwr-head strong{font-size:11px}}';
+            document.head.appendChild(style);
+        }
+
+        const container = state.map.getContainer();
+        const overlay = document.createElement('div');
+        overlay.className = 'payroll-workforce-replay-panel';
+        overlay.innerHTML =
+            '<div class="pwr-head"><div><span class="pwr-kicker">JOURNEY REPLAY</span><strong>' + window.escapeAdminHtml(dateText || '') + '</strong></div><span class="pwr-live"><i></i> MAP REPLAY</span></div>' +
+            '<div class="pwr-summary"><span><small>EMPLOYEES</small><b data-role="employees">' + normalized.length + '</b></span><span><small>TIME</small><b data-role="time">--:--:--</b></span><span><small>WITHIN</small><b data-role="within">0</b></span><span><small>OUTSIDE</small><b data-role="outside">0</b></span><span><small>ACTIVE</small><b data-role="active">0</b></span></div>' +
+            '<div class="pwr-filters"><button data-filter="all" class="active">All journeys</button><button data-filter="within">Within radius</button><button data-filter="outside">Outside radius</button><button data-filter="events">Geofence events</button><button data-filter="stops">Stops</button></div>' +
+            '<div class="pwr-controls"><button type="button" data-action="play"><i class="bi bi-play-fill"></i> Play</button><button type="button" data-action="pause"><i class="bi bi-pause-fill"></i> Pause</button><button type="button" data-action="reset"><i class="bi bi-arrow-counterclockwise"></i> Reset</button><select data-role="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></div>' +
+            '<input data-role="timeline" type="range" min="0" max="1000" value="0" step="1" />' +
+            '<div class="pwr-foot"><span data-role="start">--:--</span><strong data-role="status">Ready</strong><span data-role="end">--:--</span></div>';
+        container.appendChild(overlay);
+        replay.overlay = overlay;
+        replay.timeline = overlay.querySelector('[data-role="timeline"]');
+        replay.currentTimeLabel = overlay.querySelector('[data-role="time"]');
+        replay.currentStats = {
+            within: overlay.querySelector('[data-role="within"]'),
+            outside: overlay.querySelector('[data-role="outside"]'),
+            active: overlay.querySelector('[data-role="active"]'),
+            status: overlay.querySelector('[data-role="status"]')
+        };
+        replay.playButton = overlay.querySelector('[data-action="play"]');
+        replay.speedSelect = overlay.querySelector('[data-role="speed"]');
+        overlay.querySelector('[data-role="start"]').textContent = new Date(startMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        overlay.querySelector('[data-role="end"]').textContent = new Date(endMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        overlay.querySelectorAll('[data-filter]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                replay.filter = button.getAttribute('data-filter') || 'all';
+                overlay.querySelectorAll('[data-filter]').forEach(function (b) { b.classList.toggle('active', b === button); });
+                window.renderAdminWorkforceJourneyReplay(replay, true);
+            });
+        });
+        overlay.querySelector('[data-action="play"]').addEventListener('click', function () { window.resumeAdminWorkforceJourneyReplay(mapId); });
+        overlay.querySelector('[data-action="pause"]').addEventListener('click', function () { window.pauseAdminWorkforceJourneyReplay(mapId); });
+        overlay.querySelector('[data-action="reset"]').addEventListener('click', function () { window.resetAdminWorkforceJourneyReplay(mapId); });
+        replay.speedSelect.addEventListener('change', function () { replay.speed = Math.max(.25, Number(replay.speedSelect.value) || 1); });
+        replay.timeline.addEventListener('input', function () {
+            const ratio = Math.max(0, Math.min(1, Number(replay.timeline.value) / 1000));
+            replay.currentMs = replay.startMs + ratio * replay.spanMs;
+            window.renderAdminWorkforceJourneyReplay(replay, true);
+        });
+
+        window.renderAdminWorkforceJourneyReplay(replay, true);
+    } catch (error) {
+        console.error('Admin workforce journey replay error:', error);
+    }
 };
-window.adminReplayDistanceMeters=function(lat1,lon1,lat2,lon2){const r=6371000,a=Math.PI/180,p1=lat1*a,p2=lat2*a,dp=(lat2-lat1)*a,dl=(lon2-lon1)*a,h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;return 2*r*Math.asin(Math.min(1,Math.sqrt(h)));};
-window.buildAdminPlaybackTooltip=function(name,p){return '<div class="admin-replay-tooltip-card"><strong>'+window.escapeAdminHtml(name||"Employee")+'</strong><span>'+window.formatAdminHistoryTime(p.recordedAt)+' · '+(p.within?"Within radius":"Outside radius")+'</span><span>'+window.formatAdminDistance(p.distance)+' from office · ±'+(p.accuracy>0?Math.round(p.accuracy)+" m":"-")+'</span><span>'+Number(p.latitude).toFixed(6)+', '+Number(p.longitude).toFixed(6)+'</span></div>';};
-window.updateAdminReplayLayers=function(playback){if(!playback)return;const i=Math.max(0,Math.min(playback.points.length-1,playback.index)),p=playback.points;playback.travelledLine?.setLatLngs(p.slice(0,i+1).map(x=>[x.latitude,x.longitude]));playback.remainingLine?.setLatLngs(p.slice(i).map(x=>[x.latitude,x.longitude]));};
-window.resumeAdminHistoryPlayback=function(mapId){const pb=window.adminHistoryPlayback?.[mapId];if(!pb||pb.points.length<2)return;window.pauseAdminHistoryPlayback(mapId);if(pb.index>=pb.points.length-1){pb.completed=true;return;}pb.completed=false;const run=()=>{const a=pb.points[pb.index],b=pb.points[pb.index+1],t1=new Date(a.recordedAt).getTime(),t2=new Date(b.recordedAt).getTime(),gap=Number.isFinite(t1)&&Number.isFinite(t2)?Math.max(250,Math.min(120000,t2-t1)):10000,duration=Math.max(280,Math.min(4500,gap/pb.speed)),start=performance.now(),from=[a.latitude,a.longitude],to=[b.latitude,b.longitude];pb.timer=true;const frame=now=>{if(!pb.timer)return;const q=Math.max(0,Math.min(1,(now-start)/duration)),e=q<.5?2*q*q:1-Math.pow(-2*q+2,2)/2,lat=from[0]+(to[0]-from[0])*e,lon=from[1]+(to[1]-from[1])*e;pb.marker.setLatLng([lat,lon]);if(!pb.manualView)window.adminLiveMaps?.[mapId]?.map?.panTo([lat,lon],{animate:true,duration:.18,noMoveStart:true});if(q<1)pb.animationFrame=requestAnimationFrame(frame);else{pb.index++;window.moveAdminPlaybackMarker(pb,pb.index,false);pb.index<pb.points.length-1?run():(window.pauseAdminHistoryPlayback(mapId),pb.completed=true);}};pb.animationFrame=requestAnimationFrame(frame);};run();};
-window.pauseAdminHistoryPlayback=function(mapId){const pb=window.adminHistoryPlayback?.[mapId];if(!pb)return;pb.timer=null;if(pb.animationFrame)cancelAnimationFrame(pb.animationFrame);pb.animationFrame=null;};
-window.resetAdminHistoryPlayback=function(mapId){const pb=window.adminHistoryPlayback?.[mapId];if(!pb)return;window.pauseAdminHistoryPlayback(mapId);pb.index=0;pb.completed=false;window.updateAdminReplayLayers(pb);window.moveAdminPlaybackMarker(pb,0,true);};
-window.stopAdminHistoryPlayback=function(mapId){const pb=window.adminHistoryPlayback?.[mapId];if(!pb)return;window.pauseAdminHistoryPlayback(mapId);const map=window.adminLiveMaps?.[mapId]?.map;[pb.marker,pb.startMarker,pb.endMarker,pb.travelledLine,pb.remainingLine,...(pb.stopMarkers||[]),...(pb.geofenceMarkers||[])].filter(Boolean).forEach(x=>{try{map?.removeLayer(x);}catch{}});delete window.adminHistoryPlayback[mapId];};
-window.seekAdminHistoryPlayback=function(mapId,index){const pb=window.adminHistoryPlayback?.[mapId];if(!pb)return;window.pauseAdminHistoryPlayback(mapId);pb.index=Math.max(0,Math.min(pb.points.length-1,Number(index)||0));pb.completed=pb.index>=pb.points.length-1;window.updateAdminReplayLayers(pb);window.moveAdminPlaybackMarker(pb,pb.index,true);};
-window.moveAdminPlaybackMarker=function(pb,index,focus){if(!pb?.marker)return;const p=pb.points[index];if(!p)return;pb.marker.setLatLng([p.latitude,p.longitude]);pb.marker.setTooltipContent(window.buildAdminPlaybackTooltip(pb.employeeName,p));window.updateAdminReplayLayers(pb);if(focus)window.adminLiveMaps?.[pb.mapId]?.map?.panTo([p.latitude,p.longitude],{animate:true,duration:.3});};
-window.setAdminHistoryPlaybackSpeed=function(mapId,speed){const pb=window.adminHistoryPlayback?.[mapId];if(!pb)return;const playing=!!pb.timer;pb.speed=Math.max(.25,Number(speed)||1);window.pauseAdminHistoryPlayback(mapId);if(playing)window.resumeAdminHistoryPlayback(mapId);};
-window.getAdminHistoryPlaybackState=function(mapId){const pb=window.adminHistoryPlayback?.[mapId];if(!pb)return null;return{index:pb.index,total:pb.points.length,playing:!!pb.timer,completed:!!pb.completed,speed:pb.speed};};
+
+window.findAdminReplayPosition = function (points, timeMs) {
+    if (!points.length) return null;
+    if (timeMs <= points[0].recordedAt) return { point: points[0], index: 0 };
+    if (timeMs >= points[points.length - 1].recordedAt) return { point: points[points.length - 1], index: points.length - 1 };
+    let lo = 0, hi = points.length - 1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (points[mid].recordedAt <= timeMs) lo = mid + 1; else hi = mid - 1;
+    }
+    const i = Math.max(0, Math.min(points.length - 2, hi));
+    const a = points[i], b = points[i + 1];
+    const ratio = b.recordedAt > a.recordedAt ? Math.max(0, Math.min(1, (timeMs - a.recordedAt) / (b.recordedAt - a.recordedAt))) : 0;
+    return {
+        point: {
+            latitude: a.latitude + (b.latitude - a.latitude) * ratio,
+            longitude: a.longitude + (b.longitude - a.longitude) * ratio,
+            accuracy: a.accuracy + (b.accuracy - a.accuracy) * ratio,
+            distance: a.distance + (b.distance - a.distance) * ratio,
+            allowed: ratio < .5 ? a.allowed : b.allowed,
+            within: ratio < .5 ? a.within : b.within,
+            recordedAt: timeMs
+        },
+        index: i,
+        ratio: ratio
+    };
+};
+
+window.renderAdminWorkforceJourneyReplay = function (replay, fitMap) {
+    if (!replay?.active) return;
+    const state = window.adminLiveMaps?.[replay.mapId];
+    if (!state?.map) return;
+
+    const withinCount = replay.tracks.filter(function (t) { return t.current?.point?.within; }).length;
+    const outsideCount = replay.tracks.length - withinCount;
+    const activeCount = replay.tracks.filter(function (t) {
+        return t.current && replay.currentMs >= t.points[0].recordedAt && replay.currentMs <= t.points[t.points.length - 1].recordedAt;
+    }).length;
+    replay.currentStats.within.textContent = String(withinCount);
+    replay.currentStats.outside.textContent = String(outsideCount);
+    replay.currentStats.active.textContent = String(activeCount);
+    replay.currentTimeLabel.textContent = new Date(replay.currentMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    replay.timeline.value = String(Math.round(((replay.currentMs - replay.startMs) / replay.spanMs) * 1000));
+
+    replay.tracks.forEach(function (track) {
+        const resolved = window.findAdminReplayPosition(track.points, replay.currentMs);
+        track.current = resolved;
+        if (!resolved) return;
+        const point = resolved.point;
+        track.marker.setLatLng([point.latitude, point.longitude]);
+
+        const visibleForFilter = replay.filter === 'all' || (replay.filter === 'within' && point.within) || (replay.filter === 'outside' && !point.within);
+        track.marker.setOpacity(visibleForFilter ? 1 : 0.18);
+
+        const travelled = [];
+        const remaining = [];
+        for (let i = 0; i < track.points.length; i++) {
+            const p = track.points[i];
+            if (p.recordedAt <= replay.currentMs) travelled.push([p.latitude, p.longitude]);
+            else remaining.push([p.latitude, p.longitude]);
+        }
+        if (!travelled.length || travelled[travelled.length - 1][0] !== point.latitude || travelled[travelled.length - 1][1] !== point.longitude) travelled.push([point.latitude, point.longitude]);
+        if (replay.filter === 'within' || replay.filter === 'outside') {
+            const wantWithin = replay.filter === 'within';
+            const filterPoints = function (items) { return items.filter(function (p) { return p.within === wantWithin; }).map(function (p) { return [p.latitude, p.longitude]; }); };
+            track.travelled.setLatLngs(filterPoints(track.points.filter(function (p) { return p.recordedAt <= replay.currentMs; })).concat(point.within === wantWithin ? [[point.latitude, point.longitude]] : []));
+            track.remaining.setLatLngs(filterPoints(track.points.filter(function (p) { return p.recordedAt > replay.currentMs; })));
+        } else if (replay.filter === 'events' || replay.filter === 'stops') {
+            track.travelled.setLatLngs(travelled);
+            track.remaining.setLatLngs(remaining);
+        } else {
+            track.travelled.setLatLngs(travelled);
+            track.remaining.setLatLngs(remaining);
+        }
+
+        const tooltip = '<div class="admin-live-hover-card"><div class="admin-live-hover-title"><span class="hover-avatar">' + window.escapeAdminHtml(track.name.slice(0, 1).toUpperCase()) + '</span><strong>' + window.escapeAdminHtml(track.name) + '</strong><span class="hover-state ' + (point.within ? 'within' : 'outside') + '">' + (point.within ? 'Within range' : 'Outside range') + '</span></div><div class="admin-live-hover-grid"><span><small>Time</small><b>' + new Date(point.recordedAt).toLocaleTimeString() + '</b></span><span><small>Distance</small><b>' + window.formatAdminDistance(point.distance) + '</b></span><span><small>GPS</small><b>' + point.latitude.toFixed(6) + ', ' + point.longitude.toFixed(6) + '</b></span><span><small>Accuracy</small><b>±' + Math.round(point.accuracy || 0) + ' m</b></span></div></div>';
+        track.marker.setTooltipContent(tooltip);
+
+        const showEvents = replay.filter === 'events';
+        const showStops = replay.filter === 'stops';
+        track.eventMarkers.forEach(function (m) { m.setOpacity(showEvents ? 1 : 0.35); });
+        track.stopMarkers.forEach(function (m) { m.setOpacity(showStops ? 1 : 0.35); });
+        track.startMarker.setOpacity(replay.filter === 'all' || replay.filter === 'events' || replay.filter === 'stops' ? 1 : .35);
+        track.endMarker.setOpacity(replay.filter === 'all' || replay.filter === 'events' || replay.filter === 'stops' ? 1 : .35);
+    });
+
+    if (fitMap && !replay.userInteracting) {
+        const activePoints = replay.tracks.filter(function (t) { return t.current && replay.currentMs >= t.points[0].recordedAt && replay.currentMs <= t.points[t.points.length - 1].recordedAt; }).map(function (t) { return [t.current.point.latitude, t.current.point.longitude]; });
+        if (activePoints.length === 1) state.map.panTo(activePoints[0], { animate: true, duration: .35 });
+    }
+};
+
+window.resumeAdminWorkforceJourneyReplay = function (mapId) {
+    const replay = window.adminWorkforceJourneyReplay?.[mapId];
+    if (!replay?.active) return;
+    if (replay.currentMs >= replay.endMs) replay.currentMs = replay.startMs;
+    window.pauseAdminWorkforceJourneyReplay(mapId);
+    replay.playing = true;
+    replay.currentStats.status.textContent = 'Playing';
+    replay.lastFrame = performance.now();
+    const step = function (now) {
+        const current = window.adminWorkforceJourneyReplay?.[mapId];
+        if (!current?.active || !current.playing) return;
+        const elapsed = Math.min(80, Math.max(0, now - current.lastFrame));
+        current.lastFrame = now;
+        current.currentMs += elapsed * (current.spanMs / 120000) * current.speed;
+        if (current.currentMs >= current.endMs) {
+            current.currentMs = current.endMs;
+            current.playing = false;
+            current.currentStats.status.textContent = 'Completed';
+            window.renderAdminWorkforceJourneyReplay(current, false);
+            return;
+        }
+        window.renderAdminWorkforceJourneyReplay(current, false);
+        current.animationFrame = requestAnimationFrame(step);
+    };
+    replay.animationFrame = requestAnimationFrame(step);
+};
+
+window.pauseAdminWorkforceJourneyReplay = function (mapId) {
+    const replay = window.adminWorkforceJourneyReplay?.[mapId];
+    if (!replay) return;
+    replay.playing = false;
+    if (replay.animationFrame) cancelAnimationFrame(replay.animationFrame);
+    replay.animationFrame = null;
+    if (replay.currentStats?.status) replay.currentStats.status.textContent = 'Paused';
+};
+
+window.resetAdminWorkforceJourneyReplay = function (mapId) {
+    const replay = window.adminWorkforceJourneyReplay?.[mapId];
+    if (!replay) return;
+    window.pauseAdminWorkforceJourneyReplay(mapId);
+    replay.currentMs = replay.startMs;
+    window.renderAdminWorkforceJourneyReplay(replay, true);
+    if (replay.currentStats?.status) replay.currentStats.status.textContent = 'Ready';
+};
+
+window.stopAdminWorkforceJourneyReplay = function (mapId) {
+    const replay = window.adminWorkforceJourneyReplay?.[mapId];
+    const state = window.adminLiveMaps?.[mapId];
+    if (!replay) {
+        if (state) {
+            state.workforceReplay = null;
+            window.setAdminLiveLayersVisible(state, true);
+        }
+        return;
+    }
+    window.pauseAdminWorkforceJourneyReplay(mapId);
+    try {
+        replay.tracks.forEach(function (track) {
+            [track.marker, track.travelled, track.remaining, track.startMarker, track.endMarker].forEach(function (layer) {
+                if (layer && state?.map) { try { state.map.removeLayer(layer); } catch { } }
+            });
+            (track.eventMarkers || []).forEach(function (layer) { try { state.map.removeLayer(layer); } catch { } });
+            (track.stopMarkers || []).forEach(function (layer) { try { state.map.removeLayer(layer); } catch { } });
+        });
+        if (replay.overlay?.parentNode) replay.overlay.parentNode.removeChild(replay.overlay);
+    } catch { }
+    delete window.adminWorkforceJourneyReplay[mapId];
+    if (state) {
+        state.workforceReplay = null;
+        window.setAdminLiveLayersVisible(state, true);
+    }
+};
