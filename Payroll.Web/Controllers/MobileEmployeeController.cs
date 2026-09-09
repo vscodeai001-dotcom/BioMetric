@@ -405,11 +405,25 @@ public sealed class MobileEmployeeController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync();
         var employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(x => x.EmployeeID == employeeId && !x.IsDeleted);
         if (employee == null) return NotFound(new { success = false, message = "Employee not found." });
+
         var latest = await db.PayrollHistories.AsNoTracking().Where(x => x.EmployeeID == employeeId)
             .OrderByDescending(x => x.PayYear).ThenByDescending(x => x.PayMonth).FirstOrDefaultAsync();
-        return Ok(new { success = true, employeeId, name = employee.Name, email = employee.Email ?? "", monthlySalary = employee.MonthlySalary,
-            paidLeaveBalance = employee.PaidLeaveBalance, sickLeaveBalance = employee.SickLeaveBalance,
-            latestPayslip = latest == null ? null : ToPayslip(latest) });
+
+        var company = await db.CompanySettings.AsNoTracking().FirstOrDefaultAsync(x => x.SettingID == 1);
+
+        return Ok(new {
+            success = true,
+            employeeId,
+            name = employee.Name,
+            email = employee.Email ?? "",
+            monthlySalary = employee.MonthlySalary,
+            paidLeaveBalance = employee.PaidLeaveBalance,
+            sickLeaveBalance = employee.SickLeaveBalance,
+            latestPayslip = latest == null ? null : ToPayslip(latest),
+            officeLatitude = company?.OfficeLatitude ?? 0,
+            officeLongitude = company?.OfficeLongitude ?? 0,
+            geoRadiusMeters = company?.GeoRadiusMeters ?? 100
+        });
     }
 
     [HttpGet("attendance")]
