@@ -51,9 +51,7 @@ public class GeoLocationService
             .AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == 1);
 
-        if (features == null ||
-    (!features.EnableGeoFencing &&
-     !features.EnableDualAttendance))
+        if (features?.EnableGeoFencing != true)
         {
             return new GeoDistanceResult
             {
@@ -555,13 +553,16 @@ public class GeoLocationService
         bool? previousLocationState,
         bool currentLocationState)
     {
-        // Automatic geofence attendance is available ONLY in Dual Attendance mode.
-        // Single Geo-Fencing mode remains manual mobile punch only.
+        // Automatic geofence attendance requires BOTH Geo-Fencing and the
+        // dedicated Automatic Geofence Punching feature. Dual Attendance is
+        // independent: when enabled, biometric remains the highest-priority
+        // attendance source while automatic geofence punches are still saved.
         var features = await db.FeatureSettings
             .AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == 1);
 
-        if (features?.EnableDualAttendance != true)
+        if (features?.EnableGeoFencing != true ||
+            features.EnableAutomaticGeofencePunching != true)
             return true;
 
         // The GPS state is nullable because a session can begin before the
@@ -1357,7 +1358,7 @@ public class GeoLocationService
         var safeAccuracy =
             NormalizeAccuracy(accuracyMeters);
 
-        if (features?.EnableGeoFencing != true && features?.EnableDualAttendance != true)
+        if (features?.EnableGeoFencing != true)
         {
             var result = new GeoPunchResult
             {
@@ -1583,7 +1584,8 @@ public class GeoLocationService
             .AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == 1);
 
-        if (features?.EnableDualAttendance != true)
+        if (features?.EnableGeoFencing != true ||
+            features.EnableAutomaticGeofencePunching != true)
             return;
 
         await AcquireAttendanceAdvisoryLockAsync(

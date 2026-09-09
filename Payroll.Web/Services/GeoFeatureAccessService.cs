@@ -55,7 +55,7 @@ public sealed class GeoFeatureAccessService
                 .AsNoTracking()
                 .FirstOrDefaultAsync(f => f.Id == 1);
 
-        return settings?.EnableGeoFencing == true || settings?.EnableDualAttendance == true;
+        return settings?.EnableGeoFencing == true;
     }
 
     /// <summary>

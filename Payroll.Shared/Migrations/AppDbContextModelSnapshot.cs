@@ -1140,6 +1140,10 @@ namespace Payroll.Shared.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("enable_dual_attendance");
 
+                    b.Property<bool>("EnableAutomaticGeofencePunching")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_automatic_geofence_punching");
+
                     b.Property<bool>("EnableInAppNotifications")
                         .HasColumnType("boolean")
                         .HasColumnName("enable_in_app_notifications");

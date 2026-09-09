@@ -167,6 +167,12 @@ namespace Payroll.Shared.Data
         [Column("enable_dual_attendance")]
         public bool EnableDualAttendance { get; set; } = false;
 
+        // --- AUTOMATIC GEOFENCE PUNCHING TOGGLE ---
+        // Controls only automatic IN/OUT generated from GPS geofence state.
+        // Requires Geo-Fencing to be enabled.
+        [Column("enable_automatic_geofence_punching")]
+        public bool EnableAutomaticGeofencePunching { get; set; } = false;
+
         // --- NEW: EXIT MANAGEMENT ---
         [Column("enable_resignation_module")]
         public bool EnableResignationModule { get; set; } = false;

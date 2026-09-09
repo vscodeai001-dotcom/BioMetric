@@ -203,21 +203,33 @@ else
                                         <label class="form-check-label fw-bold text-primary" for="c_geo">Enable Geo-Fencing (Mobile)</label>
                                     </div>
                                     <div class="form-check form-switch mb-2 ms-4">
-                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableDualAttendance" id="c_dual_attendance" />
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableDualAttendance" id="c_dual_attendance" disabled="@(!settings.EnableGeoFencing)" />
                                         <label class="form-check-label fw-bold text-success small" for="c_dual_attendance">↳ Dual Attendance (Biometric + Geo-Fencing)</label>
                                     </div>
+                                    <div class="form-check form-switch mb-2 ms-4">
+                                        <input class="form-check-input" type="checkbox" role="switch" @bind="settings.EnableAutomaticGeofencePunching" id="c_auto_geo_punch" disabled="@(!settings.EnableGeoFencing)" />
+                                        <label class="form-check-label fw-bold text-warning small" for="c_auto_geo_punch">↳ Automatic Geofence Punching (IN / OUT)</label>
+                                    </div>
                                     <div class="small text-muted ms-4 mb-2">
-                                        @if (settings.EnableDualAttendance)
+                                        @if (!settings.EnableGeoFencing)
                                         {
-                                            <span>Both biometric machine and geofence attendance are active. Biometric punches have priority.</span>
+                                            <span>Geo-Fencing is OFF: all GPS, Dual Attendance and Automatic Geofence Punching are disabled. Physical biometric attendance remains active.</span>
                                         }
-                                        else if (settings.EnableGeoFencing)
+                                        else if (settings.EnableDualAttendance && settings.EnableAutomaticGeofencePunching)
                                         {
-                                            <span>Single mode: Geo-Fencing/mobile attendance is active; biometric machine attendance is disabled.</span>
+                                            <span>Full Dual Attendance: physical biometric is highest priority; automatic geofence IN/OUT is also recorded and reconciled.</span>
+                                        }
+                                        else if (settings.EnableDualAttendance)
+                                        {
+                                            <span>Dual Attendance: physical biometric and geofence are active; automatic geofence punching is disabled.</span>
+                                        }
+                                        else if (settings.EnableAutomaticGeofencePunching)
+                                        {
+                                            <span>Automatic Geo Attendance: geofence automatically records IN/OUT; physical biometric is disabled in single Geo mode.</span>
                                         }
                                         else
                                         {
-                                            <span>Single mode: biometric machine attendance is active; Geo-Fencing/mobile attendance is disabled.</span>
+                                            <span>Geo-Fencing is active without automatic punching. Manual employee punch is available.</span>
                                         }
                                     </div>
                                     <hr class="my-2 text-muted opacity-25">
@@ -654,6 +666,14 @@ else
         isSaving = true;
         try
         {
+            // Geo-Fencing is the master GPS switch. Child attendance modes
+            // cannot remain enabled when the master is disabled.
+            if (!settings.EnableGeoFencing)
+            {
+                settings.EnableDualAttendance = false;
+                settings.EnableAutomaticGeofencePunching = false;
+            }
+
             await using var dbContext = await DbFactory.CreateDbContextAsync();
             var existing = await dbContext.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
             if (existing != null) dbContext.Entry(existing).State = EntityState.Detached;

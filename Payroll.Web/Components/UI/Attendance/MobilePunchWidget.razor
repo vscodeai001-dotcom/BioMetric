@@ -178,21 +178,24 @@
                     }
                 }
 
-                <button class="btn btn-primary w-100 fw-bold shadow-sm"
-                        @onclick="AttemptPunch"
-                        disabled="@(!CanPunch)">
+                @if (!isBiometricAttendanceEnabled && !isAutomaticGeofencePunchingEnabled)
+                {
+                    <button class="btn btn-primary w-100 fw-bold shadow-sm"
+                            @onclick="AttemptPunch"
+                            disabled="@(!CanPunch)">
 
-                    @if (isPunching)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                        <span>Processing...</span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-fingerprint me-2"></i>
-                        <span>PUNCH IN / OUT</span>
-                    }
-                </button>
+                        @if (isPunching)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            <span>Processing...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-fingerprint me-2"></i>
+                            <span>PUNCH IN / OUT</span>
+                        }
+                    </button>
+                }
 
                 <small class="d-block mt-2 text-muted" style="font-size:.75em;">
                     @if (isLiveTracking)
@@ -481,6 +484,8 @@
     public string EmployeeName { get; set; } = "You";
 
     private bool isModuleEnabled;
+    private bool isBiometricAttendanceEnabled;
+    private bool isAutomaticGeofencePunchingEnabled;
     private bool isProcessing;
     private bool isRefreshingLocation;
     private bool isPunching;
@@ -513,7 +518,9 @@
         hasLocation &&
         isWithinRadius &&
         !isPunching &&
-        !isRefreshingLocation;
+        !isRefreshingLocation &&
+        !isBiometricAttendanceEnabled &&
+        !isAutomaticGeofencePunchingEnabled;
 
     protected override async Task OnInitializedAsync()
     {
@@ -526,6 +533,22 @@
                 .FirstOrDefaultAsync(s => s.SettingID == 1);
 
             isModuleEnabled = await GeoAccess.IsEnabledAsync();
+
+            var features = await db.FeatureSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(f => f.Id == 1);
+
+            isAutomaticGeofencePunchingEnabled =
+                features?.EnableGeoFencing == true &&
+                features.EnableAutomaticGeofencePunching;
+
+            // Physical biometric is the highest-priority attendance source.
+            // Existing single/dual mode semantics determine whether the
+            // machine is active.
+            isBiometricAttendanceEnabled =
+                features != null &&
+                (features.EnableDualAttendance || !features.EnableGeoFencing);
+
             radius = company?.GeoRadiusMeters ?? 100;
             officeLatitude = company?.OfficeLatitude ?? 0;
             officeLongitude = company?.OfficeLongitude ?? 0;
@@ -1125,6 +1148,17 @@
                 .FirstOrDefaultAsync(s => s.SettingID == 1);
 
             var enabled = await GeoAccess.IsEnabledAsync();
+
+            var features = await db.FeatureSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(f => f.Id == 1);
+
+            isAutomaticGeofencePunchingEnabled =
+                features?.EnableGeoFencing == true &&
+                features.EnableAutomaticGeofencePunching;
+            isBiometricAttendanceEnabled =
+                features != null &&
+                (features.EnableDualAttendance || !features.EnableGeoFencing);
 
             radius = company?.GeoRadiusMeters ?? 100;
             officeLatitude = company?.OfficeLatitude ?? 0;
