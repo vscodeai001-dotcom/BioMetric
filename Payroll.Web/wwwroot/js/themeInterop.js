@@ -2713,12 +2713,12 @@ window.registerAdminLiveLocationRealtime = function (mapId) {
             // an excessively slow animation when the browser/network pauses.
             const duration =
                 Math.max(
-                    700,
+                    1200,
                     Math.min(
-                        9000,
+                        8000,
                         elapsed > 250
-                            ? elapsed * 0.86
-                            : 1800
+                            ? elapsed * 0.92
+                            : 2500
                     )
                 );
 
@@ -3218,8 +3218,8 @@ window.updateAdminLiveStaffMap =
                                 '<span class="payroll-map-user-initials">' + window.escapeAdminHtml(initials.toUpperCase()) + '</span>' +
                                 '<span class="payroll-map-user-status"></span>' +
                                 '</div>',
-                            iconSize: [46, 46],
-                            iconAnchor: [23, 23]
+                            iconSize: [46, 54],
+                            iconAnchor: [23, 54] // Exact bottom tip anchoring
                         });
 
                     let markerCreated = false;
@@ -3320,6 +3320,22 @@ window.updateAdminLiveStaffMap =
 
                                     if (state.journeyLabels[employeeId]) {
                                         state.journeyLabels[employeeId].setLatLng(animatedPosition);
+                                    }
+
+                                    // Update road route endpoint to match visual marker motion
+                                    if (state.roadRouteLines?.[employeeId]) {
+                                        const current = state.roadRouteLines[employeeId].getLatLngs();
+                                        if (current?.length >= 2) {
+                                            current[current.length - 1] = animatedPosition;
+                                            state.roadRouteLines[employeeId].setLatLngs(current);
+                                        }
+                                    }
+                                    if (state.roadRouteCasings?.[employeeId]) {
+                                        const current = state.roadRouteCasings[employeeId].getLatLngs();
+                                        if (current?.length >= 2) {
+                                            current[current.length - 1] = animatedPosition;
+                                            state.roadRouteCasings[employeeId].setLatLngs(current);
+                                        }
                                     }
 
                                     if (state.labels[employeeId]) {
@@ -3479,9 +3495,9 @@ window.updateAdminLiveStaffMap =
                         `<div class="admin-live-hover-card">` +
                         `<div class="admin-live-hover-title"><span class="hover-avatar">${window.escapeAdminHtml(initials.toUpperCase())}</span><strong>${safeName}</strong><span class="hover-state ${withinRange ? 'within' : 'outside'}">${withinRange ? 'Within range' : 'Outside range'}</span></div>` +
                         `<div class="admin-live-hover-grid">` +
-                        `<span><small>Distance</small><b>${tooltipDistance}</b></span>` +
+                        `<span><small>Air Distance</small><b>${distance}</b></span>` +
+                        `<span><small>Road Distance</small><b>${tooltipDistance}</b></span>` +
                         `<span><small>ETA</small><b>${tooltipEta}</b></span>` +
-                        `<span><small>Speed</small><b>${window.payrollEscapeHtml(window.payrollFormatSpeed(routeStateForTooltip.speedMps || 0))}</b></span>` +
                         `<span><small>Accuracy</small><b>${window.payrollEscapeHtml(tooltipAccuracy)}</b></span>` +
                         `</div></div>`;
 
@@ -3542,6 +3558,12 @@ window.updateAdminLiveStaffMap =
                         state.lines[employeeId]?.setStyle({ opacity: 0 });
                         const routeDistance = window.payrollFormatRouteDistance(remaining);
                         const eta = window.payrollFormatRouteDuration(route.durationSeconds);
+
+                        const distanceElement = document.querySelector(`[data-selected-route-distance="${employeeId}"]`);
+                        if (distanceElement) {
+                            distanceElement.innerText = routeDistance;
+                        }
+
                         const name = window.payrollEscapeHtml(x.name || 'Employee');
                         const hoverAccuracy = Number(x.accuracyMeters) > 0 ? `±${Math.round(Number(x.accuracyMeters))} m` : 'Unknown';
                         const hoverWithin = Boolean(x.isWithinAllowedRadius);

@@ -108,7 +108,7 @@
                             </div>
                             <div class="selected-identity-text">
                                 <strong>@selectedEmployee.Name</strong>
-                                <span>Live location tracking</span>
+                                <span>📍 Destination • To Office</span>
                             </div>
                         </div>
                         <button type="button" class="selected-close" @onclick="() => SelectEmployee(selectedEmployeeId)" aria-label="Close employee details">
@@ -130,8 +130,12 @@
 
                         <div class="selected-metrics">
                             <div class="selected-metric primary">
-                                <span><i class="bi bi-signpost-2-fill"></i> Route distance</span>
-                                <strong data-selected-route-distance="@selectedEmployee.EmployeeID">@FormatDistance(selectedLocation.DistanceMeters)</strong>
+                                <span><i class="bi bi-geo-fill"></i> Air Distance</span>
+                                <strong>@FormatDistance(selectedLocation.DistanceMeters)</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-signpost-2-fill"></i> Road distance</span>
+                                <strong data-selected-route-distance="@selectedEmployee.EmployeeID">Calculating…</strong>
                             </div>
                             <div class="selected-metric">
                                 <span><i class="bi bi-bullseye"></i> Geofence</span>
@@ -1145,16 +1149,23 @@
     }
 
     .live-staff-body.has-selection {
-        grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+        grid-template-columns: 1fr;
     }
 
     .selected-live-card {
-        min-width: 0;
-        padding: 18px;
-        border-left: 1px solid rgba(0,0,0,.08);
-        background: rgba(255,255,255,.96);
+        position: absolute; top: 16px; right: 16px; z-index: 1000;
+        width: 330px; padding: 18px;
+        background: rgba(255,255,255,.94);
         backdrop-filter: blur(16px);
-        box-shadow: -12px 0 30px rgba(18, 31, 53, .06);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+        border-radius: 20px;
+        border: 1px solid rgba(13,110,253,0.15);
+        animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @@keyframes slideInRight {
+        from { transform: translateX(30px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
     }
 
     .selected-live-card-header, .selected-identity, .selected-status-row {
@@ -1228,22 +1239,33 @@
 
     .payroll-user-marker { background: transparent !important; border: 0 !important; }
     .payroll-map-user {
-        position: relative; width: 44px; height: 44px; border-radius: 15px;
+        position: relative; width: 44px; height: 52px;
         display:flex; align-items:center; justify-content:center;
         color:#fff; font-size:11px; font-weight:850; letter-spacing:.5px;
-        border:2px solid rgba(255,255,255,.92);
-        box-shadow:0 8px 18px rgba(15,23,42,.28), inset 0 1px 0 rgba(255,255,255,.35);
-        transition:transform .18s ease, box-shadow .18s ease;
+        filter: drop-shadow(0 4px 8px rgba(15,23,42,0.35));
+        transition: transform 0.2s ease;
     }
-    .payroll-map-user:hover { transform:translateY(-2px) scale(1.05); box-shadow:0 11px 24px rgba(15,23,42,.34), inset 0 1px 0 rgba(255,255,255,.42); }
-    .payroll-map-user-within { background:linear-gradient(145deg,#1688ff,#635bdb); }
-    .payroll-map-user-outside { background:linear-gradient(145deg,#ef5b68,#c92f52); }
+    .payroll-map-user::before {
+        content: ""; position: absolute; inset: 0;
+        background: currentColor;
+        clip-path: polygon(50% 100%, 0% 40%, 0% 20%, 10% 5%, 30% 0%, 70% 0%, 90% 5%, 100% 20%, 100% 40%);
+        border-radius: 22px 22px 4px 4px;
+        z-index: -1;
+    }
+    .payroll-map-user:hover { transform:translateY(-2px) scale(1.05); }
+    .payroll-map-user-within { color: #3b82f6; } /* Premium Blue */
+    .payroll-map-user-outside { color: #ef4444; } /* Premium Red */
+
     .payroll-map-user-status {
-        position:absolute; right:-3px; bottom:-3px; width:11px; height:11px; border-radius:50%;
-        background:#22c55e; border:2px solid #fff; box-shadow:0 2px 7px rgba(0,0,0,.25);
+        position:absolute; right:2px; top:2px; width:12px; height:12px; border-radius:50%;
+        background:#22c55e; border:2px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.2);
     }
     .payroll-map-user-outside .payroll-map-user-status { background:#ef4444; }
-    .payroll-map-user-initials { line-height:1; user-select:none; }
+    .payroll-map-user-initials {
+        line-height: 1; user-select: none; z-index: 1;
+        margin-top: -14px; /* Centered in the top bulb of the pin */
+        font-size: 10px; text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
 
     .admin-office-tooltip, .admin-live-hover-tooltip {
         background:rgba(12,18,30,.94) !important; color:#eef5ff !important;
@@ -1953,7 +1975,11 @@
         background: rgba(13,110,253,.15);
     }
 
-    body.dark .selected-live-card { background:rgba(16,24,38,.96); border-color:rgba(255,255,255,.10); box-shadow:-12px 0 30px rgba(0,0,0,.20); }
+    body.dark .selected-live-card {
+        background:rgba(15,23,42,0.92);
+        border-color:rgba(255,255,255,0.12);
+        box-shadow: 0 15px 45px rgba(0,0,0,0.45);
+    }
     body.dark .selected-status-row, body.dark .selected-metric { background:rgba(255,255,255,.035); border-color:rgba(255,255,255,.09); }
     body.dark .selected-coordinates { background:rgba(255,255,255,.035); }
     body.dark .selected-close { background:rgba(255,255,255,.07); color:#a9b5c5; }
