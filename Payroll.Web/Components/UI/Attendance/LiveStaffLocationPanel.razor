@@ -57,7 +57,7 @@
          LIVE MAP + STAFF LIST
          ============================================================ -->
 
-    <div class="live-staff-body">
+    <div class="live-staff-body @(selectedEmployeeId > 0 ? "has-selection" : "")">
 
         <div class="admin-map-wrapper">
 
@@ -68,120 +68,106 @@
             @if (liveCount == 0)
             {
                 <div class="map-empty-overlay">
-                    <i class="bi bi-geo-alt display-6 text-muted"></i>
+                    <i class="bi bi-broadcast-pin display-6 text-muted"></i>
                     <span>No live staff locations</span>
-                    <small>Staff location will appear when live tracking is active.</small>
+                    <small>Live employee locations will appear automatically.</small>
                 </div>
             }
+
+            <div class="map-live-legend">
+                <span><i class="legend-dot within"></i> Within range</span>
+                <span><i class="legend-dot outside"></i> Outside range</span>
+            </div>
 
         </div>
 
+        @if (selectedEmployeeId > 0)
+        {
+            var selectedEmployee = employees.FirstOrDefault(e => e.EmployeeID == selectedEmployeeId);
+            var selectedLocation = GetLocation(selectedEmployeeId);
 
-        <div class="live-staff-list">
-
-            @if (employees.Count == 0)
+            if (selectedEmployee != null)
             {
-                <div class="text-center text-muted py-4">
-
-                    <i class="bi bi-people fs-3 d-block mb-2"></i>
-
-                    No employees found.
-
-                </div>
-            }
-            else
-            {
-                @foreach (var employee in employees)
-                {
-                    var location = GetLocation(employee.EmployeeID);
-                    var status = GetLocationStatus(location);
-
-                    <button type="button"
-                            class="staff-location-item @(selectedEmployeeId == employee.EmployeeID ? "selected" : "")"
-                            @onclick="() => SelectEmployee(employee.EmployeeID)">
-
-                        <div class="staff-avatar @GetAvatarClass(status)">
-                            <i class="bi bi-person-fill"></i>
-                        </div>
-
-                        <div class="staff-location-info">
-
-                            <div class="staff-name-row">
-
-                                <strong>
-                                    @employee.Name
-                                </strong>
-
-                                <span class="staff-live-state @GetStatusClass(status)">
-                                    @GetStatusText(status)
-                                </span>
-
+                <aside class="selected-live-card">
+                    <div class="selected-live-card-header">
+                        <div class="selected-identity">
+                            <div class="premium-avatar @GetAvatarClass(selectedLocation != null ? GetLocationStatus(selectedLocation) : LocationStatus.Offline)">
+                                @GetInitials(selectedEmployee.Name)
+                                <span class="avatar-status-dot"></span>
                             </div>
+                            <div class="selected-identity-text">
+                                <strong>@selectedEmployee.Name</strong>
+                                <span>Live location tracking</span>
+                            </div>
+                        </div>
+                        <button type="button" class="selected-close" @onclick="() => SelectEmployee(selectedEmployeeId)" aria-label="Close employee details">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
 
-                            @if (location != null)
-                            {
-                                <div class="staff-location-details">
-
-                                    <span>
-                                        <i class="bi bi-rulers me-1"></i>
-                                        @FormatDistance(location.DistanceMeters)
-                                    </span>
-
-                                    <span class="@(location.IsWithinAllowedRadius ? "text-success" : "text-danger")">
-
-                                        @(location.IsWithinAllowedRadius
-                                                                    ? "Within range"
-                                                                    : "Outside range")
-
-                        </span>
-
-                                </div>
-
-                                <div class="staff-session-details">
-
-                                    <span>
-                                        <i class="bi bi-play-circle me-1"></i>
-                                        Started
-                                        @ToLocalTime(location.SessionStartedUtc).ToString("HH:mm:ss")
-                                    </span>
-
-                                    <span>
-                                        <i class="bi bi-stopwatch me-1"></i>
-                                        @FormatDuration(GetSessionDuration(location))
-                                    </span>
-
-                                </div>
-
-                                <small class="text-muted d-block mt-1">
-
-                                    <i class="bi bi-clock me-1"></i>
-
-                                    Updated
-                                    @ToLocalTime(location.LastUpdatedUtc).ToString("HH:mm:ss")
-
-                                </small>
-                                        }
-                            else
-                            {
-                                <div class="staff-location-details text-muted">
-                                    <span>
-                                        No live location
-                                    </span>
-                                </div>
-                            }
-
+                    @if (selectedLocation != null)
+                    {
+                        var selectedStatus = GetLocationStatus(selectedLocation);
+                        <div class="selected-status-row">
+                            <span class="selected-status @GetStatusClass(selectedStatus)">
+                                <i class="bi bi-record-fill"></i> @GetStatusText(selectedStatus)
+                            </span>
+                            <span class="selected-updated">
+                                Updated @ToLocalTime(selectedLocation.LastUpdatedUtc).ToString("HH:mm:ss")
+                            </span>
                         </div>
 
-                        <i class="bi bi-chevron-right staff-arrow"></i>
+                        <div class="selected-metrics">
+                            <div class="selected-metric primary">
+                                <span><i class="bi bi-signpost-2-fill"></i> Route distance</span>
+                                <strong data-selected-route-distance="@selectedEmployee.EmployeeID">@FormatDistance(selectedLocation.DistanceMeters)</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-bullseye"></i> Geofence</span>
+                                <strong class="@(selectedLocation.IsWithinAllowedRadius ? "text-success" : "text-danger")">
+                                    @(selectedLocation.IsWithinAllowedRadius ? "Within range" : "Outside range")
+                                </strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-crosshair"></i> GPS accuracy</span>
+                                <strong>@FormatAccuracy(selectedLocation.AccuracyMeters)</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-hourglass-split"></i> Tracking</span>
+                                <strong>@FormatDuration(GetSessionDuration(selectedLocation))</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-broadcast-pin"></i> Last update</span>
+                                <strong>@ToLocalTime(selectedLocation.LastUpdatedUtc).ToString("HH:mm:ss")</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-rulers"></i> Allowed radius</span>
+                                <strong>@selectedLocation.AllowedRadiusMeters m</strong>
+                            </div>
+                        </div>
 
-                    </button>
-                }
+                        <div class="selected-coordinates">
+                            <div><span>Latitude</span><strong>@selectedLocation.Latitude.ToString("F6")</strong></div>
+                            <div><span>Longitude</span><strong>@selectedLocation.Longitude.ToString("F6")</strong></div>
+                        </div>
+
+                        <button type="button" class="selected-action" @onclick="() => SelectEmployee(selectedEmployeeId)">
+                            <i class="bi bi-chevron-up"></i> Collapse details
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="selected-offline">
+                            <i class="bi bi-broadcast"></i>
+                            <strong>GPS session unavailable</strong>
+                            <span>The employee is not currently sending a live location.</span>
+                        </div>
+                    }
+                </aside>
             }
-
-        </div>
+        }
 
     </div>
-
 
     <!-- ============================================================
          FOOTER
@@ -545,7 +531,7 @@
 
                     <button type="button"
                             class="btn btn-outline-primary btn-sm"
-                            @onclick="() => LoadSelectedEmployeeHistory()"
+                            @onclick="LoadSelectedEmployeeHistory"
                             disabled="@historyLoading">
 
                         <i class="bi bi-arrow-clockwise @(historyLoading ? "spin" : "")"></i>
@@ -594,51 +580,36 @@
                      HISTORY SUMMARY
                      ==================================================== -->
 
-                <!-- ====================================================
-                     CCTV-STYLE ROUTE RECONSTRUCTION
-                     ==================================================== -->
-                <div class="route-reconstruction-panel">
-                    <div class="route-reconstruction-head">
-                        <div>
-                            <div class="route-camera-label"><span class="route-rec-dot"></span> ROUTE RECONSTRUCTION</div>
-                            <h6 class="fw-bold mb-1">@historyDate.ToString("dd MMM yyyy") · @selectedEmployee.Name</h6>
-                            <small class="text-muted">Recorded GPS journey · select a session or play the complete day</small>
-                        </div>
-                        <div class="route-camera-status"><i class="bi bi-camera-video-fill me-1"></i> GPS TRACK</div>
+                <div class="location-history-summary">
+
+                    <div>
+                        <small>STARTED</small>
+                        <strong>@HistoryStartText</strong>
                     </div>
 
-                    <div class="route-reconstruction-strip">
-                        <div class="route-point-card start">
-                            <span class="route-point-icon"><i class="bi bi-play-fill"></i></span>
-                            <div><small>STARTED</small><strong>@HistoryStartText</strong>
-                                @if (selectedHistory.Count > 0)
-                                {
-                                    <span>@selectedHistory.First().Latitude.ToString("F6"), @selectedHistory.First().Longitude.ToString("F6")</span>
-                                }
-                            </div>
-                        </div>
-
-                        <div class="route-journey-line"><span></span><small>@FormatDistance(HistoryTravelDistance) TRAVEL</small><span></span></div>
-
-                        <div class="route-point-card end">
-                            <span class="route-point-icon"><i class="bi bi-flag-fill"></i></span>
-                            <div><small>ENDED / LAST GPS</small><strong>@HistoryEndText</strong>
-                                @if (selectedHistory.Count > 0)
-                                {
-                                    <span>@selectedHistory.Last().Latitude.ToString("F6"), @selectedHistory.Last().Longitude.ToString("F6")</span>
-                                }
-                            </div>
-                        </div>
+                    <div>
+                        <small>LAST UPDATE</small>
+                        <strong>@HistoryEndText</strong>
                     </div>
 
-                    <div class="location-history-summary">
-                        <div><small>GPS POINTS</small><strong>@selectedHistory.Count</strong><span>Recorded positions</span></div>
-                        <div><small>MAX DISTANCE</small><strong>@FormatDistance(HistoryMaxDistance)</strong><span>From office</span></div>
-                        <div><small>TRAVEL</small><strong>@FormatDistance(HistoryTravelDistance)</strong><span>Route distance</span></div>
-                        <div><small>SESSIONS</small><strong>@HistorySessionCount</strong><span>Tracking sessions</span></div>
-                        <div><small>DAY</small><strong>@historyDate.ToString("dd MMM")</strong><span>Selected date</span></div>
+                    <div>
+                        <small>GPS POINTS</small>
+                        <strong>@selectedHistory.Count</strong>
                     </div>
+
+                    <div>
+                        <small>MAX DISTANCE</small>
+                        <strong>@FormatDistance(HistoryMaxDistance)</strong>
+                    </div>
+
+                    <div>
+                        <small>TRAVEL</small>
+                        <strong>@FormatDistance(HistoryTravelDistance)</strong>
+                    </div>
+
                 </div>
+
+
 
                 <!-- ====================================================
                      GPS QUALITY + SESSION SUMMARY
@@ -704,137 +675,149 @@
                 </div>
 
                 <!-- ====================================================
-                     ENTERPRISE JOURNEY REPLAY
+                     PLAYBACK TOOLBAR
                      ==================================================== -->
 
-                <section class="enterprise-journey-replay">
-                    <div class="journey-replay-head">
-                        <div class="journey-replay-title">
-                            <div class="journey-recording-dot"></div>
-                            <div>
-                                <div class="journey-eyebrow">JOURNEY REPLAY</div>
-                                <h5 class="mb-0 fw-bold">@SelectedEmployeeName · @historyDate.ToString("dd MMM yyyy")</h5>
-                                <small>GPS reconstruction · start to end · every recorded coordinate preserved</small>
-                            </div>
-                        </div>
-                        <div class="journey-head-badges">
-                            <span class="journey-badge"><i class="bi bi-geo-alt-fill"></i> @PlaybackPoints.Count GPS points</span>
-                            <span class="journey-badge"><i class="bi bi-clock-history"></i> @HistoryStartText → @HistoryEndText</span>
-                        </div>
+                <div class="history-playback-toolbar">
+
+                    <div class="history-playback-title">
+
+                        <i class="bi bi-play-circle-fill text-primary me-1"></i>
+
+                        Route Playback
+
+                        @if (selectedPlaybackSessionId.HasValue)
+                        {
+                            <span class="badge bg-primary-subtle text-primary ms-2">
+                                Session @ShortSessionId(selectedPlaybackSessionId.Value)
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary-subtle text-secondary ms-2">
+                                Full Day
+                            </span>
+                        }
+
                     </div>
 
-                    @if (CanPlayback)
-                    {
-                        <div class="journey-metrics">
-                            <div class="journey-metric journey-metric-start">
-                                <span>START</span>
-                                <strong>@HistoryStartText</strong>
-                                <small>@(selectedHistory.Count > 0 ? $"{selectedHistory[0].Latitude:F6}, {selectedHistory[0].Longitude:F6}" : "-")</small>
-                            </div>
-                            <div class="journey-metric">
-                                <span>TRAVELLED</span>
-                                <strong>@FormatDistance(HistoryTravelDistance)</strong>
-                                <small>@HistoryTravelDurationText journey duration</small>
-                            </div>
-                            <div class="journey-metric">
-                                <span>STOPS</span>
-                                <strong>@HistoryStopCount</strong>
-                                <small>detected pauses</small>
-                            </div>
-                            <div class="journey-metric journey-metric-end">
-                                <span>END / LAST GPS</span>
-                                <strong>@HistoryEndText</strong>
-                                <small>@(selectedHistory.Count > 0 ? $"{selectedHistory[^1].Latitude:F6}, {selectedHistory[^1].Longitude:F6}" : "-")</small>
-                            </div>
-                        </div>
+                    <div class="history-playback-actions">
 
-                        <div class="journey-replay-stage">
-                            <div class="journey-stage-strip">
-                                <div class="journey-live-state">
-                                    <span class="journey-state-pulse"></span>
-                                    <strong>@playbackStatus</strong>
-                                    <span>GPS @PlaybackDisplayIndex / @PlaybackPoints.Count</span>
-                                </div>
-                                <div class="journey-stage-now">
-                                    <i class="bi bi-crosshair2"></i>
-                                    <strong>@PlaybackTimeText</strong>
-                                    <span>@PlaybackDistanceText</span>
-                                </div>
-                            </div>
+                        <button type="button"
+                                class="btn btn-sm @(selectedPlaybackSessionId.HasValue ? "btn-outline-secondary" : "btn-secondary")"
+                                @onclick="SelectFullDayPlayback"
+                                disabled="@(!selectedPlaybackSessionId.HasValue)">
+                            <i class="bi bi-calendar3 me-1"></i>
+                            Full Day
+                        </button>
 
-                            <div class="journey-route-legend">
-                                <span><i class="journey-line travelled"></i> Travelled</span>
-                                <span><i class="journey-line remaining"></i> Remaining</span>
-                                <span><i class="journey-dot start"></i> Start</span>
-                                <span><i class="journey-dot end"></i> End</span>
-                                <span><i class="bi bi-pause-circle"></i> Stop</span>
-                                <span><i class="bi bi-shield-check"></i> Geofence transition</span>
-                            </div>
-                        </div>
+                        <button type="button"
+                                class="btn btn-sm btn-primary"
+                                @onclick="PlayHistory"
+                                disabled="@(!CanPlayback)">
+                            <i class="bi bi-play-fill me-1"></i>
+                            Play
+                        </button>
 
-                        <div class="journey-controls">
-                            <div class="journey-control-primary">
-                                <button type="button" class="journey-control journey-play" @onclick="PlayHistory" disabled="@(!CanPlayback)">
-                                    <i class="bi bi-play-fill"></i><span>Play Journey</span>
-                                </button>
-                                <button type="button" class="journey-control" @onclick="PauseHistory" disabled="@(!CanPlayback)">
-                                    <i class="bi bi-pause-fill"></i><span>Pause</span>
-                                </button>
-                                <button type="button" class="journey-control" @onclick="ResetHistory" disabled="@(!CanPlayback)">
-                                    <i class="bi bi-arrow-counterclockwise"></i><span>Reset</span>
-                                </button>
-                                <button type="button" class="journey-control @(selectedPlaybackSessionId.HasValue ? "journey-control-active" : "")" @onclick="SelectFullDayPlayback" disabled="@(!selectedPlaybackSessionId.HasValue)">
-                                    <i class="bi bi-calendar3"></i><span>Full Day</span>
-                                </button>
-                            </div>
-                            <label class="journey-speed-control">
-                                <span>Playback speed</span>
-                                <select class="form-select form-select-sm" value="@playbackSpeed" @onchange="ChangePlaybackSpeed">
-                                    <option value="0.25">0.25×</option>
-                                    <option value="0.5">0.5×</option>
-                                    <option value="1">1× Real Time</option>
-                                    <option value="2">2×</option>
-                                    <option value="4">4×</option>
-                                    <option value="8">8×</option>
-                                </select>
-                            </label>
-                        </div>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                @onclick="PauseHistory"
+                                disabled="@(!CanPlayback)">
+                            <i class="bi bi-pause-fill me-1"></i>
+                            Pause
+                        </button>
 
-                        <div class="journey-timeline">
-                            <div class="journey-timeline-labels">
-                                <span>@HistoryStartText</span>
-                                <strong>Journey timeline</strong>
-                                <span>@HistoryEndText</span>
-                            </div>
-                            <input type="range" class="form-range journey-range" min="0" max="@(Math.Max(0, PlaybackPoints.Count - 1))" value="@PlaybackIndex" @oninput="SeekHistoryFromSlider" aria-label="Journey timeline" />
-                            <div class="journey-progress-meta">
-                                <span>Point @PlaybackDisplayIndex of @PlaybackPoints.Count</span>
-                                <span>@PlaybackDistanceText from office</span>
-                            </div>
-                        </div>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                @onclick="ResetHistory"
+                                disabled="@(!CanPlayback)">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>
+                            Reset
+                        </button>
 
-                        <div class="journey-event-strip">
-                            @foreach (var evt in HistoryJourneyEvents)
-                            {
-                                <button type="button" class="journey-event" @onclick="() => SelectHistoryPoint(evt.Index)" title="Jump to journey event">
-                                    <span class="journey-event-time">@evt.Time</span>
-                                    <strong>@evt.Label</strong>
-                                    <small>@evt.Detail</small>
-                                </button>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="journey-empty">
-                            <i class="bi bi-signpost-split"></i>
-                            <div>
-                                <strong>No GPS journey recorded for this date</strong>
-                                <span>Select another date or employee to reconstruct a journey.</span>
-                            </div>
-                        </div>
-                    }
-                </section>
+                        <select class="form-select form-select-sm history-speed"
+                                value="@playbackSpeed"
+                                @onchange="ChangePlaybackSpeed">
+                            <option value="0.25">0.25×</option>
+                            <option value="0.5">0.5×</option>
+                            <option value="1">1×</option>
+                            <option value="2">2×</option>
+                            <option value="4">4×</option>
+                            <option value="8">8×</option>
+                        </select>
+
+                    </div>
+
+                </div>
+
+
+                <!-- ====================================================
+                     PLAYBACK PROGRESS
+                     ==================================================== -->
+
+                <div class="history-playback-progress">
+
+                    <div class="playback-progress-top">
+
+                        <span>
+                            <i class="bi bi-clock me-1"></i>
+
+                            @playbackStatus
+                        </span>
+
+                        <strong>
+                            GPS @PlaybackDisplayIndex / @PlaybackPoints.Count
+                        </strong>
+
+                    </div>
+
+                    <input type="range"
+                           class="form-range playback-range"
+                           min="0"
+                           max="@(Math.Max(0, PlaybackPoints.Count - 1))"
+                           value="@PlaybackIndex"
+                           @oninput="SeekHistoryFromSlider" />
+
+                    <div class="playback-progress-bottom">
+
+                        <span>
+                            @PlaybackTimeText
+                        </span>
+
+                        <span>
+                            @PlaybackDistanceText
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <!-- ====================================================
+                     PLAYBACK STATUS
+                     ==================================================== -->
+
+                <div class="history-playback-status">
+
+                    <span>
+
+                        <i class="bi bi-broadcast me-1"></i>
+
+                        Playback:
+                        <strong>@playbackStatus</strong>
+
+                    </span>
+
+                    <span>
+
+                        <i class="bi bi-geo-alt me-1"></i>
+
+                        @PlaybackPoints.Count GPS points
+
+                    </span>
+
+                </div>
+
 
                 <!-- ====================================================
                      HISTORY TABLE
@@ -1074,15 +1057,86 @@
         overflow: hidden;
     }
 
-    .live-staff-header {
-        padding: 16px 20px;
-        border-bottom: 1px solid rgba(0,0,0,.08);
+    .live-staff-details {
+        display: none !important;
     }
 
     .live-staff-body {
         display: grid;
-        grid-template-columns: minmax(0,2fr) minmax(280px,1fr);
-        min-height: 360px;
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 430px;
+        background: rgba(8, 15, 28, .02);
+    }
+
+    .live-staff-body.has-selection {
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+    }
+
+    .selected-live-card {
+        min-width: 0;
+        padding: 18px;
+        border-left: 1px solid rgba(0,0,0,.08);
+        background: rgba(255,255,255,.96);
+        backdrop-filter: blur(16px);
+        box-shadow: -12px 0 30px rgba(18, 31, 53, .06);
+    }
+
+    .selected-live-card-header, .selected-identity, .selected-status-row {
+        display: flex;
+        align-items: center;
+    }
+
+    .selected-live-card-header { justify-content: space-between; gap: 12px; }
+    .selected-identity { gap: 11px; min-width: 0; }
+    .selected-identity-text { min-width: 0; display:flex; flex-direction:column; gap:2px; }
+    .selected-identity-text strong { font-size: .98rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .selected-identity-text span, .selected-updated { font-size:.68rem; color:#7c899b; }
+
+    .premium-avatar {
+        position:relative; width:46px; height:46px; flex:0 0 46px; border-radius:15px;
+        display:flex; align-items:center; justify-content:center;
+        color:#fff; font-size:.78rem; font-weight:800; letter-spacing:.4px;
+        background:linear-gradient(145deg,#2388ff,#5b5fe8);
+        box-shadow:0 9px 20px rgba(35,136,255,.25), inset 0 1px 0 rgba(255,255,255,.3);
+    }
+    .premium-avatar.stale { background:linear-gradient(145deg,#d99a16,#f1bf43); }
+    .premium-avatar.offline { background:linear-gradient(145deg,#697586,#3e4857); }
+    .avatar-status-dot { position:absolute; right:-2px; bottom:-2px; width:12px; height:12px; border-radius:50%; background:#22c55e; border:3px solid #fff; }
+    .premium-avatar.stale .avatar-status-dot { background:#f59e0b; }
+    .premium-avatar.offline .avatar-status-dot { background:#94a3b8; }
+
+    .selected-close { width:30px; height:30px; border:0; border-radius:9px; background:rgba(100,116,139,.08); color:#718096; }
+    .selected-close:hover { background:rgba(13,110,253,.10); color:#0d6efd; }
+    .selected-status-row { justify-content:space-between; gap:8px; margin:16px 0 12px; padding:9px 11px; border:1px solid rgba(100,116,139,.12); border-radius:11px; background:rgba(248,250,252,.78); }
+    .selected-status { font-size:.68rem; font-weight:800; }
+    .selected-status.online { color:#16a34a; } .selected-status.stale { color:#d97706; } .selected-status.offline { color:#64748b; }
+    .selected-status i { font-size:.48rem; vertical-align:middle; }
+
+    .selected-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .selected-metric { padding:11px; border:1px solid rgba(100,116,139,.11); border-radius:11px; background:rgba(248,250,252,.72); min-width:0; }
+    .selected-metric.primary { grid-column:1/-1; background:linear-gradient(145deg,rgba(13,110,253,.09),rgba(99,102,241,.055)); border-color:rgba(13,110,253,.16); }
+    .selected-metric span { display:block; font-size:.62rem; color:#7b8797; margin-bottom:4px; }
+    .selected-metric span i { margin-right:4px; }
+    .selected-metric strong { display:block; font-size:.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .selected-metric.primary strong { font-size:1.08rem; }
+    .selected-coordinates { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; padding:10px 11px; border-radius:11px; background:rgba(15,23,42,.035); }
+    .selected-coordinates span { display:block; font-size:.59rem; color:#8792a2; }
+    .selected-coordinates strong { display:block; font-size:.68rem; margin-top:2px; }
+    .selected-action { width:100%; margin-top:10px; border:0; background:transparent; color:#0d6efd; font-size:.68rem; font-weight:700; padding:6px; }
+    .selected-offline { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:6px; color:#7b8797; }
+    .selected-offline i { font-size:2rem; opacity:.55; }
+    .selected-offline strong { color:inherit; font-size:.82rem; }
+    .selected-offline span { font-size:.68rem; max-width:220px; }
+
+    .map-live-legend { position:absolute; left:14px; bottom:14px; z-index:500; display:flex; gap:8px; padding:7px 9px; border:1px solid rgba(255,255,255,.18); border-radius:10px; background:rgba(15,23,42,.78); backdrop-filter:blur(10px); color:#e8eef7; font-size:.62rem; box-shadow:0 8px 24px rgba(0,0,0,.18); }
+    .map-live-legend span { display:flex; align-items:center; gap:5px; }
+    .legend-dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+    .legend-dot.within { background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.14); }
+    .legend-dot.outside { background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.14); }
+
+    .live-staff-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(0,0,0,.08);
     }
 
     .admin-map-wrapper {
@@ -1092,9 +1146,47 @@
 
     .admin-live-map {
         width: 100%;
-        height: 360px;
+        height: 430px;
         background: #e9ecef;
     }
+
+    .payroll-user-marker { background: transparent !important; border: 0 !important; }
+    .payroll-map-user {
+        position: relative; width: 44px; height: 44px; border-radius: 15px;
+        display:flex; align-items:center; justify-content:center;
+        color:#fff; font-size:11px; font-weight:850; letter-spacing:.5px;
+        border:2px solid rgba(255,255,255,.92);
+        box-shadow:0 8px 18px rgba(15,23,42,.28), inset 0 1px 0 rgba(255,255,255,.35);
+        transition:transform .18s ease, box-shadow .18s ease;
+    }
+    .payroll-map-user:hover { transform:translateY(-2px) scale(1.05); box-shadow:0 11px 24px rgba(15,23,42,.34), inset 0 1px 0 rgba(255,255,255,.42); }
+    .payroll-map-user-within { background:linear-gradient(145deg,#1688ff,#635bdb); }
+    .payroll-map-user-outside { background:linear-gradient(145deg,#ef5b68,#c92f52); }
+    .payroll-map-user-status {
+        position:absolute; right:-3px; bottom:-3px; width:11px; height:11px; border-radius:50%;
+        background:#22c55e; border:2px solid #fff; box-shadow:0 2px 7px rgba(0,0,0,.25);
+    }
+    .payroll-map-user-outside .payroll-map-user-status { background:#ef4444; }
+    .payroll-map-user-initials { line-height:1; user-select:none; }
+
+    .admin-office-tooltip, .admin-live-hover-tooltip {
+        background:rgba(12,18,30,.94) !important; color:#eef5ff !important;
+        border:1px solid rgba(255,255,255,.13) !important; border-radius:12px !important;
+        box-shadow:0 12px 30px rgba(0,0,0,.30) !important; backdrop-filter:blur(12px);
+    }
+    .admin-office-tooltip::before, .admin-live-hover-tooltip::before { border-top-color:rgba(12,18,30,.94) !important; }
+    .admin-live-hover-card { min-width:235px; padding:2px; }
+    .admin-live-hover-title { display:flex; align-items:center; gap:7px; margin-bottom:9px; }
+    .admin-live-hover-title strong { font-size:12px; max-width:130px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .hover-avatar { width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#2388ff,#5b5fe8); color:#fff; font-size:9px; font-weight:800; }
+    .hover-state { margin-left:auto; font-size:8px; font-weight:800; padding:4px 6px; border-radius:999px; white-space:nowrap; }
+    .hover-state.within { color:#5ee39b; background:rgba(34,197,94,.12); }
+    .hover-state.outside { color:#ff7d8c; background:rgba(239,68,68,.12); }
+    .admin-live-hover-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .admin-live-hover-grid span { display:flex; flex-direction:column; gap:2px; padding:6px 7px; border-radius:8px; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.06); }
+    .admin-live-hover-grid small { color:#91a0b4; font-size:7px; text-transform:uppercase; letter-spacing:.45px; }
+    .admin-live-hover-grid b { color:#f3f7fc; font-size:10px; }
+
 
     .map-empty-overlay {
         position: absolute;
@@ -1556,137 +1648,6 @@
         color: #adb5bd;
     }
 
-    .route-reconstruction-panel {
-        margin: 0 16px 14px;
-        border: 1px solid rgba(13,110,253,.18);
-        border-radius: 12px;
-        overflow: hidden;
-        background: linear-gradient(180deg, rgba(13,110,253,.045), transparent);
-    }
-
-    .route-reconstruction-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        padding: 13px 15px;
-        border-bottom: 1px solid rgba(0,0,0,.08);
-    }
-
-    .route-camera-label {
-        font-size: .62rem;
-        font-weight: 800;
-        letter-spacing: .08em;
-        color: #6c757d;
-        margin-bottom: 3px;
-    }
-
-    .route-rec-dot {
-        display: inline-block;
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: #dc3545;
-        margin-right: 5px;
-        box-shadow: 0 0 0 3px rgba(220,53,69,.10);
-    }
-
-    .route-camera-status {
-        white-space: nowrap;
-        font-size: .66rem;
-        font-weight: 700;
-        color: #0d6efd;
-        border: 1px solid rgba(13,110,253,.22);
-        border-radius: 20px;
-        padding: 6px 9px;
-    }
-
-    .route-reconstruction-strip {
-        display: grid;
-        grid-template-columns: minmax(0,1fr) minmax(90px,.7fr) minmax(0,1fr);
-        align-items: center;
-        gap: 10px;
-        padding: 14px 15px;
-    }
-
-    .route-point-card {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-width: 0;
-    }
-
-    .route-point-icon {
-        flex: 0 0 34px;
-        width: 34px;
-        height: 34px;
-        border-radius: 50%;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(25,135,84,.10);
-        color: #198754;
-        border: 1px solid rgba(25,135,84,.2);
-    }
-
-    .route-point-card.end .route-point-icon {
-        background: rgba(220,53,69,.10);
-        color: #dc3545;
-        border-color: rgba(220,53,69,.2);
-    }
-
-    .route-point-card small,
-    .route-point-card strong,
-    .route-point-card span {
-        display: block;
-    }
-
-    .route-point-card small {
-        font-size: .58rem;
-        color: #6c757d;
-        font-weight: 800;
-        letter-spacing: .05em;
-    }
-
-    .route-point-card strong {
-        font-size: .86rem;
-        margin-top: 1px;
-    }
-
-    .route-point-card div > span {
-        font-size: .62rem;
-        color: #6c757d;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .route-journey-line {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        color: #6c757d;
-    }
-
-    .route-journey-line span {
-        height: 1px;
-        flex: 1;
-        background: repeating-linear-gradient(90deg, rgba(13,110,253,.5) 0 5px, transparent 5px 9px);
-    }
-
-    .route-journey-line small {
-        font-size: .58rem;
-        font-weight: 800;
-        white-space: nowrap;
-    }
-
-    .location-history-summary span {
-        display: block;
-        margin-top: 2px;
-        font-size: .6rem;
-        color: #6c757d;
-    }
-
     .history-date-input {
         width: 150px;
     }
@@ -1916,6 +1877,12 @@
         background: rgba(13,110,253,.15);
     }
 
+    body.dark .selected-live-card { background:rgba(16,24,38,.96); border-color:rgba(255,255,255,.10); box-shadow:-12px 0 30px rgba(0,0,0,.20); }
+    body.dark .selected-status-row, body.dark .selected-metric { background:rgba(255,255,255,.035); border-color:rgba(255,255,255,.09); }
+    body.dark .selected-coordinates { background:rgba(255,255,255,.035); }
+    body.dark .selected-close { background:rgba(255,255,255,.07); color:#a9b5c5; }
+    body.dark .avatar-status-dot { border-color:#101826; }
+
     body.dark .admin-live-map {
         background: #212529;
     }
@@ -1957,12 +1924,18 @@
 
     @@media(max-width:991px) {
 
-        .live-staff-body {
+        .live-staff-body,
+        .live-staff-body.has-selection {
             grid-template-columns: 1fr;
         }
 
+        .selected-live-card {
+            border-left: 0;
+            border-top: 1px solid rgba(0,0,0,.08);
+        }
+
         .admin-live-map {
-            height: 300px;
+            height: 360px;
         }
 
         .live-staff-list {
@@ -1973,22 +1946,6 @@
 
         .live-details-grid {
             grid-template-columns: repeat(2,1fr);
-        }
-
-        .route-reconstruction-strip {
-            grid-template-columns: 1fr;
-        }
-
-        .route-journey-line {
-            order: 2;
-        }
-
-        .route-point-card.end {
-            order: 3;
-        }
-
-        .route-reconstruction-head {
-            align-items: flex-start;
         }
 
         .location-history-summary {
@@ -2108,7 +2065,6 @@
     private bool refreshQueued;
 
     private bool mapNeedsUpdate;
-    private bool historyRouteNeedsUpdate;
 
     private int selectedEmployeeId;
 
@@ -2206,7 +2162,7 @@
             // the timeline cannot retain a stale Active badge after logout.
             if (selectedEmployeeId > 0)
             {
-                await LoadSelectedEmployeeHistory(false);
+                await LoadSelectedEmployeeHistory();
             }
 
             mapNeedsUpdate = true;
@@ -2229,11 +2185,11 @@
         {
             await RefreshLocations();
             await RefreshSelectedEmployeePunchAuditsSilently();
-            await LoadSelectedEmployeeHistory(false);
+            await LoadSelectedEmployeeHistory();
 
             await Task.Delay(300);
             await RefreshSelectedEmployeePunchAuditsSilently();
-            await LoadSelectedEmployeeHistory(false);
+            await LoadSelectedEmployeeHistory();
         }
         catch (Exception ex)
         {
@@ -2468,15 +2424,12 @@
                 if (token.IsCancellationRequested)
                     break;
 
-                // SignalR normally delivers updates immediately. This
-                // lightweight in-process sync also recovers an event missed
-                // while the admin circuit or connection was starting.
-                await RefreshLocations();
-                await RefreshSelectedEmployeePunchAuditsSilently();
+                // Live location membership and coordinates are pushed through
+                // SignalR. Do not poll the database every few seconds because
+                // that creates unnecessary redraws and makes the map feel noisy.
+                // This timer only ages the UI status and advances playback.
+                await InvokeAsync(StateHasChanged);
 
-                /*
-                 * Existing history playback functionality.
-                 */
                 await PollPlaybackState();
             }
         }
@@ -2554,29 +2507,8 @@
                 office.Latitude,
                 office.Longitude,
                 staff,
-                selectedEmployeeId);
-
-            // Historical route is rendered only when the selected employee/date
-            // history actually changes. Live GPS updates must not redraw or
-            // refit the historical route every few seconds.
-            if (selectedEmployeeId > 0 && selectedHistory.Count > 0 && historyRouteNeedsUpdate)
-            {
-                await JSRuntime.InvokeVoidAsync(
-                    "updateAdminHistoryRoute",
-                    mapId,
-                    selectedHistory,
-                    SelectedEmployeeName);
-
-                historyRouteNeedsUpdate = false;
-            }
-            else if (selectedEmployeeId <= 0)
-            {
-                await JSRuntime.InvokeVoidAsync(
-                    "clearAdminHistoryRoute",
-                    mapId);
-
-                historyRouteNeedsUpdate = false;
-            }
+                selectedEmployeeId,
+                liveLocationSignalRReference);
         }
         catch (Exception ex)
         {
@@ -2601,6 +2533,13 @@
         return (
             company?.OfficeLatitude ?? 0,
             company?.OfficeLongitude ?? 0);
+    }
+
+
+    [JSInvokable]
+    public async Task SelectEmployeeFromMap(int employeeId)
+    {
+        await SelectEmployee(employeeId);
     }
 
 
@@ -2634,7 +2573,6 @@
             gpsSessionLookup.Clear();
 
             selectedPlaybackSessionId = null;
-            historyRouteNeedsUpdate = false;
 
             playbackIndex = 0;
             playbackStatus = "Ready";
@@ -2676,7 +2614,7 @@
     }
 
 
-    private async Task LoadSelectedEmployeeHistory(bool refreshRoute = true)
+    private async Task LoadSelectedEmployeeHistory()
     {
         if (selectedEmployeeId <= 0)
         {
@@ -2730,7 +2668,6 @@
             playbackStatus =
                 "Ready";
 
-            historyRouteNeedsUpdate = refreshRoute && selectedHistory.Count > 0;
             mapNeedsUpdate = true;
         }
         catch (Exception ex)
@@ -2742,7 +2679,6 @@
 
             gpsSessionLookup.Clear();
             selectedPlaybackSessionId = null;
-            historyRouteNeedsUpdate = false;
 
             playbackIndex = 0;
 
@@ -3442,99 +3378,6 @@
     }
 
 
-    private string HistoryTravelDurationText
-    {
-        get
-        {
-            if (selectedHistory.Count < 2)
-                return "0 min";
-
-            var duration = selectedHistory[^1].RecordedAtUtc - selectedHistory[0].RecordedAtUtc;
-            if (duration.TotalSeconds < 60)
-                return $"{Math.Max(1, (int)Math.Round(duration.TotalSeconds))} sec";
-            if (duration.TotalHours < 1)
-                return $"{Math.Max(1, (int)Math.Round(duration.TotalMinutes))} min";
-            return $"{(int)duration.TotalHours}h {duration.Minutes:00}m";
-        }
-    }
-
-    private int HistoryStopCount
-    {
-        get
-        {
-            if (selectedHistory.Count < 2)
-                return 0;
-
-            var count = 0;
-            for (var i = 1; i < selectedHistory.Count; i++)
-            {
-                var gap = selectedHistory[i].RecordedAtUtc - selectedHistory[i - 1].RecordedAtUtc;
-                if (gap.TotalMinutes >= 3)
-                    count++;
-            }
-            return count;
-        }
-    }
-
-    private IReadOnlyList<JourneyEventView> HistoryJourneyEvents
-    {
-        get
-        {
-            var events = new List<JourneyEventView>();
-            if (selectedHistory.Count == 0)
-                return events;
-
-            events.Add(new JourneyEventView
-            {
-                Index = 0,
-                Time = ToLocalTime(selectedHistory[0].RecordedAtUtc).ToString("HH:mm:ss"),
-                Label = "Journey started",
-                Detail = $"{selectedHistory[0].Latitude:F5}, {selectedHistory[0].Longitude:F5}"
-            });
-
-            for (var i = 1; i < selectedHistory.Count && events.Count < 8; i++)
-            {
-                var previous = selectedHistory[i - 1];
-                var current = selectedHistory[i];
-                var gap = current.RecordedAtUtc - previous.RecordedAtUtc;
-
-                if (current.IsWithinAllowedRadius != previous.IsWithinAllowedRadius)
-                {
-                    events.Add(new JourneyEventView
-                    {
-                        Index = i,
-                        Time = ToLocalTime(current.RecordedAtUtc).ToString("HH:mm:ss"),
-                        Label = current.IsWithinAllowedRadius ? "Entered geofence" : "Left geofence",
-                        Detail = FormatDistance(current.DistanceFromOfficeMeters)
-                    });
-                }
-                else if (gap.TotalMinutes >= 3)
-                {
-                    events.Add(new JourneyEventView
-                    {
-                        Index = i,
-                        Time = ToLocalTime(current.RecordedAtUtc).ToString("HH:mm:ss"),
-                        Label = "Stop detected",
-                        Detail = $"{Math.Round(gap.TotalMinutes)} min pause"
-                    });
-                }
-            }
-
-            if (selectedHistory.Count > 1)
-            {
-                events.Add(new JourneyEventView
-                {
-                    Index = selectedHistory.Count - 1,
-                    Time = ToLocalTime(selectedHistory[^1].RecordedAtUtc).ToString("HH:mm:ss"),
-                    Label = "Journey ended",
-                    Detail = $"{selectedHistory[^1].Latitude:F5}, {selectedHistory[^1].Longitude:F5}"
-                });
-            }
-
-            return events;
-        }
-    }
-
     private static double CalculateDistance(
         double lat1,
         double lon1,
@@ -3573,6 +3416,19 @@
                 Math.Sqrt(1 - a));
 
         return earthRadius * c;
+    }
+
+
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "•";
+
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1)
+            return parts[0][0].ToString().ToUpperInvariant();
+
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
     }
 
 
@@ -3877,14 +3733,6 @@
 
 
 
-    private sealed class JourneyEventView
-    {
-        public int Index { get; set; }
-        public string Time { get; set; } = "";
-        public string Label { get; set; } = "";
-        public string Detail { get; set; } = "";
-    }
-
     private sealed class SessionSummary
     {
         public Guid SessionId { get; set; }
@@ -3909,47 +3757,3 @@
     }
 
 }
-
-<style>
-    .enterprise-journey-replay {
-        margin: 18px 0 24px;
-        border: 1px solid rgba(122, 145, 174, .24);
-        border-radius: 16px;
-        overflow: hidden;
-        background: linear-gradient(145deg, rgba(20, 28, 39, .98), rgba(13, 20, 29, .98));
-        color: #eef4fb;
-        box-shadow: 0 14px 35px rgba(0,0,0,.16);
-    }
-    .journey-replay-head { display:flex; justify-content:space-between; gap:18px; padding:20px 22px; border-bottom:1px solid rgba(150,170,195,.16); }
-    .journey-replay-title { display:flex; align-items:center; gap:12px; min-width:0; }
-    .journey-recording-dot,.journey-state-pulse { width:9px;height:9px;border-radius:50%;background:#16c784;box-shadow:0 0 0 5px rgba(22,199,132,.10);flex:0 0 auto; }
-    .journey-eyebrow { font-size:10px; letter-spacing:.16em; font-weight:800; color:#76a9e8; margin-bottom:3px; }
-    .journey-replay-title h5 { color:#f6f9fc; }
-    .journey-replay-title small { color:#91a1b4; }
-    .journey-head-badges { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
-    .journey-badge { border:1px solid rgba(140,160,185,.2); background:rgba(255,255,255,.035); padding:7px 10px; border-radius:9px; color:#b8c5d4; font-size:11px; white-space:nowrap; }
-    .journey-metrics { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid rgba(150,170,195,.14); }
-    .journey-metric { padding:15px 18px; border-right:1px solid rgba(150,170,195,.12); min-width:0; }
-    .journey-metric:last-child { border-right:0; }
-    .journey-metric span { display:block; font-size:9px; letter-spacing:.13em; color:#718298; font-weight:800; margin-bottom:5px; }
-    .journey-metric strong { display:block; color:#f1f5f9; font-size:17px; }
-    .journey-metric small { display:block; color:#8291a4; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .journey-metric-start strong { color:#4bd99c; }.journey-metric-end strong { color:#ff6d7a; }
-    .journey-replay-stage { padding:15px 18px 10px; }
-    .journey-stage-strip { display:flex; justify-content:space-between; gap:15px; align-items:center; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.035); border:1px solid rgba(150,170,195,.12); }
-    .journey-live-state,.journey-stage-now { display:flex; align-items:center; gap:8px; min-width:0; }.journey-live-state span:last-child,.journey-stage-now span { color:#7e8da0; font-size:11px; }.journey-stage-now { color:#b8c8da; }
-    .journey-route-legend { display:flex; gap:15px; flex-wrap:wrap; padding:12px 2px 2px; color:#8998aa; font-size:10px; }
-    .journey-line { display:inline-block; width:24px; height:0; border-top:3px solid #4f8df7; margin-right:5px; vertical-align:middle; }.journey-line.remaining { border-top-style:dashed; border-color:#718096; }.journey-dot { display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle; }.journey-dot.start{background:#16c784}.journey-dot.end{background:#ff5b69}
-    .journey-controls { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 18px; border-top:1px solid rgba(150,170,195,.12); border-bottom:1px solid rgba(150,170,195,.12); }
-    .journey-control-primary { display:flex; gap:7px; flex-wrap:wrap; }.journey-control { border:1px solid rgba(150,170,195,.25); background:rgba(255,255,255,.035); color:#d5dfeb; border-radius:9px; min-height:38px; padding:0 12px; }.journey-control:hover:not(:disabled){background:rgba(255,255,255,.075);}.journey-control:disabled{opacity:.38}.journey-play{background:#247cf0;border-color:#247cf0;color:#fff}.journey-control-active{border-color:#247cf0;color:#8dbbff}
-    .journey-speed-control { display:flex; align-items:center; gap:8px; color:#8291a4; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }.journey-speed-control select{width:132px;background:#17202c;color:#e5edf6;border-color:#3b4a5c}
-    .journey-timeline { padding:15px 18px 10px; }.journey-timeline-labels,.journey-progress-meta{display:flex;justify-content:space-between;gap:10px;color:#77879a;font-size:10px}.journey-timeline-labels strong{color:#aab8c8;text-transform:uppercase;letter-spacing:.1em}.journey-range{margin:9px 0 3px}.journey-range::-webkit-slider-runnable-track{height:5px;border-radius:8px;background:linear-gradient(90deg,#247cf0,#4f8df7)}
-    .journey-event-strip { display:flex; gap:8px; overflow-x:auto; padding:5px 18px 16px; scrollbar-width:thin; }.journey-event { min-width:145px; text-align:left; border:1px solid rgba(150,170,195,.14); background:rgba(255,255,255,.025); color:#d8e1eb; border-radius:10px; padding:9px 10px; }.journey-event:hover{background:rgba(255,255,255,.06)}.journey-event-time{display:block;color:#6fa4ef;font-size:9px;font-weight:800}.journey-event strong{display:block;font-size:11px;margin-top:3px}.journey-event small{display:block;color:#7f8ea1;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.journey-empty{display:flex;align-items:center;gap:14px;padding:32px 22px;color:#8998aa}.journey-empty i{font-size:30px;color:#5c7796}.journey-empty strong{display:block;color:#dbe4ee}.journey-empty span{display:block;margin-top:3px;font-size:12px}
-    @@media(max-width:900px){.journey-replay-head{flex-direction:column}.journey-head-badges{justify-content:flex-start}.journey-metrics{grid-template-columns:repeat(2,1fr)}.journey-metric:nth-child(2){border-right:0}.journey-controls{align-items:flex-start;flex-direction:column}.journey-speed-control{width:100%;justify-content:space-between}}
-    @@media(max-width:560px){.journey-metrics{grid-template-columns:1fr}.journey-metric{border-right:0;border-bottom:1px solid rgba(150,170,195,.12)}.journey-stage-strip{align-items:flex-start;flex-direction:column}.journey-badge{white-space:normal}.journey-speed-control select{width:145px}}
-</style>
-
-<style>
-    .journey-map-marker{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;border:3px solid rgba(255,255,255,.96);box-shadow:0 5px 18px rgba(0,0,0,.34);font-size:15px}.journey-map-start{background:#16a36e}.journey-map-end{background:#e45160}.journey-map-stop{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f0b429;color:#17202c;border:2px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.28);font-size:11px}.journey-map-transition{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#4f8df7;color:#fff;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:9px}.journey-moving-marker{position:relative;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#247cf0;color:#fff;border:4px solid #fff;box-shadow:0 6px 20px rgba(0,0,0,.42);font-size:18px}.journey-moving-marker span{position:absolute;inset:-5px;border-radius:50%;border:2px solid rgba(36,124,240,.35);animation:journeyPulse 1.8s ease-out infinite}.journey-moving-marker i{position:relative;z-index:2}.admin-journey-popup{min-width:235px;font-size:12px;color:#1d2733}.journey-popup-kicker{font-size:9px;font-weight:800;letter-spacing:.13em;color:#247cf0;margin-bottom:3px}.journey-popup-time{font-size:11px;color:#69788a;margin-top:3px}.journey-popup-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;margin-top:9px;padding-top:8px;border-top:1px solid #e6ebf0}.journey-popup-grid span{font-size:10px;color:#68788a}.journey-popup-grid b{display:block;color:#243142;font-size:11px}.journey-popup-ok,.journey-popup-alert{margin-top:8px;font-size:10px;font-weight:700}.journey-popup-ok{color:#198754}.journey-popup-alert{color:#dc3545}.admin-journey-tooltip{border:0!important;background:rgba(18,25,34,.96)!important;color:#edf4fb!important;border-radius:9px!important;box-shadow:0 8px 22px rgba(0,0,0,.28)!important}.admin-journey-tooltip:before{border-top-color:rgba(18,25,34,.96)!important}.admin-journey-tooltip .admin-journey-popup{color:#edf4fb}.admin-journey-tooltip .journey-popup-time,.admin-journey-tooltip .journey-popup-grid span{color:#9cacbe}.admin-journey-tooltip .journey-popup-grid{border-color:rgba(255,255,255,.12)}.admin-journey-tooltip .journey-popup-grid b{color:#f2f6fb}@@keyframes journeyPulse{0%{transform:scale(.86);opacity:.8}75%{transform:scale(1.24);opacity:0}100%{transform:scale(1.24);opacity:0}}
-    @@media (prefers-reduced-motion:reduce){.journey-moving-marker span{animation:none}}
-</style>

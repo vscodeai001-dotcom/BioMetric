@@ -1644,7 +1644,7 @@ window.payrollHaversineMeters = function (a, b) {
 
 window.payrollFormatRouteDistance = function (meters) {
     const m = Number(meters) || 0;
-    return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km`;
+    return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 };
 
 window.payrollFormatRouteDuration = function (seconds) {
@@ -2609,7 +2609,8 @@ window.updateAdminLiveStaffMap =
         officeLat,
         officeLng,
         staff,
-        selectedId
+        selectedId,
+        dotNetRef
     ) {
         const parsedOfficeLat = Number(officeLat);
         const parsedOfficeLng = Number(officeLng);
@@ -2681,18 +2682,14 @@ window.updateAdminLiveStaffMap =
                         }
                     ).addTo(map);
 
-                officeMarker.bindPopup(
-                    '<strong>OFFICE</strong><br>Configured location'
-                );
-
                 officeMarker.bindTooltip(
-                    'OFFICE',
+                    '<strong>Office</strong><br><span>Configured location</span>',
                     {
-                        permanent: true,
+                        permanent: false,
                         direction: 'top',
                         offset: [0, -12],
-                        className:
-                            'admin-office-label'
+                        sticky: true,
+                        className: 'admin-office-tooltip'
                     }
                 );
 
@@ -2936,31 +2933,22 @@ window.updateAdminLiveStaffMap =
                             '#ffc107';
                     }
 
+                    const rawName = String(x.name || 'Employee').trim();
+                    const nameParts = rawName.split(/\s+/).filter(Boolean);
+                    const initials = nameParts.length === 1
+                        ? nameParts[0].slice(0, 1)
+                        : (nameParts[0][0] + nameParts[nameParts.length - 1][0]);
+                    const avatarClass = withinRange ? 'within' : 'outside';
                     const icon =
                         L.divIcon({
-                            className:
-                                'payroll-user-marker',
+                            className: 'payroll-user-marker',
                             html:
-                                '<div style="' +
-                                'width:38px;' +
-                                'height:38px;' +
-                                'border-radius:50%;' +
-                                'display:flex;' +
-                                'align-items:center;' +
-                                'justify-content:center;' +
-                                'background:#fff;' +
-                                'color:' +
-                                markerColor +
-                                ';' +
-                                'border:3px solid ' +
-                                markerColor +
-                                ';' +
-                                'box-shadow:0 2px 8px rgba(0,0,0,.28);' +
-                                'font-size:18px">' +
-                                '<i class="bi bi-person-fill"></i>' +
+                                '<div class="payroll-map-user payroll-map-user-' + avatarClass + '">' +
+                                '<span class="payroll-map-user-initials">' + window.escapeAdminHtml(initials.toUpperCase()) + '</span>' +
+                                '<span class="payroll-map-user-status"></span>' +
                                 '</div>',
-                            iconSize: [38, 38],
-                            iconAnchor: [19, 19]
+                            iconSize: [46, 46],
+                            iconAnchor: [23, 23]
                         });
 
                     let markerCreated = false;
@@ -2976,11 +2964,22 @@ window.updateAdminLiveStaffMap =
                             L.marker(
                                 displayPosition,
                                 {
-                                    icon: icon
+                                    icon: icon,
+                                    keyboard: true,
+                                    riseOnHover: true
                                 }
                             ).addTo(
                                 state.map
                             );
+
+                        if (dotNetRef) {
+                            state.markers[employeeId].on('click', function () {
+                                try {
+                                    dotNetRef.invokeMethodAsync('SelectEmployeeFromMap', employeeId);
+                                } catch (e) { }
+                            });
+                            state.markerDotNetRef = dotNetRef;
+                        }
 
                         markerCreated = true;
                     }
@@ -2990,6 +2989,21 @@ window.updateAdminLiveStaffMap =
                         ].setIcon(
                             icon
                         );
+
+                        // The map may have been created before the Blazor
+                        // reference was available. Ensure the click handler
+                        // exists on every update without stacking handlers.
+                        if (dotNetRef && state.markerDotNetRef !== dotNetRef) {
+                            try {
+                                state.markers[employeeId].off('click');
+                            } catch (e) { }
+                            state.markers[employeeId].on('click', function () {
+                                try {
+                                    dotNetRef.invokeMethodAsync('SelectEmployeeFromMap', employeeId);
+                                } catch (e) { }
+                            });
+                            state.markerDotNetRef = dotNetRef;
+                        }
 
                         const now = Date.now();
                         const previousAt =
@@ -3131,16 +3145,6 @@ window.updateAdminLiveStaffMap =
                         });
                     }
 
-                    if (state.labels[employeeId]) {
-                        state.labels[employeeId].setOpacity(
-                            Number(selectedId) > 0 && !isSelected ? 0 : .95
-                        );
-                    }
-                    if (state.journeyLabels[employeeId]) {
-                        state.journeyLabels[employeeId].setOpacity(
-                            Number(selectedId) > 0 && !isSelected ? 0 : .98
-                        );
-                    }
                     if (state.roadRouteLines[employeeId]) {
                         state.roadRouteLines[employeeId].setStyle({
                             color: '#1688ff',
@@ -3177,70 +3181,38 @@ window.updateAdminLiveStaffMap =
                             x.name
                         );
 
-                    state.markers[
-                        employeeId
-                    ].bindPopup(
-                        '<div style="min-width:170px">' +
-                        '<strong>' +
-                        safeName +
-                        '</strong><br>' +
-                        '<span>Distance: ' +
-                        distance +
-                        '</span><br>' +
-                        '<span>Allowed: ' +
-                        allowed +
-                        ' m</span><br>' +
-                        '<strong style="color:' +
-                        markerColor +
-                        '">' +
-                        rangeText +
-                        '</strong>' +
-                        '</div>'
-                    );
-
-                    const routeStateForLabel = state.routeStates[employeeId] || {};
-                    const cachedRouteForLabel = routeStateForLabel.route;
-                    const labelDistance = cachedRouteForLabel?.distanceMeters > 0
-                        ? window.payrollFormatRouteDistance(cachedRouteForLabel.distanceMeters)
+                    const routeStateForTooltip = state.routeStates[employeeId] || {};
+                    const cachedRouteForTooltip = routeStateForTooltip.route;
+                    const tooltipDistance = cachedRouteForTooltip?.distanceMeters > 0
+                        ? window.payrollFormatRouteDistance(cachedRouteForTooltip.distanceMeters)
                         : distance;
-                    const labelEta = cachedRouteForLabel?.durationSeconds > 0
-                        ? window.payrollFormatRouteDuration(cachedRouteForLabel.durationSeconds)
+                    const tooltipEta = cachedRouteForTooltip?.durationSeconds > 0
+                        ? window.payrollFormatRouteDuration(cachedRouteForTooltip.durationSeconds)
                         : 'Calculating…';
-                    const labelSpeed = window.payrollFormatSpeed(routeStateForLabel.speedMps || 0);
-                    const labelAccuracy = Number(x.accuracyMeters) > 0
+                    const tooltipAccuracy = Number(x.accuracyMeters) > 0
                         ? `±${Math.round(Number(x.accuracyMeters))} m`
                         : 'Unknown';
-                    const labelStatus = withinRange
-                        ? 'Within range'
-                        : 'Outside range';
-                    const labelStatusIcon = withinRange ? '🟢' : '🔴';
-                    const journeyLabelHtml =
-                        `<div class="payroll-admin-journey-label">` +
-                        `<div class="payroll-admin-journey-head"><span class="payroll-admin-journey-name">👤 ${safeName}</span><span class="payroll-admin-journey-state">${labelStatusIcon} ${labelStatus}</span></div>` +
-                        `<div class="payroll-admin-journey-destination">🏢 To Office</div>` +
-                        `<div class="payroll-admin-journey-grid">` +
-                        `<span>📏 <b>${labelDistance}</b></span>` +
-                        `<span>⏱️ <b>${labelEta}</b></span>` +
-                        `<span>🚦 <b>${window.payrollEscapeHtml(labelSpeed)}</b></span>` +
-                        `<span>🎯 <b>${window.payrollEscapeHtml(labelAccuracy)}</b></span>` +
-                        `</div>` +
-                        `</div>`;
+                    const tooltipHtml =
+                        `<div class="admin-live-hover-card">` +
+                        `<div class="admin-live-hover-title"><span class="hover-avatar">${window.escapeAdminHtml(initials.toUpperCase())}</span><strong>${safeName}</strong><span class="hover-state ${withinRange ? 'within' : 'outside'}">${withinRange ? 'Within range' : 'Outside range'}</span></div>` +
+                        `<div class="admin-live-hover-grid">` +
+                        `<span><small>Distance</small><b>${tooltipDistance}</b></span>` +
+                        `<span><small>ETA</small><b>${tooltipEta}</b></span>` +
+                        `<span><small>Speed</small><b>${window.payrollEscapeHtml(window.payrollFormatSpeed(routeStateForTooltip.speedMps || 0))}</b></span>` +
+                        `<span><small>Accuracy</small><b>${window.payrollEscapeHtml(tooltipAccuracy)}</b></span>` +
+                        `</div></div>`;
 
-                    if (!state.journeyLabels[employeeId]) {
-                        state.journeyLabels[employeeId] = L.tooltip({
-                            permanent: true,
-                            direction: 'top',
-                            offset: [0, -22],
-                            className: 'payroll-admin-journey-tooltip',
-                            opacity: 0.98
-                        })
-                            .setContent(journeyLabelHtml)
-                            .setLatLng(displayPosition)
-                            .addTo(state.map);
+                    if (state.markers[employeeId].getTooltip()) {
+                        state.markers[employeeId].setTooltipContent(tooltipHtml);
                     } else {
-                        state.journeyLabels[employeeId]
-                            .setContent(journeyLabelHtml)
-                            .setLatLng(displayPosition);
+                        state.markers[employeeId].bindTooltip(tooltipHtml, {
+                            permanent: false,
+                            direction: 'top',
+                            offset: [0, -24],
+                            sticky: true,
+                            opacity: .98,
+                            className: 'admin-live-hover-tooltip'
+                        });
                     }
 
                     const lineOptions = {
@@ -3285,39 +3257,28 @@ window.updateAdminLiveStaffMap =
                         state.roadRouteCasings[employeeId]?.setLatLngs(route.geometry);
                         state.roadRouteLines[employeeId]?.setLatLngs(route.geometry);
                         state.lines[employeeId]?.setStyle({ opacity: 0 });
-                        const road = window.payrollEscapeHtml(window.payrollGetNextRoadName(route));
                         const routeDistance = window.payrollFormatRouteDistance(remaining);
                         const eta = window.payrollFormatRouteDuration(route.durationSeconds);
                         const name = window.payrollEscapeHtml(x.name || 'Employee');
-                        if (state.labels[employeeId]) {
-                            state.labels[employeeId].setContent(`${name}<br><span style="font-size:10px;opacity:.8">${routeDistance} • ${eta}</span>`);
-                        }
-                        if (state.journeyLabels[employeeId]) {
-                            const rs = state.routeStates[employeeId] || {};
-                            const within = Boolean(x.isWithinAllowedRadius);
-                            const acc = Number(x.accuracyMeters) > 0 ? `±${Math.round(Number(x.accuracyMeters))} m` : 'Unknown';
-                            state.journeyLabels[employeeId].setContent(
-                                `<div class="payroll-admin-journey-label">` +
-                                `<div class="payroll-admin-journey-head"><span class="payroll-admin-journey-name">👤 ${name}</span><span class="payroll-admin-journey-state">${within ? '🟢 Within range' : '🔴 Outside range'}</span></div>` +
-                                `<div class="payroll-admin-journey-destination">🏢 To Office</div>` +
-                                `<div class="payroll-admin-journey-grid">` +
-                                `<span>📏 <b>${routeDistance}</b></span>` +
-                                `<span>⏱️ <b>${eta}</b></span>` +
-                                `<span>🚦 <b>${window.payrollEscapeHtml(window.payrollFormatSpeed(rs.speedMps || 0))}</b></span>` +
-                                `<span>🎯 <b>${window.payrollEscapeHtml(acc)}</b></span>` +
+                        const hoverAccuracy = Number(x.accuracyMeters) > 0 ? `±${Math.round(Number(x.accuracyMeters))} m` : 'Unknown';
+                        const hoverWithin = Boolean(x.isWithinAllowedRadius);
+                        const cleanName = name.replace(/<[^>]*>/g, '').trim();
+                        const parts = cleanName.split(/\s+/).filter(Boolean);
+                        const hoverInitials = parts.length > 1
+                            ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+                            : (parts[0] || 'E').slice(0, 1).toUpperCase();
+                        if (state.markers[employeeId].getTooltip()) {
+                            state.markers[employeeId].setTooltipContent(
+                                `<div class="admin-live-hover-card">` +
+                                `<div class="admin-live-hover-title"><span class="hover-avatar">${hoverInitials}</span><strong>${name}</strong><span class="hover-state ${hoverWithin ? 'within' : 'outside'}">${hoverWithin ? 'Within range' : 'Outside range'}</span></div>` +
+                                `<div class="admin-live-hover-grid">` +
+                                `<span><small>Distance</small><b>${routeDistance}</b></span>` +
+                                `<span><small>ETA</small><b>${eta}</b></span>` +
+                                `<span><small>Speed</small><b>${window.payrollEscapeHtml(window.payrollFormatSpeed(state.routeStates[employeeId].speedMps || 0))}</b></span>` +
+                                `<span><small>Accuracy</small><b>${window.payrollEscapeHtml(hoverAccuracy)}</b></span>` +
                                 `</div></div>`
                             );
                         }
-                        state.markers[employeeId].bindPopup(
-                            `<div style="min-width:210px"><strong>${name}</strong>` +
-                            `<div style="margin-top:5px"><b>To Office</b></div>` +
-                            `<div>Road distance: ${routeDistance}</div>` +
-                            `<div>ETA: ${eta}</div>` +
-                            `<div>Current road: ${road}</div>` +
-                            `<div>GPS accuracy: ${Number(x.accuracyMeters) > 0 ? '±' + Math.round(Number(x.accuracyMeters)) + ' m' : 'Unknown'}</div>` +
-                            `<div>Speed: ${window.payrollFormatSpeed(state.routeStates[employeeId].speedMps || 0)}</div>` +
-                            `</div>`
-                        );
                     }).catch(function() {});
 
                     if (!state.lines[employeeId]) {
@@ -3345,50 +3306,7 @@ window.updateAdminLiveStaffMap =
                         );
                     }
 
-                    if (
-                        !state.labels[
-                        employeeId
-                        ]
-                    ) {
-                        state.labels[
-                            employeeId
-                        ] =
-                            L.tooltip({
-                                permanent:
-                                    true,
-                                direction:
-                                    'center',
-                                className:
-                                    'admin-distance-label',
-                                opacity: .95
-                            })
-                                .setContent(
-                                    distance
-                                )
-                                .setLatLng(
-                                    window.getAdminLineMidpoint(
-                                        office,
-                                        position
-                                    )
-                                )
-                                .addTo(
-                                    state.map
-                                );
-                    }
-                    else {
-                        state.labels[
-                            employeeId
-                        ].setContent(
-                            distance
-                        );
-                        // Position is updated continuously by the marker
-                        // animation callback above.
-                    }
 
-                    if (isSelected && membershipChanged) {
-                        state.markers[employeeId].openPopup();
-                        state.map.setView(position, 17, { animate: true });
-                    }
                 }
             );
 
@@ -3498,464 +3416,1398 @@ window.updateAdminLiveStaffMap =
     };
 
 // ============================================================
-// ADMIN ENTERPRISE JOURNEY REPLAY
-// ============================================================
-// Reconstructs a GPS journey as a navigation/CCTV-style replay:
-// - start/end markers
-// - travelled vs remaining trail
-// - stop markers from real timestamp gaps
-// - geofence transition markers
-// - smooth moving employee marker
-// - time-aware playback pacing
-// - smooth camera follow
-// - contextual tooltip only on hover/click
+// ADMIN HISTORICAL GPS ROUTE
 // ============================================================
 
-window.adminHistoryPlayback = window.adminHistoryPlayback || {};
-
-window.adminJourneyNormalizePoints = function (history) {
-    if (!Array.isArray(history)) return [];
-
-    return history.map(function (x, index) {
-        const latitude = Number(x.latitude ?? x.Latitude);
-        const longitude = Number(x.longitude ?? x.Longitude);
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-
-        const rawTime = x.recordedAtUtc ?? x.RecordedAtUtc;
-        const time = rawTime ? new Date(rawTime) : null;
-        return {
-            index: index,
-            latitude: latitude,
-            longitude: longitude,
-            distance: Number(x.distanceFromOfficeMeters ?? x.DistanceFromOfficeMeters) || 0,
-            allowed: Number(x.allowedRadiusMeters ?? x.AllowedRadiusMeters) || 0,
-            within: Boolean(x.isWithinAllowedRadius ?? x.IsWithinAllowedRadius),
-            accuracy: Number(x.accuracyMeters ?? x.AccuracyMeters) || 0,
-            recordedAt: rawTime,
-            timestamp: time && Number.isFinite(time.getTime()) ? time.getTime() : 0
-        };
-    }).filter(Boolean).sort(function (a, b) {
-        return a.timestamp - b.timestamp;
-    }).map(function (point, index) {
-        point.index = index;
-        return point;
-    });
-};
-
-window.clearAdminHistoryRoute = function (mapId) {
-    const state = window.adminLiveMaps?.[mapId];
-    if (!state?.map) return;
-
-    const layers = [
-        state.historyRoute,
-        state.historyStartMarker,
-        state.historyEndMarker,
-        ...(state.historyStopMarkers || []),
-        ...(state.historyTransitionMarkers || [])
-    ];
-
-    layers.forEach(function (layer) {
+window.updateAdminHistoryRoute =
+    async function (
+        mapId,
+        history,
+        employeeName
+    ) {
         try {
-            if (layer) state.map.removeLayer(layer);
-        } catch { }
-    });
+            await window.loadPayrollLeaflet();
 
-    state.historyRoute = null;
-    state.historyStartMarker = null;
-    state.historyEndMarker = null;
-    state.historyStopMarkers = [];
-    state.historyTransitionMarkers = [];
-    state.historyPlaybackHasFit = false;
-};
+            const state =
+                window.adminLiveMaps?.[mapId];
 
-window.adminJourneyPointPopup = function (employeeName, point, label) {
-    const name = window.escapeAdminHtml(employeeName || 'Employee');
-    const status = point.within ? 'Within range' : 'Outside range';
-    const statusClass = point.within ? 'journey-popup-ok' : 'journey-popup-alert';
-
-    return '<div class="admin-journey-popup">' +
-        '<div class="journey-popup-kicker">' + window.escapeAdminHtml(label) + '</div>' +
-        '<strong>' + name + '</strong>' +
-        '<div class="journey-popup-time">' + window.formatAdminHistoryTime(point.recordedAt) + '</div>' +
-        '<div class="journey-popup-grid">' +
-        '<span>LAT <b>' + point.latitude.toFixed(6) + '</b></span>' +
-        '<span>LON <b>' + point.longitude.toFixed(6) + '</b></span>' +
-        '<span>Office <b>' + window.formatAdminDistance(point.distance) + '</b></span>' +
-        '<span>Accuracy <b>' + (point.accuracy > 0 ? Math.round(point.accuracy) + ' m' : '-') + '</b></span>' +
-        '</div>' +
-        '<div class="' + statusClass + '"><i class="bi ' + (point.within ? 'bi-shield-check' : 'bi-exclamation-circle') + '"></i> ' + status + '</div>' +
-        '</div>';
-};
-
-window.updateAdminHistoryRoute = async function (mapId, history, employeeName) {
-    try {
-        await window.loadPayrollLeaflet();
-        const state = window.adminLiveMaps?.[mapId];
-        if (!state?.map) return;
-
-        window.stopAdminHistoryPlayback(mapId);
-        window.clearAdminHistoryRoute(mapId);
-
-        const points = window.adminJourneyNormalizePoints(history);
-        if (points.length === 0) return;
-
-        const map = state.map;
-        const route = points.map(function (p) { return [p.latitude, p.longitude]; });
-        const safeName = window.escapeAdminHtml(employeeName || 'Employee');
-
-        // Quiet reference trail. Playback adds the travelled/remaining layers above it.
-        state.historyRoute = L.polyline(route, {
-            color: '#64748b',
-            weight: 4,
-            opacity: .52,
-            lineJoin: 'round',
-            lineCap: 'round'
-        }).addTo(map);
-
-        const start = points[0];
-        const end = points[points.length - 1];
-
-        const startIcon = L.divIcon({
-            className: 'admin-journey-start-marker',
-            html: '<div class="journey-map-marker journey-map-start"><i class="bi bi-play-fill"></i></div>',
-            iconSize: [38, 38], iconAnchor: [19, 19]
-        });
-        const endIcon = L.divIcon({
-            className: 'admin-journey-end-marker',
-            html: '<div class="journey-map-marker journey-map-end"><i class="bi bi-flag-fill"></i></div>',
-            iconSize: [38, 38], iconAnchor: [19, 19]
-        });
-
-        state.historyStartMarker = L.marker([start.latitude, start.longitude], {
-            icon: startIcon, zIndexOffset: 2800
-        }).addTo(map);
-        state.historyStartMarker.bindTooltip('Start · ' + window.formatAdminHistoryTime(start.recordedAt), {
-            direction: 'top', offset: [0, -18], opacity: .96
-        });
-        state.historyStartMarker.bindPopup(window.adminJourneyPointPopup(employeeName, start, 'JOURNEY START'));
-
-        state.historyEndMarker = L.marker([end.latitude, end.longitude], {
-            icon: endIcon, zIndexOffset: 2800
-        }).addTo(map);
-        state.historyEndMarker.bindTooltip('End / last GPS · ' + window.formatAdminHistoryTime(end.recordedAt), {
-            direction: 'top', offset: [0, -18], opacity: .96
-        });
-        state.historyEndMarker.bindPopup(window.adminJourneyPointPopup(employeeName, end, 'JOURNEY END'));
-
-        state.historyStopMarkers = [];
-        state.historyTransitionMarkers = [];
-
-        // A long timestamp gap is a real recorded pause, not an invented location.
-        for (let i = 1; i < points.length; i++) {
-            const previous = points[i - 1];
-            const current = points[i];
-            const gapMinutes = previous.timestamp && current.timestamp
-                ? (current.timestamp - previous.timestamp) / 60000
-                : 0;
-
-            if (gapMinutes >= 3) {
-                const stopIcon = L.divIcon({
-                    className: 'admin-journey-stop-marker',
-                    html: '<div class="journey-map-stop"><i class="bi bi-pause-fill"></i></div>',
-                    iconSize: [24, 24], iconAnchor: [12, 12]
-                });
-                const stop = L.marker([current.latitude, current.longitude], {
-                    icon: stopIcon, zIndexOffset: 2400
-                }).addTo(map);
-                stop.bindTooltip('Stop · ' + Math.round(gapMinutes) + ' min · ' + window.formatAdminHistoryTime(current.recordedAt), {
-                    direction: 'top', offset: [0, -10], opacity: .96
-                });
-                stop.bindPopup(window.adminJourneyPointPopup(employeeName, current, 'STOP DETECTED'));
-                state.historyStopMarkers.push(stop);
+            if (!state || !state.map) {
+                console.warn(
+                    'Admin map not initialized:',
+                    mapId
+                );
+                return;
             }
 
-            if (current.within !== previous.within) {
-                const transitionIcon = L.divIcon({
-                    className: 'admin-journey-transition-marker',
-                    html: '<div class="journey-map-transition"><i class="bi bi-shield-check"></i></div>',
-                    iconSize: [22, 22], iconAnchor: [11, 11]
+            window.clearAdminHistoryRoute(
+                mapId
+            );
+
+            if (
+                !Array.isArray(history) ||
+                history.length === 0
+            ) {
+                return;
+            }
+
+            const validPoints =
+                history
+                    .map(
+                        function (x, index) {
+                            const lat =
+                                Number(
+                                    x.latitude ??
+                                    x.Latitude
+                                );
+
+                            const lng =
+                                Number(
+                                    x.longitude ??
+                                    x.Longitude
+                                );
+
+                            if (
+                                !Number.isFinite(
+                                    lat
+                                ) ||
+                                !Number.isFinite(
+                                    lng
+                                )
+                            ) {
+                                return null;
+                            }
+
+                            return {
+                                index: index,
+                                latitude: lat,
+                                longitude: lng,
+                                distance:
+                                    Number(
+                                        x.distanceFromOfficeMeters ??
+                                        x.DistanceFromOfficeMeters
+                                    ) || 0,
+                                allowed:
+                                    Number(
+                                        x.allowedRadiusMeters ??
+                                        x.AllowedRadiusMeters
+                                    ) || 0,
+                                within:
+                                    Boolean(
+                                        x.isWithinAllowedRadius ??
+                                        x.IsWithinAllowedRadius
+                                    ),
+                                recordedAt:
+                                    x.recordedAtUtc ??
+                                    x.RecordedAtUtc
+                            };
+                        }
+                    )
+                    .filter(
+                        function (x) {
+                            return x !== null;
+                        }
+                    );
+
+            if (
+                validPoints.length === 0
+            ) {
+                return;
+            }
+
+            const route =
+                validPoints.map(
+                    function (x) {
+                        return [
+                            x.latitude,
+                            x.longitude
+                        ];
+                    }
+                );
+
+            const routeColor =
+                '#0d6efd';
+
+            state.historyRoute =
+                L.polyline(
+                    route,
+                    {
+                        color:
+                            routeColor,
+                        weight: 5,
+                        opacity: .85,
+                        lineJoin: 'round',
+                        lineCap: 'round'
+                    }
+                ).addTo(
+                    state.map
+                );
+
+            state.historyMarkers = [];
+
+            validPoints.forEach(
+                function (point, index) {
+                    const isFirst =
+                        index === 0;
+
+                    const isLast =
+                        index ===
+                        validPoints.length - 1;
+
+                    let markerColor =
+                        '#0d6efd';
+
+                    if (isFirst) {
+                        markerColor =
+                            '#198754';
+                    }
+
+                    if (isLast) {
+                        markerColor =
+                            '#dc3545';
+                    }
+
+                    const pointIcon =
+                        L.divIcon({
+                            className:
+                                'payroll-history-point',
+                            html:
+                                '<div style="' +
+                                'width:12px;' +
+                                'height:12px;' +
+                                'border-radius:50%;' +
+                                'background:' +
+                                markerColor +
+                                ';' +
+                                'border:2px solid #fff;' +
+                                'box-shadow:0 1px 5px rgba(0,0,0,.35);' +
+                                '"></div>',
+                            iconSize: [12, 12],
+                            iconAnchor: [6, 6]
+                        });
+
+                    const marker =
+                        L.marker(
+                            [
+                                point.latitude,
+                                point.longitude
+                            ],
+                            {
+                                icon:
+                                    pointIcon,
+                                zIndexOffset:
+                                    isLast
+                                        ? 1000
+                                        : 100
+                            }
+                        ).addTo(
+                            state.map
+                        );
+
+                    const timeText =
+                        window.formatAdminHistoryTime(
+                            point.recordedAt
+                        );
+
+                    const distanceText =
+                        window.formatAdminDistance(
+                            point.distance
+                        );
+
+                    const allowedText =
+                        point.allowed > 0
+                            ? point.allowed + ' m'
+                            : '-';
+
+                    const statusText =
+                        point.within
+                            ? 'Within allowed range'
+                            : 'Outside allowed range';
+
+                    const statusColor =
+                        point.within
+                            ? '#198754'
+                            : '#dc3545';
+
+                    const safeEmployeeName =
+                        window.escapeAdminHtml(
+                            employeeName ||
+                            'Employee'
+                        );
+
+                    let title =
+                        'GPS Point ' +
+                        (index + 1);
+
+                    if (isFirst) {
+                        title =
+                            'START';
+                    }
+                    else if (isLast) {
+                        title =
+                            'LATEST';
+                    }
+
+                    marker.bindPopup(
+                        '<div style="min-width:210px">' +
+                        '<strong>' +
+                        safeEmployeeName +
+                        '</strong>' +
+                        '<hr style="margin:6px 0">' +
+                        '<strong>' +
+                        title +
+                        '</strong><br>' +
+                        '<span>Time: ' +
+                        timeText +
+                        '</span><br>' +
+                        '<span>Distance: ' +
+                        distanceText +
+                        '</span><br>' +
+                        '<span>Allowed: ' +
+                        allowedText +
+                        '</span><br>' +
+                        '<span>Latitude: ' +
+                        point.latitude.toFixed(6) +
+                        '</span><br>' +
+                        '<span>Longitude: ' +
+                        point.longitude.toFixed(6) +
+                        '</span><br>' +
+                        '<strong style="color:' +
+                        statusColor +
+                        '">' +
+                        statusText +
+                        '</strong>' +
+                        '</div>'
+                    );
+
+                    marker.bindTooltip(
+                        title,
+                        {
+                            direction: 'top',
+                            offset: [0, -8],
+                            opacity: .9
+                        }
+                    );
+
+                    state.historyMarkers.push(
+                        marker
+                    );
+                }
+            );
+
+            const first =
+                validPoints[0];
+
+            const last =
+                validPoints[
+                validPoints.length - 1
+                ];
+
+            const startIcon =
+                L.divIcon({
+                    className:
+                        'payroll-history-start',
+                    html:
+                        '<div style="' +
+                        'width:30px;' +
+                        'height:30px;' +
+                        'border-radius:50%;' +
+                        'display:flex;' +
+                        'align-items:center;' +
+                        'justify-content:center;' +
+                        'background:#198754;' +
+                        'color:#fff;' +
+                        'border:3px solid #fff;' +
+                        'box-shadow:0 2px 8px rgba(0,0,0,.35);' +
+                        'font-size:13px">' +
+                        '<i class="bi bi-play-fill"></i>' +
+                        '</div>',
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
                 });
-                const transition = L.marker([current.latitude, current.longitude], {
-                    icon: transitionIcon, zIndexOffset: 2450
-                }).addTo(map);
-                transition.bindTooltip((current.within ? 'Entered' : 'Left') + ' geofence · ' + window.formatAdminHistoryTime(current.recordedAt), {
-                    direction: 'top', offset: [0, -9], opacity: .96
+
+            const endIcon =
+                L.divIcon({
+                    className:
+                        'payroll-history-end',
+                    html:
+                        '<div style="' +
+                        'width:34px;' +
+                        'height:34px;' +
+                        'border-radius:50%;' +
+                        'display:flex;' +
+                        'align-items:center;' +
+                        'justify-content:center;' +
+                        'background:#dc3545;' +
+                        'color:#fff;' +
+                        'border:3px solid #fff;' +
+                        'box-shadow:0 2px 8px rgba(0,0,0,.35);' +
+                        'font-size:16px">' +
+                        '<i class="bi bi-geo-alt-fill"></i>' +
+                        '</div>',
+                    iconSize: [34, 34],
+                    iconAnchor: [17, 17]
                 });
-                transition.bindPopup(window.adminJourneyPointPopup(employeeName, current, current.within ? 'GEOFENCE ENTER' : 'GEOFENCE EXIT'));
-                state.historyTransitionMarkers.push(transition);
+
+            state.historyStartMarker =
+                L.marker(
+                    [
+                        first.latitude,
+                        first.longitude
+                    ],
+                    {
+                        icon:
+                            startIcon,
+                        zIndexOffset:
+                            2000
+                    }
+                ).addTo(
+                    state.map
+                );
+
+            state.historyStartMarker.bindPopup(
+                '<strong>START</strong><br>' +
+                window.formatAdminHistoryTime(
+                    first.recordedAt
+                )
+            );
+
+            state.historyEndMarker =
+                L.marker(
+                    [
+                        last.latitude,
+                        last.longitude
+                    ],
+                    {
+                        icon:
+                            endIcon,
+                        zIndexOffset:
+                            2100
+                    }
+                ).addTo(
+                    state.map
+                );
+
+            state.historyEndMarker.bindPopup(
+                '<strong>LATEST LOCATION</strong><br>' +
+                window.formatAdminHistoryTime(
+                    last.recordedAt
+                )
+            );
+
+            const bounds =
+                L.latLngBounds(
+                    route
+                );
+
+            state.map.fitBounds(
+                bounds,
+                {
+                    padding: [45, 45],
+                    maxZoom: 18
+                }
+            );
+
+            setTimeout(function () {
+                try { state.map.invalidateSize(true); } catch (e) { }
+            }, 100);
+        }
+        catch (error) {
+            console.error(
+                'Admin history route error:',
+                error
+            );
+        }
+    };
+
+// ============================================================
+// CLEAR ADMIN HISTORICAL ROUTE
+// ============================================================
+
+window.clearAdminHistoryRoute =
+    function (mapId) {
+        const state =
+            window.adminLiveMaps?.[mapId];
+
+        if (!state) return;
+
+        try {
+            if (state.historyRoute) {
+                state.map.removeLayer(
+                    state.historyRoute
+                );
             }
         }
+        catch { }
 
-        if (!state.historyPlaybackHasFit) {
-            map.fitBounds(L.latLngBounds(route), {
-                padding: [48, 48], maxZoom: 17, animate: true
+        if (
+            Array.isArray(
+                state.historyMarkers
+            )
+        ) {
+            state.historyMarkers.forEach(
+                function (marker) {
+                    try {
+                        state.map.removeLayer(
+                            marker
+                        );
+                    }
+                    catch { }
+                }
+            );
+        }
+
+        try {
+            if (
+                state.historyStartMarker
+            ) {
+                state.map.removeLayer(
+                    state.historyStartMarker
+                );
+            }
+        }
+        catch { }
+
+        try {
+            if (
+                state.historyEndMarker
+            ) {
+                state.map.removeLayer(
+                    state.historyEndMarker
+                );
+            }
+        }
+        catch { }
+
+        state.historyRoute = null;
+        state.historyMarkers = [];
+        state.historyStartMarker = null;
+        state.historyEndMarker = null;
+    };
+
+// ============================================================
+// ADMIN HISTORY TIME FORMATTER
+// ============================================================
+
+window.formatAdminHistoryTime =
+    function (value) {
+        if (!value) return '-';
+
+        try {
+            const date =
+                new Date(value);
+
+            if (
+                Number.isNaN(
+                    date.getTime()
+                )
+            ) {
+                return String(value);
+            }
+
+            return date.toLocaleString(
+                'en-IN',
+                {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                }
+            );
+        }
+        catch {
+            return String(value);
+        }
+    };
+
+// ============================================================
+// ADMIN MAP HELPERS
+// ============================================================
+
+window.getAdminLineMidpoint =
+    function (a, b) {
+        return [
+            (
+                Number(a[0]) +
+                Number(b[0])
+            ) / 2,
+            (
+                Number(a[1]) +
+                Number(b[1])
+            ) / 2
+        ];
+    };
+
+window.formatAdminDistance =
+    function (meters) {
+        meters =
+            Number(meters) || 0;
+
+        return meters < 1000
+            ? Math.round(meters) + ' m'
+            : (
+                meters / 1000
+            ).toFixed(2) + ' km';
+    };
+
+window.escapeAdminHtml =
+    function (value) {
+        return String(
+            value ?? ''
+        ).replace(
+            /[&<>"']/g,
+            function (ch) {
+                return {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                }[ch];
+            }
+        );
+    };
+
+// ============================================================
+// ADMIN MAP DESTROY
+// ============================================================
+
+window.destroyAdminLiveStaffMap =
+    function (mapId) {
+        const state =
+            window.adminLiveMaps?.[mapId];
+
+        if (state?.markers) {
+            Object.keys(state.markers).forEach(function (employeeId) {
+                window.payrollCancelGeoAnimation?.(
+                    'admin:' + mapId + ':' + employeeId);
             });
-            state.historyPlaybackHasFit = true;
         }
 
-        // Keep the map itself quiet. Details are revealed only through interaction.
-        state.historyRoute.bindTooltip(safeName + ' · recorded journey', {
-            sticky: false, direction: 'top', opacity: .92
-        });
-    }
-    catch (error) {
-        console.error('Admin enterprise journey route error:', error);
-    }
-};
+        if (!state) return;
 
-window.startAdminHistoryPlayback = async function (mapId, history, employeeName, speed, startIndex) {
-    try {
-        const state = window.adminLiveMaps?.[mapId];
-        if (!state?.map || !Array.isArray(history) || history.length === 0) return;
-
-        window.stopAdminHistoryPlayback(mapId);
-
-        const points = window.adminJourneyNormalizePoints(history);
-        if (points.length === 0) return;
-
-        const requested = Number.isFinite(Number(startIndex)) ? Number(startIndex) : 0;
-        const initialIndex = Math.max(0, Math.min(points.length - 1, requested));
-        const playback = {
-            mapId: mapId,
-            points: points,
-            employeeName: employeeName || 'Employee',
-            speed: Math.max(.25, Number(speed) || 1),
-            index: initialIndex,
-            timer: null,
-            animationFrame: null,
-            marker: null,
-            travelledLine: null,
-            remainingLine: null,
-            completed: initialIndex >= points.length - 1,
-            cameraMode: 'journey-replay'
-        };
-
-        window.adminHistoryPlayback[mapId] = playback;
-        const current = points[initialIndex];
-
-        const icon = L.divIcon({
-            className: 'payroll-playback-marker',
-            html: '<div class="journey-moving-marker"><span></span><i class="bi bi-person-fill"></i></div>',
-            iconSize: [48, 48], iconAnchor: [24, 24]
-        });
-
-        playback.marker = L.marker([current.latitude, current.longitude], {
-            icon: icon, zIndexOffset: 6000
-        }).addTo(state.map);
-
-        playback.marker.bindTooltip(window.adminJourneyPointPopup(playback.employeeName, current, 'CURRENT GPS POSITION'), {
-            direction: 'top', sticky: true, opacity: .97, className: 'admin-journey-tooltip'
-        });
-
-        const coords = points.map(function (p) { return [p.latitude, p.longitude]; });
-        playback.remainingLine = L.polyline(coords.slice(initialIndex), {
-            color: '#718096', weight: 4, opacity: .48, dashArray: '7 9', lineCap: 'round', lineJoin: 'round'
-        }).addTo(state.map);
-
-        playback.travelledLine = L.polyline(coords.slice(0, initialIndex + 1), {
-            color: '#2f80ed', weight: 6, opacity: .96, lineCap: 'round', lineJoin: 'round'
-        }).addTo(state.map);
-
-        window.updateAdminJourneyTrail(playback, initialIndex);
-        window.moveAdminPlaybackMarker(playback, initialIndex, false);
-
-        if (initialIndex < points.length - 1) {
-            window.resumeAdminHistoryPlayback(mapId);
+        try {
+            window.clearAdminHistoryRoute(
+                mapId
+            );
         }
-    }
-    catch (error) {
-        console.error('Admin journey playback error:', error);
-    }
-};
+        catch { }
 
-window.updateAdminJourneyTrail = function (playback, index) {
-    if (!playback) return;
-    const points = playback.points || [];
-    if (playback.travelledLine) {
-        playback.travelledLine.setLatLngs(points.slice(0, index + 1).map(function (p) { return [p.latitude, p.longitude]; }));
-    }
-    if (playback.remainingLine) {
-        const remaining = points.slice(index);
-        playback.remainingLine.setLatLngs(remaining.length ? remaining.map(function (p) { return [p.latitude, p.longitude]; }) : []);
-    }
-};
+        try {
+            state.map.remove();
+        }
+        catch { }
 
-window.resumeAdminHistoryPlayback = function (mapId) {
-    const playback = window.adminHistoryPlayback?.[mapId];
-    if (!playback?.marker || playback.points.length === 0) return;
+        delete window.adminLiveMaps[
+            mapId
+        ];
+    };
 
-    window.pauseAdminHistoryPlayback(mapId);
-    if (playback.index >= playback.points.length - 1) {
-        playback.completed = true;
-        return;
-    }
+// ============================================================
+// ADMIN GPS HISTORY PLAYBACK
+// FINAL REPLACEMENT VERSION
+// ============================================================
+//
+// Features:
+// - Session-specific playback
+// - Play / Pause / Resume
+// - Reset
+// - Seek
+// - Speed control
+// - Start from selected point
+// - Animated marker movement
+// - Progressive route line
+// - Current point popup
+// - Playback state available to Blazor
+// - Safe cleanup when map/session changes
+// ============================================================
 
-    playback.completed = false;
+window.adminHistoryPlayback =
+    window.adminHistoryPlayback || {};
 
-    const scheduleNext = function () {
-        const active = window.adminHistoryPlayback?.[mapId];
-        if (!active || active !== playback || active.completed) return;
+window.startAdminHistoryPlayback =
+    async function (
+        mapId,
+        history,
+        employeeName,
+        speed,
+        startIndex
+    ) {
+        try {
+            const state =
+                window.adminLiveMaps?.[mapId];
 
-        const current = active.points[active.index];
-        const next = active.points[active.index + 1];
-        if (!next) {
-            active.completed = true;
+            if (
+                !state ||
+                !state.map ||
+                !Array.isArray(history) ||
+                history.length === 0
+            ) {
+                return;
+            }
+
+            /*
+             * Stop any previous playback for this map.
+             * Do not remove the historical route itself.
+             */
+            window.pauseAdminHistoryPlayback(mapId);
+
+            const points =
+                history
+                    .map(function (x, index) {
+
+                        const latitude =
+                            Number(
+                                x.latitude ??
+                                x.Latitude
+                            );
+
+                        const longitude =
+                            Number(
+                                x.longitude ??
+                                x.Longitude
+                            );
+
+                        if (
+                            !Number.isFinite(latitude) ||
+                            !Number.isFinite(longitude)
+                        ) {
+                            return null;
+                        }
+
+                        return {
+                            index: index,
+
+                            latitude:
+                                latitude,
+
+                            longitude:
+                                longitude,
+
+                            distance:
+                                Number(
+                                    x.distanceFromOfficeMeters ??
+                                    x.DistanceFromOfficeMeters
+                                ) || 0,
+
+                            allowed:
+                                Number(
+                                    x.allowedRadiusMeters ??
+                                    x.AllowedRadiusMeters
+                                ) || 0,
+
+                            within:
+                                Boolean(
+                                    x.isWithinAllowedRadius ??
+                                    x.IsWithinAllowedRadius
+                                ),
+
+                            accuracy:
+                                Number(
+                                    x.accuracyMeters ??
+                                    x.AccuracyMeters
+                                ) || 0,
+
+                            recordedAt:
+                                x.recordedAtUtc ??
+                                x.RecordedAtUtc
+                        };
+                    })
+                    .filter(Boolean);
+
+            if (points.length === 0) {
+                return;
+            }
+
+            /*
+             * Preserve the currently selected index when possible.
+             */
+            const previous =
+                window.adminHistoryPlayback[mapId];
+
+            const requestedIndex =
+                Number.isFinite(
+                    Number(startIndex)
+                )
+                    ? Number(startIndex)
+                    : (
+                        previous?.index ?? 0
+                    );
+
+            const initialIndex =
+                Math.max(
+                    0,
+                    Math.min(
+                        points.length - 1,
+                        requestedIndex
+                    )
+                );
+
+            const playback = {
+
+                mapId:
+                    mapId,
+
+                points:
+                    points,
+
+                employeeName:
+                    employeeName ||
+                    "Employee",
+
+                speed:
+                    Math.max(
+                        0.25,
+                        Number(speed) || 1
+                    ),
+
+                index:
+                    initialIndex,
+
+                timer:
+                    null,
+
+                animationFrame:
+                    null,
+
+                marker:
+                    null,
+
+                routeLine:
+                    null,
+
+                completed:
+                    initialIndex >=
+                    points.length - 1,
+
+                lastTickTime:
+                    0
+            };
+
+            window.adminHistoryPlayback[mapId] =
+                playback;
+
+            /*
+             * Playback employee marker.
+             */
+            const icon =
+                L.divIcon({
+                    className:
+                        "payroll-playback-marker",
+
+                    html:
+                        '<div style="' +
+                        'width:42px;' +
+                        'height:42px;' +
+                        'border-radius:50%;' +
+                        'display:flex;' +
+                        'align-items:center;' +
+                        'justify-content:center;' +
+                        'background:#6610f2;' +
+                        'color:#fff;' +
+                        'border:4px solid #fff;' +
+                        'box-shadow:0 3px 12px rgba(0,0,0,.4);' +
+                        'font-size:19px">' +
+                        '<i class="bi bi-person-walking"></i>' +
+                        '</div>',
+
+                    iconSize:
+                        [42, 42],
+
+                    iconAnchor:
+                        [21, 21]
+                });
+
+            const initialPoint =
+                points[initialIndex];
+
+            playback.marker =
+                L.marker(
+                    [
+                        initialPoint.latitude,
+                        initialPoint.longitude
+                    ],
+                    {
+                        icon:
+                            icon,
+
+                        zIndexOffset:
+                            5000
+                    }
+                ).addTo(
+                    state.map
+                );
+
+            playback.marker.bindPopup(
+                window.buildAdminPlaybackPopup(
+                    playback.employeeName,
+                    initialPoint,
+                    initialIndex,
+                    points.length
+                )
+            );
+
+            /*
+             * Progressive playback route.
+             */
+            playback.routeLine =
+                L.polyline(
+                    points
+                        .slice(
+                            0,
+                            initialIndex + 1
+                        )
+                        .map(function (point) {
+                            return [
+                                point.latitude,
+                                point.longitude
+                            ];
+                        }),
+                    {
+                        color:
+                            "#6610f2",
+
+                        weight:
+                            5,
+
+                        opacity:
+                            0.9,
+
+                        lineJoin:
+                            "round",
+
+                        lineCap:
+                            "round"
+                    }
+                ).addTo(
+                    state.map
+                );
+
+            window.moveAdminPlaybackMarker(
+                playback,
+                initialIndex
+            );
+
+            /*
+             * Keep playback map focused on selected point.
+             */
+            state.map.panTo(
+                [
+                    initialPoint.latitude,
+                    initialPoint.longitude
+                ],
+                {
+                    animate:
+                        false
+                }
+            );
+
+            if (
+                initialIndex <
+                points.length - 1
+            ) {
+                window.resumeAdminHistoryPlayback(
+                    mapId
+                );
+            }
+
+        }
+        catch (error) {
+
+            console.error(
+                "Admin history playback error:",
+                error
+            );
+        }
+    };
+
+
+window.resumeAdminHistoryPlayback =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (
+            !playback ||
+            !playback.marker ||
+            playback.points.length === 0
+        ) {
             return;
         }
 
-        const rawGap = current.timestamp && next.timestamp
-            ? Math.max(120, next.timestamp - current.timestamp)
-            : 1000;
-        // Preserve chronology while keeping long GPS gaps usable in an interactive replay.
-        const duration = Math.max(160, Math.min(4500, rawGap / Math.max(.25, active.speed)));
-        const started = performance.now();
-        const from = [current.latitude, current.longitude];
-        const to = [next.latitude, next.longitude];
+        window.pauseAdminHistoryPlayback(
+            mapId
+        );
 
-        if (active.animationFrame) cancelAnimationFrame(active.animationFrame);
+        if (
+            playback.index >=
+            playback.points.length - 1
+        ) {
+            playback.completed = true;
+            return;
+        }
 
-        const animate = function (now) {
-            const live = window.adminHistoryPlayback?.[mapId];
-            if (!live || live !== active || !live.marker || !live.timer) return;
+        playback.completed = false;
 
-            const progress = Math.min(1, (now - started) / duration);
-            const eased = 1 - Math.pow(1 - progress, 3);
-            live.marker.setLatLng([
-                from[0] + (to[0] - from[0]) * eased,
-                from[1] + (to[1] - from[1]) * eased
-            ]);
+        /*
+         * One GPS history point normally represents a 10-second
+         * recording interval. Speed controls how quickly the
+         * history is replayed.
+         */
+        const interval =
+            Math.max(
+                150,
+                Math.round(
+                    1500 /
+                    playback.speed
+                )
+            );
 
-            if (progress < 1) {
-                live.animationFrame = requestAnimationFrame(animate);
+        playback.timer =
+            setInterval(
+                function () {
+
+                    const current =
+                        window.adminHistoryPlayback?.[mapId];
+
+                    if (!current) {
+                        return;
+                    }
+
+                    if (
+                        current.index >=
+                        current.points.length - 1
+                    ) {
+                        window.pauseAdminHistoryPlayback(
+                            mapId
+                        );
+
+                        current.completed =
+                            true;
+
+                        window.moveAdminPlaybackMarker(
+                            current,
+                            current.index
+                        );
+
+                        return;
+                    }
+
+                    current.index++;
+
+                    window.moveAdminPlaybackMarker(
+                        current,
+                        current.index
+                    );
+                },
+                interval
+            );
+    };
+
+
+window.pauseAdminHistoryPlayback =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (!playback) {
+            return;
+        }
+
+        if (playback.timer) {
+
+            clearInterval(
+                playback.timer
+            );
+
+            playback.timer =
+                null;
+        }
+
+        if (
+            playback.animationFrame
+        ) {
+
+            cancelAnimationFrame(
+                playback.animationFrame
+            );
+
+            playback.animationFrame =
+                null;
+        }
+    };
+
+
+window.resetAdminHistoryPlayback =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (!playback) {
+            return;
+        }
+
+        window.pauseAdminHistoryPlayback(
+            mapId
+        );
+
+        playback.index =
+            0;
+
+        playback.completed =
+            false;
+
+        window.moveAdminPlaybackMarker(
+            playback,
+            0
+        );
+    };
+
+
+window.stopAdminHistoryPlayback =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (!playback) {
+            return;
+        }
+
+        window.pauseAdminHistoryPlayback(
+            mapId
+        );
+
+        try {
+
+            const state =
+                window.adminLiveMaps?.[mapId];
+
+            if (
+                state?.map &&
+                playback.marker
+            ) {
+                state.map.removeLayer(
+                    playback.marker
+                );
             }
+
+            if (
+                state?.map &&
+                playback.routeLine
+            ) {
+                state.map.removeLayer(
+                    playback.routeLine
+                );
+            }
+
+        }
+        catch {
+        }
+
+        delete window.adminHistoryPlayback[
+            mapId
+        ];
+    };
+
+
+window.seekAdminHistoryPlayback =
+    function (
+        mapId,
+        index
+    ) {
+
+        const playback =
+            window.adminHistoryPlayback?.[mapId];
+
+        if (!playback) {
+            return;
+        }
+
+        const target =
+            Math.max(
+                0,
+                Math.min(
+                    playback.points.length - 1,
+                    Number(index) || 0
+                )
+            );
+
+        playback.index =
+            target;
+
+        playback.completed =
+            target >=
+            playback.points.length - 1;
+
+        window.moveAdminPlaybackMarker(
+            playback,
+            target
+        );
+    };
+
+
+window.moveAdminPlaybackMarker =
+    function (
+        playback,
+        index
+    ) {
+
+        if (
+            !playback ||
+            !playback.marker
+        ) {
+            return;
+        }
+
+        const point =
+            playback.points[index];
+
+        if (!point) {
+            return;
+        }
+
+        const position = [
+            point.latitude,
+            point.longitude
+        ];
+
+        playback.marker.setLatLng(
+            position
+        );
+
+        playback.marker.setPopupContent(
+            window.buildAdminPlaybackPopup(
+                playback.employeeName,
+                point,
+                index,
+                playback.points.length
+            )
+        );
+
+        /*
+         * Update progressive playback route.
+         */
+        if (
+            playback.routeLine
+        ) {
+
+            playback.routeLine.setLatLngs(
+                playback.points
+                    .slice(
+                        0,
+                        index + 1
+                    )
+                    .map(function (item) {
+                        return [
+                            item.latitude,
+                            item.longitude
+                        ];
+                    })
+            );
+        }
+
+        const state =
+            window.adminLiveMaps?.[
+            playback.mapId
+            ];
+
+        if (
+            state?.map
+        ) {
+
+            /*
+             * Do not open a popup every timer tick.
+             * The popup is opened when the marker is clicked
+             * or when playback starts.
+             */
+            if (
+                index === 0 ||
+                index ===
+                playback.points.length - 1
+            ) {
+                playback.marker.openPopup();
+            }
+
+            state.map.panTo(
+                position,
+                {
+                    animate:
+                        true,
+
+                    duration:
+                        0.35
+                }
+            );
+        }
+    };
+
+
+window.buildAdminPlaybackPopup =
+    function (
+        employeeName,
+        point,
+        index,
+        total
+    ) {
+
+        const safeName =
+            window.escapeAdminHtml(
+                employeeName
+            );
+
+        const time =
+            window.formatAdminHistoryTime(
+                point.recordedAt
+            );
+
+        const distance =
+            window.formatAdminDistance(
+                point.distance
+            );
+
+        const allowed =
+            point.allowed > 0
+                ? point.allowed + " m"
+                : "-";
+
+        const accuracy =
+            point.accuracy > 0
+                ? Math.round(
+                    point.accuracy
+                ) + " m"
+                : "-";
+
+        const status =
+            point.within
+                ? "Within allowed range"
+                : "Outside allowed range";
+
+        const statusColor =
+            point.within
+                ? "#198754"
+                : "#dc3545";
+
+        return (
+            '<div style="min-width:230px">' +
+
+            "<strong>" +
+            safeName +
+            "</strong>" +
+
+            '<hr style="margin:6px 0">' +
+
+            "<strong>GPS Point " +
+            (index + 1) +
+            " / " +
+            total +
+            "</strong><br>" +
+
+            "<span>Time: " +
+            time +
+            "</span><br>" +
+
+            "<span>Distance: " +
+            distance +
+            "</span><br>" +
+
+            "<span>Allowed: " +
+            allowed +
+            "</span><br>" +
+
+            "<span>Accuracy: " +
+            accuracy +
+            "</span><br>" +
+
+            "<span>Latitude: " +
+            point.latitude.toFixed(6) +
+            "</span><br>" +
+
+            "<span>Longitude: " +
+            point.longitude.toFixed(6) +
+            "</span><br>" +
+
+            '<strong style="color:' +
+            statusColor +
+            '">' +
+            status +
+            "</strong>" +
+
+            "</div>"
+        );
+    };
+
+
+window.setAdminHistoryPlaybackSpeed =
+    function (
+        mapId,
+        speed
+    ) {
+
+        const playback =
+            window.adminHistoryPlayback?.[
+            mapId
+            ];
+
+        if (!playback) {
+            return;
+        }
+
+        const wasPlaying =
+            !!playback.timer;
+
+        playback.speed =
+            Math.max(
+                0.25,
+                Number(speed) || 1
+            );
+
+        window.pauseAdminHistoryPlayback(
+            mapId
+        );
+
+        if (
+            wasPlaying &&
+            playback.index <
+            playback.points.length - 1
+        ) {
+            window.resumeAdminHistoryPlayback(
+                mapId
+            );
+        }
+    };
+
+
+window.getAdminHistoryPlaybackState =
+    function (mapId) {
+
+        const playback =
+            window.adminHistoryPlayback?.[
+            mapId
+            ];
+
+        if (!playback) {
+            return null;
+        }
+
+        return {
+            index:
+                playback.index,
+
+            total:
+                playback.points.length,
+
+            playing:
+                !!playback.timer,
+
+            completed:
+                !!playback.completed,
+
+            speed:
+                playback.speed
         };
-
-        active.animationFrame = requestAnimationFrame(animate);
-
-        active.timer = setTimeout(function () {
-            const live = window.adminHistoryPlayback?.[mapId];
-            if (!live || live !== playback) return;
-
-            active.timer = null;
-            active.index++;
-            window.moveAdminPlaybackMarker(active, active.index, true);
-
-            if (active.index >= active.points.length - 1) {
-                active.completed = true;
-                return;
-            }
-            scheduleNext();
-        }, duration);
     };
-
-    // timer is a running-state flag. The first scheduled segment sets it.
-    playback.timer = setTimeout(function () {
-        playback.timer = null;
-        scheduleNext();
-    }, 0);
-};
-
-window.pauseAdminHistoryPlayback = function (mapId) {
-    const playback = window.adminHistoryPlayback?.[mapId];
-    if (!playback) return;
-    if (playback.timer) clearTimeout(playback.timer);
-    playback.timer = null;
-    if (playback.animationFrame) cancelAnimationFrame(playback.animationFrame);
-    playback.animationFrame = null;
-};
-
-window.resetAdminHistoryPlayback = function (mapId) {
-    const playback = window.adminHistoryPlayback?.[mapId];
-    if (!playback) return;
-    window.pauseAdminHistoryPlayback(mapId);
-    playback.index = 0;
-    playback.completed = false;
-    window.moveAdminPlaybackMarker(playback, 0, false);
-};
-
-window.stopAdminHistoryPlayback = function (mapId) {
-    const playback = window.adminHistoryPlayback?.[mapId];
-    if (!playback) return;
-    window.pauseAdminHistoryPlayback(mapId);
-    const state = window.adminLiveMaps?.[mapId];
-    [playback.marker, playback.travelledLine, playback.remainingLine].forEach(function (layer) {
-        try { if (layer && state?.map) state.map.removeLayer(layer); } catch { }
-    });
-    delete window.adminHistoryPlayback[mapId];
-};
-
-window.seekAdminHistoryPlayback = function (mapId, index) {
-    const playback = window.adminHistoryPlayback?.[mapId];
-    if (!playback) return;
-    window.pauseAdminHistoryPlayback(mapId);
-    playback.index = Math.max(0, Math.min(playback.points.length - 1, Number(index) || 0));
-    playback.completed = playback.index >= playback.points.length - 1;
-    window.moveAdminPlaybackMarker(playback, playback.index, false);
-};
-
-window.moveAdminPlaybackMarker = function (playback, index, followCamera) {
-    if (!playback?.marker) return;
-    const point = playback.points[index];
-    if (!point) return;
-
-    const previous = playback.points[Math.max(0, index - 1)];
-    const from = previous ? [previous.latitude, previous.longitude] : playback.marker.getLatLng();
-    const to = [point.latitude, point.longitude];
-    const state = window.adminLiveMaps?.[playback.mapId];
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const duration = reduced ? 0 : 320;
-    const started = performance.now();
-
-    if (playback.animationFrame) cancelAnimationFrame(playback.animationFrame);
-
-    const animate = function (now) {
-        const active = window.adminHistoryPlayback?.[playback.mapId];
-        if (!active || active !== playback || !active.marker) return;
-        const progress = duration === 0 ? 1 : Math.min(1, (now - started) / duration);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        active.marker.setLatLng([
-            from[0] + (to[0] - from[0]) * eased,
-            from[1] + (to[1] - from[1]) * eased
-        ]);
-        if (progress < 1) active.animationFrame = requestAnimationFrame(animate);
-        else active.animationFrame = null;
-    };
-    playback.animationFrame = requestAnimationFrame(animate);
-
-    window.updateAdminJourneyTrail(playback, index);
-
-    if (followCamera && state?.map) {
-        state.map.panTo(to, { animate: !reduced, duration: reduced ? 0 : .45 });
-    }
-
-    if (playback.marker.getTooltip()) {
-        playback.marker.setTooltipContent(window.adminJourneyPointPopup(playback.employeeName, point, 'CURRENT GPS POSITION'));
-    }
-};
-
-window.buildAdminPlaybackPopup = function (employeeName, point, index, total) {
-    return window.adminJourneyPointPopup(employeeName, point, 'GPS ' + (index + 1) + ' / ' + total);
-};
-
-window.setAdminHistoryPlaybackSpeed = function (mapId, speed) {
-    const playback = window.adminHistoryPlayback?.[mapId];
-    if (!playback) return;
-    const wasPlaying = !!playback.timer;
-    playback.speed = Math.max(.25, Number(speed) || 1);
-    if (wasPlaying) {
-        window.pauseAdminHistoryPlayback(mapId);
-        window.resumeAdminHistoryPlayback(mapId);
-    }
-};
-
-window.getAdminHistoryPlaybackState = function (mapId) {
-    const playback = window.adminHistoryPlayback?.[mapId];
-    if (!playback) return null;
-    return {
-        index: playback.index,
-        total: playback.points.length,
-        playing: !!playback.timer,
-        completed: !!playback.completed,
-        speed: playback.speed
-    };
-};
