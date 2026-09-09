@@ -545,7 +545,7 @@
 
                     <button type="button"
                             class="btn btn-outline-primary btn-sm"
-                            @onclick="LoadSelectedEmployeeHistory"
+                            @onclick="() => LoadSelectedEmployeeHistory()"
                             disabled="@historyLoading">
 
                         <i class="bi bi-arrow-clockwise @(historyLoading ? "spin" : "")"></i>
@@ -704,149 +704,137 @@
                 </div>
 
                 <!-- ====================================================
-                     PLAYBACK TOOLBAR
+                     ENTERPRISE JOURNEY REPLAY
                      ==================================================== -->
 
-                <div class="history-playback-toolbar">
-
-                    <div class="history-playback-title">
-
-                        <i class="bi bi-play-circle-fill text-primary me-1"></i>
-
-                        <span>Route Playback</span>
-
-                        @if (selectedPlaybackSessionId.HasValue)
-                        {
-                            <span class="badge bg-primary-subtle text-primary ms-2">
-                                Session @ShortSessionId(selectedPlaybackSessionId.Value)
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-secondary-subtle text-secondary ms-2">
-                                Selected Day
-                            </span>
-                        }
-
+                <section class="enterprise-journey-replay">
+                    <div class="journey-replay-head">
+                        <div class="journey-replay-title">
+                            <div class="journey-recording-dot"></div>
+                            <div>
+                                <div class="journey-eyebrow">JOURNEY REPLAY</div>
+                                <h5 class="mb-0 fw-bold">@SelectedEmployeeName · @historyDate.ToString("dd MMM yyyy")</h5>
+                                <small>GPS reconstruction · start to end · every recorded coordinate preserved</small>
+                            </div>
+                        </div>
+                        <div class="journey-head-badges">
+                            <span class="journey-badge"><i class="bi bi-geo-alt-fill"></i> @PlaybackPoints.Count GPS points</span>
+                            <span class="journey-badge"><i class="bi bi-clock-history"></i> @HistoryStartText → @HistoryEndText</span>
+                        </div>
                     </div>
 
-                    <div class="history-playback-actions">
+                    @if (CanPlayback)
+                    {
+                        <div class="journey-metrics">
+                            <div class="journey-metric journey-metric-start">
+                                <span>START</span>
+                                <strong>@HistoryStartText</strong>
+                                <small>@(selectedHistory.Count > 0 ? $"{selectedHistory[0].Latitude:F6}, {selectedHistory[0].Longitude:F6}" : "-")</small>
+                            </div>
+                            <div class="journey-metric">
+                                <span>TRAVELLED</span>
+                                <strong>@FormatDistance(HistoryTravelDistance)</strong>
+                                <small>@HistoryTravelDurationText journey duration</small>
+                            </div>
+                            <div class="journey-metric">
+                                <span>STOPS</span>
+                                <strong>@HistoryStopCount</strong>
+                                <small>detected pauses</small>
+                            </div>
+                            <div class="journey-metric journey-metric-end">
+                                <span>END / LAST GPS</span>
+                                <strong>@HistoryEndText</strong>
+                                <small>@(selectedHistory.Count > 0 ? $"{selectedHistory[^1].Latitude:F6}, {selectedHistory[^1].Longitude:F6}" : "-")</small>
+                            </div>
+                        </div>
 
-                        <button type="button"
-                                class="btn btn-sm @(selectedPlaybackSessionId.HasValue ? "btn-outline-secondary" : "btn-secondary")"
-                                @onclick="SelectFullDayPlayback"
-                                disabled="@(!selectedPlaybackSessionId.HasValue)">
-                            <i class="bi bi-calendar3 me-1"></i>
-                            Selected Day
-                        </button>
+                        <div class="journey-replay-stage">
+                            <div class="journey-stage-strip">
+                                <div class="journey-live-state">
+                                    <span class="journey-state-pulse"></span>
+                                    <strong>@playbackStatus</strong>
+                                    <span>GPS @PlaybackDisplayIndex / @PlaybackPoints.Count</span>
+                                </div>
+                                <div class="journey-stage-now">
+                                    <i class="bi bi-crosshair2"></i>
+                                    <strong>@PlaybackTimeText</strong>
+                                    <span>@PlaybackDistanceText</span>
+                                </div>
+                            </div>
 
-                        <button type="button"
-                                class="btn btn-sm btn-primary"
-                                @onclick="PlayHistory"
-                                disabled="@(!CanPlayback)">
-                            <i class="bi bi-play-fill me-1"></i>
-                            Play
-                        </button>
+                            <div class="journey-route-legend">
+                                <span><i class="journey-line travelled"></i> Travelled</span>
+                                <span><i class="journey-line remaining"></i> Remaining</span>
+                                <span><i class="journey-dot start"></i> Start</span>
+                                <span><i class="journey-dot end"></i> End</span>
+                                <span><i class="bi bi-pause-circle"></i> Stop</span>
+                                <span><i class="bi bi-shield-check"></i> Geofence transition</span>
+                            </div>
+                        </div>
 
-                        <button type="button"
-                                class="btn btn-sm btn-outline-secondary"
-                                @onclick="PauseHistory"
-                                disabled="@(!CanPlayback)">
-                            <i class="bi bi-pause-fill me-1"></i>
-                            Pause
-                        </button>
+                        <div class="journey-controls">
+                            <div class="journey-control-primary">
+                                <button type="button" class="journey-control journey-play" @onclick="PlayHistory" disabled="@(!CanPlayback)">
+                                    <i class="bi bi-play-fill"></i><span>Play Journey</span>
+                                </button>
+                                <button type="button" class="journey-control" @onclick="PauseHistory" disabled="@(!CanPlayback)">
+                                    <i class="bi bi-pause-fill"></i><span>Pause</span>
+                                </button>
+                                <button type="button" class="journey-control" @onclick="ResetHistory" disabled="@(!CanPlayback)">
+                                    <i class="bi bi-arrow-counterclockwise"></i><span>Reset</span>
+                                </button>
+                                <button type="button" class="journey-control @(selectedPlaybackSessionId.HasValue ? "journey-control-active" : "")" @onclick="SelectFullDayPlayback" disabled="@(!selectedPlaybackSessionId.HasValue)">
+                                    <i class="bi bi-calendar3"></i><span>Full Day</span>
+                                </button>
+                            </div>
+                            <label class="journey-speed-control">
+                                <span>Playback speed</span>
+                                <select class="form-select form-select-sm" value="@playbackSpeed" @onchange="ChangePlaybackSpeed">
+                                    <option value="0.25">0.25×</option>
+                                    <option value="0.5">0.5×</option>
+                                    <option value="1">1× Real Time</option>
+                                    <option value="2">2×</option>
+                                    <option value="4">4×</option>
+                                    <option value="8">8×</option>
+                                </select>
+                            </label>
+                        </div>
 
-                        <button type="button"
-                                class="btn btn-sm btn-outline-secondary"
-                                @onclick="ResetHistory"
-                                disabled="@(!CanPlayback)">
-                            <i class="bi bi-arrow-counterclockwise me-1"></i>
-                            Reset
-                        </button>
+                        <div class="journey-timeline">
+                            <div class="journey-timeline-labels">
+                                <span>@HistoryStartText</span>
+                                <strong>Journey timeline</strong>
+                                <span>@HistoryEndText</span>
+                            </div>
+                            <input type="range" class="form-range journey-range" min="0" max="@(Math.Max(0, PlaybackPoints.Count - 1))" value="@PlaybackIndex" @oninput="SeekHistoryFromSlider" aria-label="Journey timeline" />
+                            <div class="journey-progress-meta">
+                                <span>Point @PlaybackDisplayIndex of @PlaybackPoints.Count</span>
+                                <span>@PlaybackDistanceText from office</span>
+                            </div>
+                        </div>
 
-                        <select class="form-select form-select-sm history-speed"
-                                value="@playbackSpeed"
-                                @onchange="ChangePlaybackSpeed">
-                            <option value="0.25">0.25×</option>
-                            <option value="0.5">0.5×</option>
-                            <option value="1">1×</option>
-                            <option value="2">2×</option>
-                            <option value="4">4×</option>
-                            <option value="8">8×</option>
-                        </select>
-
-                    </div>
-
-                </div>
-
-
-                <!-- ====================================================
-                     PLAYBACK PROGRESS
-                     ==================================================== -->
-
-                <div class="history-playback-progress">
-
-                    <div class="playback-progress-top">
-
-                        <span>
-                            <i class="bi bi-clock me-1"></i>
-
-                            @playbackStatus
-                        </span>
-
-                        <strong>
-                            GPS @PlaybackDisplayIndex / @PlaybackPoints.Count
-                        </strong>
-
-                    </div>
-
-                    <input type="range"
-                           class="form-range playback-range"
-                           min="0"
-                           max="@(Math.Max(0, PlaybackPoints.Count - 1))"
-                           value="@PlaybackIndex"
-                           @oninput="SeekHistoryFromSlider" />
-
-                    <div class="playback-progress-bottom">
-
-                        <span>
-                            @PlaybackTimeText
-                        </span>
-
-                        <span>
-                            @PlaybackDistanceText
-                        </span>
-
-                    </div>
-
-                </div>
-
-
-                <!-- ====================================================
-                     PLAYBACK STATUS
-                     ==================================================== -->
-
-                <div class="history-playback-status">
-
-                    <span>
-
-                        <i class="bi bi-broadcast me-1"></i>
-
-                        Playback:
-                        <strong>@playbackStatus</strong>
-
-                    </span>
-
-                    <span>
-
-                        <i class="bi bi-geo-alt me-1"></i>
-
-                        @PlaybackPoints.Count GPS points
-
-                    </span>
-
-                </div>
-
+                        <div class="journey-event-strip">
+                            @foreach (var evt in HistoryJourneyEvents)
+                            {
+                                <button type="button" class="journey-event" @onclick="() => SelectHistoryPoint(evt.Index)" title="Jump to journey event">
+                                    <span class="journey-event-time">@evt.Time</span>
+                                    <strong>@evt.Label</strong>
+                                    <small>@evt.Detail</small>
+                                </button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="journey-empty">
+                            <i class="bi bi-signpost-split"></i>
+                            <div>
+                                <strong>No GPS journey recorded for this date</strong>
+                                <span>Select another date or employee to reconstruct a journey.</span>
+                            </div>
+                        </div>
+                    }
+                </section>
 
                 <!-- ====================================================
                      HISTORY TABLE
@@ -3454,6 +3442,99 @@
     }
 
 
+    private string HistoryTravelDurationText
+    {
+        get
+        {
+            if (selectedHistory.Count < 2)
+                return "0 min";
+
+            var duration = selectedHistory[^1].RecordedAtUtc - selectedHistory[0].RecordedAtUtc;
+            if (duration.TotalSeconds < 60)
+                return $"{Math.Max(1, (int)Math.Round(duration.TotalSeconds))} sec";
+            if (duration.TotalHours < 1)
+                return $"{Math.Max(1, (int)Math.Round(duration.TotalMinutes))} min";
+            return $"{(int)duration.TotalHours}h {duration.Minutes:00}m";
+        }
+    }
+
+    private int HistoryStopCount
+    {
+        get
+        {
+            if (selectedHistory.Count < 2)
+                return 0;
+
+            var count = 0;
+            for (var i = 1; i < selectedHistory.Count; i++)
+            {
+                var gap = selectedHistory[i].RecordedAtUtc - selectedHistory[i - 1].RecordedAtUtc;
+                if (gap.TotalMinutes >= 3)
+                    count++;
+            }
+            return count;
+        }
+    }
+
+    private IReadOnlyList<JourneyEventView> HistoryJourneyEvents
+    {
+        get
+        {
+            var events = new List<JourneyEventView>();
+            if (selectedHistory.Count == 0)
+                return events;
+
+            events.Add(new JourneyEventView
+            {
+                Index = 0,
+                Time = ToLocalTime(selectedHistory[0].RecordedAtUtc).ToString("HH:mm:ss"),
+                Label = "Journey started",
+                Detail = $"{selectedHistory[0].Latitude:F5}, {selectedHistory[0].Longitude:F5}"
+            });
+
+            for (var i = 1; i < selectedHistory.Count && events.Count < 8; i++)
+            {
+                var previous = selectedHistory[i - 1];
+                var current = selectedHistory[i];
+                var gap = current.RecordedAtUtc - previous.RecordedAtUtc;
+
+                if (current.IsWithinAllowedRadius != previous.IsWithinAllowedRadius)
+                {
+                    events.Add(new JourneyEventView
+                    {
+                        Index = i,
+                        Time = ToLocalTime(current.RecordedAtUtc).ToString("HH:mm:ss"),
+                        Label = current.IsWithinAllowedRadius ? "Entered geofence" : "Left geofence",
+                        Detail = FormatDistance(current.DistanceFromOfficeMeters)
+                    });
+                }
+                else if (gap.TotalMinutes >= 3)
+                {
+                    events.Add(new JourneyEventView
+                    {
+                        Index = i,
+                        Time = ToLocalTime(current.RecordedAtUtc).ToString("HH:mm:ss"),
+                        Label = "Stop detected",
+                        Detail = $"{Math.Round(gap.TotalMinutes)} min pause"
+                    });
+                }
+            }
+
+            if (selectedHistory.Count > 1)
+            {
+                events.Add(new JourneyEventView
+                {
+                    Index = selectedHistory.Count - 1,
+                    Time = ToLocalTime(selectedHistory[^1].RecordedAtUtc).ToString("HH:mm:ss"),
+                    Label = "Journey ended",
+                    Detail = $"{selectedHistory[^1].Latitude:F5}, {selectedHistory[^1].Longitude:F5}"
+                });
+            }
+
+            return events;
+        }
+    }
+
     private static double CalculateDistance(
         double lat1,
         double lon1,
@@ -3796,6 +3877,14 @@
 
 
 
+    private sealed class JourneyEventView
+    {
+        public int Index { get; set; }
+        public string Time { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string Detail { get; set; } = "";
+    }
+
     private sealed class SessionSummary
     {
         public Guid SessionId { get; set; }
@@ -3820,3 +3909,47 @@
     }
 
 }
+
+<style>
+    .enterprise-journey-replay {
+        margin: 18px 0 24px;
+        border: 1px solid rgba(122, 145, 174, .24);
+        border-radius: 16px;
+        overflow: hidden;
+        background: linear-gradient(145deg, rgba(20, 28, 39, .98), rgba(13, 20, 29, .98));
+        color: #eef4fb;
+        box-shadow: 0 14px 35px rgba(0,0,0,.16);
+    }
+    .journey-replay-head { display:flex; justify-content:space-between; gap:18px; padding:20px 22px; border-bottom:1px solid rgba(150,170,195,.16); }
+    .journey-replay-title { display:flex; align-items:center; gap:12px; min-width:0; }
+    .journey-recording-dot,.journey-state-pulse { width:9px;height:9px;border-radius:50%;background:#16c784;box-shadow:0 0 0 5px rgba(22,199,132,.10);flex:0 0 auto; }
+    .journey-eyebrow { font-size:10px; letter-spacing:.16em; font-weight:800; color:#76a9e8; margin-bottom:3px; }
+    .journey-replay-title h5 { color:#f6f9fc; }
+    .journey-replay-title small { color:#91a1b4; }
+    .journey-head-badges { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+    .journey-badge { border:1px solid rgba(140,160,185,.2); background:rgba(255,255,255,.035); padding:7px 10px; border-radius:9px; color:#b8c5d4; font-size:11px; white-space:nowrap; }
+    .journey-metrics { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid rgba(150,170,195,.14); }
+    .journey-metric { padding:15px 18px; border-right:1px solid rgba(150,170,195,.12); min-width:0; }
+    .journey-metric:last-child { border-right:0; }
+    .journey-metric span { display:block; font-size:9px; letter-spacing:.13em; color:#718298; font-weight:800; margin-bottom:5px; }
+    .journey-metric strong { display:block; color:#f1f5f9; font-size:17px; }
+    .journey-metric small { display:block; color:#8291a4; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .journey-metric-start strong { color:#4bd99c; }.journey-metric-end strong { color:#ff6d7a; }
+    .journey-replay-stage { padding:15px 18px 10px; }
+    .journey-stage-strip { display:flex; justify-content:space-between; gap:15px; align-items:center; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.035); border:1px solid rgba(150,170,195,.12); }
+    .journey-live-state,.journey-stage-now { display:flex; align-items:center; gap:8px; min-width:0; }.journey-live-state span:last-child,.journey-stage-now span { color:#7e8da0; font-size:11px; }.journey-stage-now { color:#b8c8da; }
+    .journey-route-legend { display:flex; gap:15px; flex-wrap:wrap; padding:12px 2px 2px; color:#8998aa; font-size:10px; }
+    .journey-line { display:inline-block; width:24px; height:0; border-top:3px solid #4f8df7; margin-right:5px; vertical-align:middle; }.journey-line.remaining { border-top-style:dashed; border-color:#718096; }.journey-dot { display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle; }.journey-dot.start{background:#16c784}.journey-dot.end{background:#ff5b69}
+    .journey-controls { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 18px; border-top:1px solid rgba(150,170,195,.12); border-bottom:1px solid rgba(150,170,195,.12); }
+    .journey-control-primary { display:flex; gap:7px; flex-wrap:wrap; }.journey-control { border:1px solid rgba(150,170,195,.25); background:rgba(255,255,255,.035); color:#d5dfeb; border-radius:9px; min-height:38px; padding:0 12px; }.journey-control:hover:not(:disabled){background:rgba(255,255,255,.075);}.journey-control:disabled{opacity:.38}.journey-play{background:#247cf0;border-color:#247cf0;color:#fff}.journey-control-active{border-color:#247cf0;color:#8dbbff}
+    .journey-speed-control { display:flex; align-items:center; gap:8px; color:#8291a4; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }.journey-speed-control select{width:132px;background:#17202c;color:#e5edf6;border-color:#3b4a5c}
+    .journey-timeline { padding:15px 18px 10px; }.journey-timeline-labels,.journey-progress-meta{display:flex;justify-content:space-between;gap:10px;color:#77879a;font-size:10px}.journey-timeline-labels strong{color:#aab8c8;text-transform:uppercase;letter-spacing:.1em}.journey-range{margin:9px 0 3px}.journey-range::-webkit-slider-runnable-track{height:5px;border-radius:8px;background:linear-gradient(90deg,#247cf0,#4f8df7)}
+    .journey-event-strip { display:flex; gap:8px; overflow-x:auto; padding:5px 18px 16px; scrollbar-width:thin; }.journey-event { min-width:145px; text-align:left; border:1px solid rgba(150,170,195,.14); background:rgba(255,255,255,.025); color:#d8e1eb; border-radius:10px; padding:9px 10px; }.journey-event:hover{background:rgba(255,255,255,.06)}.journey-event-time{display:block;color:#6fa4ef;font-size:9px;font-weight:800}.journey-event strong{display:block;font-size:11px;margin-top:3px}.journey-event small{display:block;color:#7f8ea1;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.journey-empty{display:flex;align-items:center;gap:14px;padding:32px 22px;color:#8998aa}.journey-empty i{font-size:30px;color:#5c7796}.journey-empty strong{display:block;color:#dbe4ee}.journey-empty span{display:block;margin-top:3px;font-size:12px}
+    @media(max-width:900px){.journey-replay-head{flex-direction:column}.journey-head-badges{justify-content:flex-start}.journey-metrics{grid-template-columns:repeat(2,1fr)}.journey-metric:nth-child(2){border-right:0}.journey-controls{align-items:flex-start;flex-direction:column}.journey-speed-control{width:100%;justify-content:space-between}}
+    @media(max-width:560px){.journey-metrics{grid-template-columns:1fr}.journey-metric{border-right:0;border-bottom:1px solid rgba(150,170,195,.12)}.journey-stage-strip{align-items:flex-start;flex-direction:column}.journey-badge{white-space:normal}.journey-speed-control select{width:145px}}
+</style>
+
+<style>
+    .journey-map-marker{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;border:3px solid rgba(255,255,255,.96);box-shadow:0 5px 18px rgba(0,0,0,.34);font-size:15px}.journey-map-start{background:#16a36e}.journey-map-end{background:#e45160}.journey-map-stop{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f0b429;color:#17202c;border:2px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.28);font-size:11px}.journey-map-transition{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#4f8df7;color:#fff;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:9px}.journey-moving-marker{position:relative;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#247cf0;color:#fff;border:4px solid #fff;box-shadow:0 6px 20px rgba(0,0,0,.42);font-size:18px}.journey-moving-marker span{position:absolute;inset:-5px;border-radius:50%;border:2px solid rgba(36,124,240,.35);animation:journeyPulse 1.8s ease-out infinite}.journey-moving-marker i{position:relative;z-index:2}.admin-journey-popup{min-width:235px;font-size:12px;color:#1d2733}.journey-popup-kicker{font-size:9px;font-weight:800;letter-spacing:.13em;color:#247cf0;margin-bottom:3px}.journey-popup-time{font-size:11px;color:#69788a;margin-top:3px}.journey-popup-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;margin-top:9px;padding-top:8px;border-top:1px solid #e6ebf0}.journey-popup-grid span{font-size:10px;color:#68788a}.journey-popup-grid b{display:block;color:#243142;font-size:11px}.journey-popup-ok,.journey-popup-alert{margin-top:8px;font-size:10px;font-weight:700}.journey-popup-ok{color:#198754}.journey-popup-alert{color:#dc3545}.admin-journey-tooltip{border:0!important;background:rgba(18,25,34,.96)!important;color:#edf4fb!important;border-radius:9px!important;box-shadow:0 8px 22px rgba(0,0,0,.28)!important}.admin-journey-tooltip:before{border-top-color:rgba(18,25,34,.96)!important}.admin-journey-tooltip .admin-journey-popup{color:#edf4fb}.admin-journey-tooltip .journey-popup-time,.admin-journey-tooltip .journey-popup-grid span{color:#9cacbe}.admin-journey-tooltip .journey-popup-grid{border-color:rgba(255,255,255,.12)}.admin-journey-tooltip .journey-popup-grid b{color:#f2f6fb}@keyframes journeyPulse{0%{transform:scale(.86);opacity:.8}75%{transform:scale(1.24);opacity:0}100%{transform:scale(1.24);opacity:0}}
+    @media (prefers-reduced-motion:reduce){.journey-moving-marker span{animation:none}}
+</style>
