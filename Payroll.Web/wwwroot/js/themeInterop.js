@@ -1659,9 +1659,10 @@ window.payrollFormatRouteDuration = function (seconds) {
 
 window.payrollFormatSpeed = function (metersPerSecond) {
     const speed = Number(metersPerSecond);
-    if (!Number.isFinite(speed) || speed < 0.4) return 'Stopped';
+    if (!Number.isFinite(speed) || speed <= 0.15) return 'Stationary';
     const kmh = speed * 3.6;
-    return `${kmh.toFixed(kmh < 10 ? 1 : 0)} km/h`;
+    if (kmh < 1) return 'Crawling';
+    return `${kmh.toFixed(1)} km/h`;
 };
 
 window.payrollEscapeHtml = function (value) {
@@ -2709,6 +2710,10 @@ window.registerAdminLiveLocationRealtime = function (mapId) {
             state.realtimeLastAt[employeeId] =
                 now;
 
+            if (Number.isFinite(data.SpeedMps)) {
+                state.markers[employeeId]._speedMps = Number(data.SpeedMps);
+            }
+
             // Match the real GPS cadence while preventing either a jump or
             // an excessively slow animation when the browser/network pauses.
             const duration =
@@ -3488,6 +3493,7 @@ window.updateAdminLiveStaffMap =
                     const tooltipEta = cachedRouteForTooltip?.durationSeconds > 0
                         ? window.payrollFormatRouteDuration(cachedRouteForTooltip.durationSeconds)
                         : 'Calculating…';
+                    const tooltipSpeed = window.payrollFormatSpeed(x.speedMps || state.markers[employeeId]._speedMps || 0);
                     const tooltipAccuracy = Number(x.accuracyMeters) > 0
                         ? `±${Math.round(Number(x.accuracyMeters))} m`
                         : 'Unknown';
@@ -3498,7 +3504,7 @@ window.updateAdminLiveStaffMap =
                         `<span><small>Air Distance</small><b>${distance}</b></span>` +
                         `<span><small>Road Distance</small><b>${tooltipDistance}</b></span>` +
                         `<span><small>ETA</small><b>${tooltipEta}</b></span>` +
-                        `<span><small>Accuracy</small><b>${window.payrollEscapeHtml(tooltipAccuracy)}</b></span>` +
+                        `<span><small>Speed</small><b>${window.payrollEscapeHtml(tooltipSpeed)}</b></span>` +
                         `</div></div>`;
 
                     if (state.markers[employeeId].getTooltip()) {
@@ -3536,12 +3542,7 @@ window.updateAdminLiveStaffMap =
                     // while marker motion remains smoothly interpolated in the browser.
                     const routeState = state.routeStates[employeeId];
                     const routeNow = Date.now();
-                    if (routeState.lastRawPosition) {
-                        const seconds = Math.max(.25, (routeNow - (routeState.lastRawPositionAt || routeNow)) / 1000);
-                        routeState.speedMps = Math.min(55, window.payrollHaversineMeters(routeState.lastRawPosition, position) / seconds);
-                    } else {
-                        routeState.speedMps = 0;
-                    }
+
                     routeState.lastRawPosition = position.slice();
                     routeState.lastRawPositionAt = routeNow;
 
@@ -3565,7 +3566,7 @@ window.updateAdminLiveStaffMap =
                         }
 
                         const name = window.payrollEscapeHtml(x.name || 'Employee');
-                        const hoverAccuracy = Number(x.accuracyMeters) > 0 ? `±${Math.round(Number(x.accuracyMeters))} m` : 'Unknown';
+                        const hoverSpeed = window.payrollFormatSpeed(x.speedMps || state.markers[employeeId]._speedMps || 0);
                         const hoverWithin = Boolean(x.isWithinAllowedRadius);
                         const cleanName = name.replace(/<[^>]*>/g, '').trim();
                         const parts = cleanName.split(/\s+/).filter(Boolean);
@@ -3577,10 +3578,10 @@ window.updateAdminLiveStaffMap =
                                 `<div class="admin-live-hover-card">` +
                                 `<div class="admin-live-hover-title"><span class="hover-avatar">${hoverInitials}</span><strong>${name}</strong><span class="hover-state ${hoverWithin ? 'within' : 'outside'}">${hoverWithin ? 'Within range' : 'Outside range'}</span></div>` +
                                 `<div class="admin-live-hover-grid">` +
-                                `<span><small>Distance</small><b>${routeDistance}</b></span>` +
+                                `<span><small>Air Distance</small><b>${distance}</b></span>` +
+                                `<span><small>Road Distance</small><b>${routeDistance}</b></span>` +
                                 `<span><small>ETA</small><b>${eta}</b></span>` +
-                                `<span><small>Speed</small><b>${window.payrollEscapeHtml(window.payrollFormatSpeed(state.routeStates[employeeId].speedMps || 0))}</b></span>` +
-                                `<span><small>Accuracy</small><b>${window.payrollEscapeHtml(hoverAccuracy)}</b></span>` +
+                                `<span><small>Speed</small><b>${window.payrollEscapeHtml(hoverSpeed)}</b></span>` +
                                 `</div></div>`
                             );
                         }

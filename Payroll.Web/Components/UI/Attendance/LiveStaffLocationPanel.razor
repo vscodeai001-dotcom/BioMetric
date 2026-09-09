@@ -152,6 +152,10 @@
                                 <strong>@FormatDuration(GetSessionDuration(selectedLocation))</strong>
                             </div>
                             <div class="selected-metric">
+                                <span><i class="bi bi-speedometer2"></i> Speed</span>
+                                <strong>@FormatSpeed(selectedLocation.SpeedMps)</strong>
+                            </div>
+                            <div class="selected-metric">
                                 <span><i class="bi bi-broadcast-pin"></i> Last update</span>
                                 <strong>@ToLocalTime(selectedLocation.LastUpdatedUtc).ToString("HH:mm:ss")</strong>
                             </div>
@@ -3108,7 +3112,8 @@
                     AccuracyMeters = x.AccuracyMeters,
                     LastUpdatedUtc = x.LastUpdatedUtc,
                     SessionStartedUtc = x.SessionStartedUtc,
-                    Status = GetLocationStatus(x).ToString()
+                    Status = GetLocationStatus(x).ToString(),
+                    SpeedMps = x.SpeedMps
                 })
                 .ToList();
 
@@ -4206,6 +4211,15 @@
             : $"±{meters / 1000:F2} km";
     }
 
+    private static string FormatSpeed(double mps)
+    {
+        if (mps <= 0.15) return "Stationary";
+        var kmh = mps * 3.6;
+        if (kmh < 1) return "Crawling";
+        if (kmh > 150) return "High Speed"; // Cap unrealistic jumps
+        return $"{kmh:F1} km/h";
+    }
+
     private static DateTime ToLocalTime(DateTime utc)
     {
         var utcValue = DateTime.SpecifyKind(
@@ -4376,6 +4390,8 @@
         public DateTime SessionStartedUtc { get; set; }
 
         public string Status { get; set; } = "";
+
+        public double SpeedMps { get; set; }
     }
 
 
