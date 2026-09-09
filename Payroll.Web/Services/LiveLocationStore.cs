@@ -51,7 +51,8 @@ public static class LiveLocationStore
         double distanceMeters,
         int allowedRadiusMeters,
         bool isWithinAllowedRadius,
-        Guid sessionId)
+        Guid sessionId,
+        double speedMps = 0)
     {
         if (employeeId <= 0 ||
             sessionId == Guid.Empty ||
@@ -95,7 +96,8 @@ public static class LiveLocationStore
                         IsWithinAllowedRadius = isWithinAllowedRadius,
                         LastUpdatedUtc = now,
                         SessionStartedUtc = now,
-                        SessionId = sessionId
+                        SessionId = sessionId,
+                        SpeedMps = speedMps
                     };
 
                 if (Locations.TryAdd(
@@ -134,7 +136,8 @@ public static class LiveLocationStore
                     IsWithinAllowedRadius = isWithinAllowedRadius,
                     LastUpdatedUtc = now,
                     SessionStartedUtc = current.SessionStartedUtc,
-                    SessionId = sessionId
+                    SessionId = sessionId,
+                    SpeedMps = speedMps
                 };
 
             if (Locations.TryUpdate(
@@ -359,4 +362,6 @@ public sealed class LiveEmployeeLocation
     public DateTime SessionStartedUtc { get; init; }
 
     public Guid SessionId { get; init; }
+
+    public double SpeedMps { get; init; }
 }

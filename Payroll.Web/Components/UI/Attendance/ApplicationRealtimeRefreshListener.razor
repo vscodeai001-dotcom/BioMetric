@@ -36,7 +36,26 @@
     [JSInvokable]
     public async Task ApplicationDataChanged(object? data = null)
     {
-        // ... (existing code)
+        if (_disposed)
+            return;
+
+        // Protect against duplicate notifications arriving within the
+        // same millisecond from concurrent writes/reconnects.
+        var now = DateTime.UtcNow.Ticks;
+        if (now - _lastRefreshTicks < TimeSpan.FromMilliseconds(150).Ticks)
+            return;
+
+        _lastRefreshTicks = now;
+
+        await InvokeAsync(() =>
+        {
+            if (_disposed)
+                return;
+
+            // Enhanced navigation refreshes the active route without
+            // forcing a browser reload.
+            Navigation.Refresh(false);
+        });
     }
 
     [JSInvokable]
@@ -50,7 +69,6 @@
         {
             // Force a hard reload to trigger the identity redirect to login
             Navigation.NavigateTo("/Account/Login", true);
-            return Task.CompletedTask;
         });
     }
 

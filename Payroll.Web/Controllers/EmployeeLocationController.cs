@@ -148,7 +148,8 @@ public sealed class EmployeeLocationController : ControllerBase
                     accuracy,
                     distanceResult.DistanceMeters,
                     distanceResult.AllowedRadiusMeters,
-                    distanceResult.IsWithinAllowedRadius);
+                    distanceResult.IsWithinAllowedRadius,
+                    request.Speed);
 
             if (!sessionUpdated)
             {
@@ -262,6 +263,11 @@ public sealed class EmployeeLocationController : ControllerBase
         /// GPS accuracy in meters (reported by browser)
         /// </summary>
         public double Accuracy { get; set; }
+
+        /// <summary>
+        /// Instantaneous speed in meters per second (reported by browser)
+        /// </summary>
+        public double Speed { get; set; }
 
         /// <summary>
         /// Timestamp when location was captured

@@ -273,7 +273,8 @@ public class GeoLocationService
         double accuracyMeters,
         double distanceMeters,
         int allowedRadiusMeters,
-        bool isWithinAllowedRadius)
+        bool isWithinAllowedRadius,
+        double speedMps = 0)
     {
         if (employeeId <= 0 ||
             sessionId == Guid.Empty ||
@@ -447,7 +448,8 @@ public class GeoLocationService
                     safeDistance,
                     allowedRadiusMeters,
                     isWithinAllowedRadius,
-                    sessionId);
+                    sessionId,
+                    speedMps);
 
                 if (!liveUpdated)
                 {
@@ -473,7 +475,8 @@ public class GeoLocationService
                             Timestamp = now,
                             DistanceMeters = safeDistance,
                             AccuracyMeters = safeAccuracy,
-                            IsWithinAllowedRadius = isWithinAllowedRadius
+                            IsWithinAllowedRadius = isWithinAllowedRadius,
+                            SpeedMps = speedMps
                         });
                 }
                 catch (Exception signalREx)
