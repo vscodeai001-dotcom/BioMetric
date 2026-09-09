@@ -137,22 +137,6 @@
             transform: translateY(0)
         }
     }
-
-    /* Journey replay temporarily turns the existing live-location component
-       into the only visible dashboard surface. Normal view is restored by JS. */
-    body.admin-workforce-replay-active .dashboard-container > *:not(.live-staff-card) {
-        display: none !important;
-    }
-
-    body.admin-workforce-replay-active .dashboard-container {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-    body.admin-workforce-replay-active .live-staff-card {
-        margin: 0 !important;
-    }
-
 </style>
 
 @if (!isLoaded)
