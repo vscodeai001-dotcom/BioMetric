@@ -57,7 +57,7 @@
          LIVE MAP + STAFF LIST
          ============================================================ -->
 
-    <div class="live-staff-body">
+    <div class="live-staff-body @(selectedEmployeeId > 0 ? "has-selection" : "")">
 
         <div class="admin-map-wrapper">
 
@@ -68,120 +68,106 @@
             @if (liveCount == 0)
             {
                 <div class="map-empty-overlay">
-                    <i class="bi bi-geo-alt display-6 text-muted"></i>
+                    <i class="bi bi-broadcast-pin display-6 text-muted"></i>
                     <span>No live staff locations</span>
-                    <small>Staff location will appear when live tracking is active.</small>
+                    <small>Live employee locations will appear automatically.</small>
                 </div>
             }
+
+            <div class="map-live-legend">
+                <span><i class="legend-dot within"></i> Within range</span>
+                <span><i class="legend-dot outside"></i> Outside range</span>
+            </div>
 
         </div>
 
+        @if (selectedEmployeeId > 0)
+        {
+            var selectedEmployee = employees.FirstOrDefault(e => e.EmployeeID == selectedEmployeeId);
+            var selectedLocation = GetLocation(selectedEmployeeId);
 
-        <div class="live-staff-list">
-
-            @if (employees.Count == 0)
+            if (selectedEmployee != null)
             {
-                <div class="text-center text-muted py-4">
-
-                    <i class="bi bi-people fs-3 d-block mb-2"></i>
-
-                    No employees found.
-
-                </div>
-            }
-            else
-            {
-                @foreach (var employee in employees)
-                {
-                    var location = GetLocation(employee.EmployeeID);
-                    var status = GetLocationStatus(location);
-
-                    <button type="button"
-                            class="staff-location-item @(selectedEmployeeId == employee.EmployeeID ? "selected" : "")"
-                            @onclick="() => SelectEmployee(employee.EmployeeID)">
-
-                        <div class="staff-avatar @GetAvatarClass(status)">
-                            <i class="bi bi-person-fill"></i>
-                        </div>
-
-                        <div class="staff-location-info">
-
-                            <div class="staff-name-row">
-
-                                <strong>
-                                    @employee.Name
-                                </strong>
-
-                                <span class="staff-live-state @GetStatusClass(status)">
-                                    @GetStatusText(status)
-                                </span>
-
+                <aside class="selected-live-card">
+                    <div class="selected-live-card-header">
+                        <div class="selected-identity">
+                            <div class="premium-avatar @GetAvatarClass(selectedLocation != null ? GetLocationStatus(selectedLocation) : LocationStatus.Offline)">
+                                @GetInitials(selectedEmployee.Name)
+                                <span class="avatar-status-dot"></span>
                             </div>
+                            <div class="selected-identity-text">
+                                <strong>@selectedEmployee.Name</strong>
+                                <span>Live location tracking</span>
+                            </div>
+                        </div>
+                        <button type="button" class="selected-close" @onclick="() => SelectEmployee(selectedEmployeeId)" aria-label="Close employee details">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
 
-                            @if (location != null)
-                            {
-                                <div class="staff-location-details">
-
-                                    <span>
-                                        <i class="bi bi-rulers me-1"></i>
-                                        @FormatDistance(location.DistanceMeters)
-                                    </span>
-
-                                    <span class="@(location.IsWithinAllowedRadius ? "text-success" : "text-danger")">
-
-                                        @(location.IsWithinAllowedRadius
-                                                                    ? "Within range"
-                                                                    : "Outside range")
-
-                        </span>
-
-                                </div>
-
-                                <div class="staff-session-details">
-
-                                    <span>
-                                        <i class="bi bi-play-circle me-1"></i>
-                                        Started
-                                        @ToLocalTime(location.SessionStartedUtc).ToString("HH:mm:ss")
-                                    </span>
-
-                                    <span>
-                                        <i class="bi bi-stopwatch me-1"></i>
-                                        @FormatDuration(GetSessionDuration(location))
-                                    </span>
-
-                                </div>
-
-                                <small class="text-muted d-block mt-1">
-
-                                    <i class="bi bi-clock me-1"></i>
-
-                                    Updated
-                                    @ToLocalTime(location.LastUpdatedUtc).ToString("HH:mm:ss")
-
-                                </small>
-                                        }
-                            else
-                            {
-                                <div class="staff-location-details text-muted">
-                                    <span>
-                                        No live location
-                                    </span>
-                                </div>
-                            }
-
+                    @if (selectedLocation != null)
+                    {
+                        var selectedStatus = GetLocationStatus(selectedLocation);
+                        <div class="selected-status-row">
+                            <span class="selected-status @GetStatusClass(selectedStatus)">
+                                <i class="bi bi-record-fill"></i> @GetStatusText(selectedStatus)
+                            </span>
+                            <span class="selected-updated">
+                                Updated @ToLocalTime(selectedLocation.LastUpdatedUtc).ToString("HH:mm:ss")
+                            </span>
                         </div>
 
-                        <i class="bi bi-chevron-right staff-arrow"></i>
+                        <div class="selected-metrics">
+                            <div class="selected-metric primary">
+                                <span><i class="bi bi-signpost-2-fill"></i> Route distance</span>
+                                <strong data-selected-route-distance="@selectedEmployee.EmployeeID">@FormatDistance(selectedLocation.DistanceMeters)</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-bullseye"></i> Geofence</span>
+                                <strong class="@(selectedLocation.IsWithinAllowedRadius ? "text-success" : "text-danger")">
+                                    @(selectedLocation.IsWithinAllowedRadius ? "Within range" : "Outside range")
+                                </strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-crosshair"></i> GPS accuracy</span>
+                                <strong>@FormatAccuracy(selectedLocation.AccuracyMeters)</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-hourglass-split"></i> Tracking</span>
+                                <strong>@FormatDuration(GetSessionDuration(selectedLocation))</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-broadcast-pin"></i> Last update</span>
+                                <strong>@ToLocalTime(selectedLocation.LastUpdatedUtc).ToString("HH:mm:ss")</strong>
+                            </div>
+                            <div class="selected-metric">
+                                <span><i class="bi bi-rulers"></i> Allowed radius</span>
+                                <strong>@selectedLocation.AllowedRadiusMeters m</strong>
+                            </div>
+                        </div>
 
-                    </button>
-                }
+                        <div class="selected-coordinates">
+                            <div><span>Latitude</span><strong>@selectedLocation.Latitude.ToString("F6")</strong></div>
+                            <div><span>Longitude</span><strong>@selectedLocation.Longitude.ToString("F6")</strong></div>
+                        </div>
+
+                        <button type="button" class="selected-action" @onclick="() => SelectEmployee(selectedEmployeeId)">
+                            <i class="bi bi-chevron-up"></i> Collapse details
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="selected-offline">
+                            <i class="bi bi-broadcast"></i>
+                            <strong>GPS session unavailable</strong>
+                            <span>The employee is not currently sending a live location.</span>
+                        </div>
+                    }
+                </aside>
             }
-
-        </div>
+        }
 
     </div>
-
 
     <!-- ============================================================
          FOOTER
@@ -1071,15 +1057,86 @@
         overflow: hidden;
     }
 
-    .live-staff-header {
-        padding: 16px 20px;
-        border-bottom: 1px solid rgba(0,0,0,.08);
+    .live-staff-details {
+        display: none !important;
     }
 
     .live-staff-body {
         display: grid;
-        grid-template-columns: minmax(0,2fr) minmax(280px,1fr);
-        min-height: 360px;
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 430px;
+        background: rgba(8, 15, 28, .02);
+    }
+
+    .live-staff-body.has-selection {
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+    }
+
+    .selected-live-card {
+        min-width: 0;
+        padding: 18px;
+        border-left: 1px solid rgba(0,0,0,.08);
+        background: rgba(255,255,255,.96);
+        backdrop-filter: blur(16px);
+        box-shadow: -12px 0 30px rgba(18, 31, 53, .06);
+    }
+
+    .selected-live-card-header, .selected-identity, .selected-status-row {
+        display: flex;
+        align-items: center;
+    }
+
+    .selected-live-card-header { justify-content: space-between; gap: 12px; }
+    .selected-identity { gap: 11px; min-width: 0; }
+    .selected-identity-text { min-width: 0; display:flex; flex-direction:column; gap:2px; }
+    .selected-identity-text strong { font-size: .98rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .selected-identity-text span, .selected-updated { font-size:.68rem; color:#7c899b; }
+
+    .premium-avatar {
+        position:relative; width:46px; height:46px; flex:0 0 46px; border-radius:15px;
+        display:flex; align-items:center; justify-content:center;
+        color:#fff; font-size:.78rem; font-weight:800; letter-spacing:.4px;
+        background:linear-gradient(145deg,#2388ff,#5b5fe8);
+        box-shadow:0 9px 20px rgba(35,136,255,.25), inset 0 1px 0 rgba(255,255,255,.3);
+    }
+    .premium-avatar.stale { background:linear-gradient(145deg,#d99a16,#f1bf43); }
+    .premium-avatar.offline { background:linear-gradient(145deg,#697586,#3e4857); }
+    .avatar-status-dot { position:absolute; right:-2px; bottom:-2px; width:12px; height:12px; border-radius:50%; background:#22c55e; border:3px solid #fff; }
+    .premium-avatar.stale .avatar-status-dot { background:#f59e0b; }
+    .premium-avatar.offline .avatar-status-dot { background:#94a3b8; }
+
+    .selected-close { width:30px; height:30px; border:0; border-radius:9px; background:rgba(100,116,139,.08); color:#718096; }
+    .selected-close:hover { background:rgba(13,110,253,.10); color:#0d6efd; }
+    .selected-status-row { justify-content:space-between; gap:8px; margin:16px 0 12px; padding:9px 11px; border:1px solid rgba(100,116,139,.12); border-radius:11px; background:rgba(248,250,252,.78); }
+    .selected-status { font-size:.68rem; font-weight:800; }
+    .selected-status.online { color:#16a34a; } .selected-status.stale { color:#d97706; } .selected-status.offline { color:#64748b; }
+    .selected-status i { font-size:.48rem; vertical-align:middle; }
+
+    .selected-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .selected-metric { padding:11px; border:1px solid rgba(100,116,139,.11); border-radius:11px; background:rgba(248,250,252,.72); min-width:0; }
+    .selected-metric.primary { grid-column:1/-1; background:linear-gradient(145deg,rgba(13,110,253,.09),rgba(99,102,241,.055)); border-color:rgba(13,110,253,.16); }
+    .selected-metric span { display:block; font-size:.62rem; color:#7b8797; margin-bottom:4px; }
+    .selected-metric span i { margin-right:4px; }
+    .selected-metric strong { display:block; font-size:.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .selected-metric.primary strong { font-size:1.08rem; }
+    .selected-coordinates { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; padding:10px 11px; border-radius:11px; background:rgba(15,23,42,.035); }
+    .selected-coordinates span { display:block; font-size:.59rem; color:#8792a2; }
+    .selected-coordinates strong { display:block; font-size:.68rem; margin-top:2px; }
+    .selected-action { width:100%; margin-top:10px; border:0; background:transparent; color:#0d6efd; font-size:.68rem; font-weight:700; padding:6px; }
+    .selected-offline { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:6px; color:#7b8797; }
+    .selected-offline i { font-size:2rem; opacity:.55; }
+    .selected-offline strong { color:inherit; font-size:.82rem; }
+    .selected-offline span { font-size:.68rem; max-width:220px; }
+
+    .map-live-legend { position:absolute; left:14px; bottom:14px; z-index:500; display:flex; gap:8px; padding:7px 9px; border:1px solid rgba(255,255,255,.18); border-radius:10px; background:rgba(15,23,42,.78); backdrop-filter:blur(10px); color:#e8eef7; font-size:.62rem; box-shadow:0 8px 24px rgba(0,0,0,.18); }
+    .map-live-legend span { display:flex; align-items:center; gap:5px; }
+    .legend-dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+    .legend-dot.within { background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.14); }
+    .legend-dot.outside { background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.14); }
+
+    .live-staff-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(0,0,0,.08);
     }
 
     .admin-map-wrapper {
@@ -1089,9 +1146,47 @@
 
     .admin-live-map {
         width: 100%;
-        height: 360px;
+        height: 430px;
         background: #e9ecef;
     }
+
+    .payroll-user-marker { background: transparent !important; border: 0 !important; }
+    .payroll-map-user {
+        position: relative; width: 44px; height: 44px; border-radius: 15px;
+        display:flex; align-items:center; justify-content:center;
+        color:#fff; font-size:11px; font-weight:850; letter-spacing:.5px;
+        border:2px solid rgba(255,255,255,.92);
+        box-shadow:0 8px 18px rgba(15,23,42,.28), inset 0 1px 0 rgba(255,255,255,.35);
+        transition:transform .18s ease, box-shadow .18s ease;
+    }
+    .payroll-map-user:hover { transform:translateY(-2px) scale(1.05); box-shadow:0 11px 24px rgba(15,23,42,.34), inset 0 1px 0 rgba(255,255,255,.42); }
+    .payroll-map-user-within { background:linear-gradient(145deg,#1688ff,#635bdb); }
+    .payroll-map-user-outside { background:linear-gradient(145deg,#ef5b68,#c92f52); }
+    .payroll-map-user-status {
+        position:absolute; right:-3px; bottom:-3px; width:11px; height:11px; border-radius:50%;
+        background:#22c55e; border:2px solid #fff; box-shadow:0 2px 7px rgba(0,0,0,.25);
+    }
+    .payroll-map-user-outside .payroll-map-user-status { background:#ef4444; }
+    .payroll-map-user-initials { line-height:1; user-select:none; }
+
+    .admin-office-tooltip, .admin-live-hover-tooltip {
+        background:rgba(12,18,30,.94) !important; color:#eef5ff !important;
+        border:1px solid rgba(255,255,255,.13) !important; border-radius:12px !important;
+        box-shadow:0 12px 30px rgba(0,0,0,.30) !important; backdrop-filter:blur(12px);
+    }
+    .admin-office-tooltip::before, .admin-live-hover-tooltip::before { border-top-color:rgba(12,18,30,.94) !important; }
+    .admin-live-hover-card { min-width:235px; padding:2px; }
+    .admin-live-hover-title { display:flex; align-items:center; gap:7px; margin-bottom:9px; }
+    .admin-live-hover-title strong { font-size:12px; max-width:130px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .hover-avatar { width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#2388ff,#5b5fe8); color:#fff; font-size:9px; font-weight:800; }
+    .hover-state { margin-left:auto; font-size:8px; font-weight:800; padding:4px 6px; border-radius:999px; white-space:nowrap; }
+    .hover-state.within { color:#5ee39b; background:rgba(34,197,94,.12); }
+    .hover-state.outside { color:#ff7d8c; background:rgba(239,68,68,.12); }
+    .admin-live-hover-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .admin-live-hover-grid span { display:flex; flex-direction:column; gap:2px; padding:6px 7px; border-radius:8px; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.06); }
+    .admin-live-hover-grid small { color:#91a0b4; font-size:7px; text-transform:uppercase; letter-spacing:.45px; }
+    .admin-live-hover-grid b { color:#f3f7fc; font-size:10px; }
+
 
     .map-empty-overlay {
         position: absolute;
@@ -1782,6 +1877,12 @@
         background: rgba(13,110,253,.15);
     }
 
+    body.dark .selected-live-card { background:rgba(16,24,38,.96); border-color:rgba(255,255,255,.10); box-shadow:-12px 0 30px rgba(0,0,0,.20); }
+    body.dark .selected-status-row, body.dark .selected-metric { background:rgba(255,255,255,.035); border-color:rgba(255,255,255,.09); }
+    body.dark .selected-coordinates { background:rgba(255,255,255,.035); }
+    body.dark .selected-close { background:rgba(255,255,255,.07); color:#a9b5c5; }
+    body.dark .avatar-status-dot { border-color:#101826; }
+
     body.dark .admin-live-map {
         background: #212529;
     }
@@ -1823,12 +1924,18 @@
 
     @@media(max-width:991px) {
 
-        .live-staff-body {
+        .live-staff-body,
+        .live-staff-body.has-selection {
             grid-template-columns: 1fr;
         }
 
+        .selected-live-card {
+            border-left: 0;
+            border-top: 1px solid rgba(0,0,0,.08);
+        }
+
         .admin-live-map {
-            height: 300px;
+            height: 360px;
         }
 
         .live-staff-list {
@@ -2317,15 +2424,12 @@
                 if (token.IsCancellationRequested)
                     break;
 
-                // SignalR normally delivers updates immediately. This
-                // lightweight in-process sync also recovers an event missed
-                // while the admin circuit or connection was starting.
-                await RefreshLocations();
-                await RefreshSelectedEmployeePunchAuditsSilently();
+                // Live location membership and coordinates are pushed through
+                // SignalR. Do not poll the database every few seconds because
+                // that creates unnecessary redraws and makes the map feel noisy.
+                // This timer only ages the UI status and advances playback.
+                await InvokeAsync(StateHasChanged);
 
-                /*
-                 * Existing history playback functionality.
-                 */
                 await PollPlaybackState();
             }
         }
@@ -2403,7 +2507,8 @@
                 office.Latitude,
                 office.Longitude,
                 staff,
-                selectedEmployeeId);
+                selectedEmployeeId,
+                liveLocationSignalRReference);
         }
         catch (Exception ex)
         {
@@ -2428,6 +2533,13 @@
         return (
             company?.OfficeLatitude ?? 0,
             company?.OfficeLongitude ?? 0);
+    }
+
+
+    [JSInvokable]
+    public async Task SelectEmployeeFromMap(int employeeId)
+    {
+        await SelectEmployee(employeeId);
     }
 
 
@@ -3304,6 +3416,19 @@
                 Math.Sqrt(1 - a));
 
         return earthRadius * c;
+    }
+
+
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "•";
+
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1)
+            return parts[0][0].ToString().ToUpperInvariant();
+
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
     }
 
 

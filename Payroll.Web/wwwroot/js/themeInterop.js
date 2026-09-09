@@ -1644,7 +1644,7 @@ window.payrollHaversineMeters = function (a, b) {
 
 window.payrollFormatRouteDistance = function (meters) {
     const m = Number(meters) || 0;
-    return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km`;
+    return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 };
 
 window.payrollFormatRouteDuration = function (seconds) {
@@ -2609,7 +2609,8 @@ window.updateAdminLiveStaffMap =
         officeLat,
         officeLng,
         staff,
-        selectedId
+        selectedId,
+        dotNetRef
     ) {
         const parsedOfficeLat = Number(officeLat);
         const parsedOfficeLng = Number(officeLng);
@@ -2681,18 +2682,14 @@ window.updateAdminLiveStaffMap =
                         }
                     ).addTo(map);
 
-                officeMarker.bindPopup(
-                    '<strong>OFFICE</strong><br>Configured location'
-                );
-
                 officeMarker.bindTooltip(
-                    'OFFICE',
+                    '<strong>Office</strong><br><span>Configured location</span>',
                     {
-                        permanent: true,
+                        permanent: false,
                         direction: 'top',
                         offset: [0, -12],
-                        className:
-                            'admin-office-label'
+                        sticky: true,
+                        className: 'admin-office-tooltip'
                     }
                 );
 
@@ -2936,31 +2933,22 @@ window.updateAdminLiveStaffMap =
                             '#ffc107';
                     }
 
+                    const rawName = String(x.name || 'Employee').trim();
+                    const nameParts = rawName.split(/\s+/).filter(Boolean);
+                    const initials = nameParts.length === 1
+                        ? nameParts[0].slice(0, 1)
+                        : (nameParts[0][0] + nameParts[nameParts.length - 1][0]);
+                    const avatarClass = withinRange ? 'within' : 'outside';
                     const icon =
                         L.divIcon({
-                            className:
-                                'payroll-user-marker',
+                            className: 'payroll-user-marker',
                             html:
-                                '<div style="' +
-                                'width:38px;' +
-                                'height:38px;' +
-                                'border-radius:50%;' +
-                                'display:flex;' +
-                                'align-items:center;' +
-                                'justify-content:center;' +
-                                'background:#fff;' +
-                                'color:' +
-                                markerColor +
-                                ';' +
-                                'border:3px solid ' +
-                                markerColor +
-                                ';' +
-                                'box-shadow:0 2px 8px rgba(0,0,0,.28);' +
-                                'font-size:18px">' +
-                                '<i class="bi bi-person-fill"></i>' +
+                                '<div class="payroll-map-user payroll-map-user-' + avatarClass + '">' +
+                                '<span class="payroll-map-user-initials">' + window.escapeAdminHtml(initials.toUpperCase()) + '</span>' +
+                                '<span class="payroll-map-user-status"></span>' +
                                 '</div>',
-                            iconSize: [38, 38],
-                            iconAnchor: [19, 19]
+                            iconSize: [46, 46],
+                            iconAnchor: [23, 23]
                         });
 
                     let markerCreated = false;
@@ -2976,11 +2964,22 @@ window.updateAdminLiveStaffMap =
                             L.marker(
                                 displayPosition,
                                 {
-                                    icon: icon
+                                    icon: icon,
+                                    keyboard: true,
+                                    riseOnHover: true
                                 }
                             ).addTo(
                                 state.map
                             );
+
+                        if (dotNetRef) {
+                            state.markers[employeeId].on('click', function () {
+                                try {
+                                    dotNetRef.invokeMethodAsync('SelectEmployeeFromMap', employeeId);
+                                } catch (e) { }
+                            });
+                            state.markerDotNetRef = dotNetRef;
+                        }
 
                         markerCreated = true;
                     }
@@ -2990,6 +2989,21 @@ window.updateAdminLiveStaffMap =
                         ].setIcon(
                             icon
                         );
+
+                        // The map may have been created before the Blazor
+                        // reference was available. Ensure the click handler
+                        // exists on every update without stacking handlers.
+                        if (dotNetRef && state.markerDotNetRef !== dotNetRef) {
+                            try {
+                                state.markers[employeeId].off('click');
+                            } catch (e) { }
+                            state.markers[employeeId].on('click', function () {
+                                try {
+                                    dotNetRef.invokeMethodAsync('SelectEmployeeFromMap', employeeId);
+                                } catch (e) { }
+                            });
+                            state.markerDotNetRef = dotNetRef;
+                        }
 
                         const now = Date.now();
                         const previousAt =
@@ -3131,16 +3145,6 @@ window.updateAdminLiveStaffMap =
                         });
                     }
 
-                    if (state.labels[employeeId]) {
-                        state.labels[employeeId].setOpacity(
-                            Number(selectedId) > 0 && !isSelected ? 0 : .95
-                        );
-                    }
-                    if (state.journeyLabels[employeeId]) {
-                        state.journeyLabels[employeeId].setOpacity(
-                            Number(selectedId) > 0 && !isSelected ? 0 : .98
-                        );
-                    }
                     if (state.roadRouteLines[employeeId]) {
                         state.roadRouteLines[employeeId].setStyle({
                             color: '#1688ff',
@@ -3177,70 +3181,38 @@ window.updateAdminLiveStaffMap =
                             x.name
                         );
 
-                    state.markers[
-                        employeeId
-                    ].bindPopup(
-                        '<div style="min-width:170px">' +
-                        '<strong>' +
-                        safeName +
-                        '</strong><br>' +
-                        '<span>Distance: ' +
-                        distance +
-                        '</span><br>' +
-                        '<span>Allowed: ' +
-                        allowed +
-                        ' m</span><br>' +
-                        '<strong style="color:' +
-                        markerColor +
-                        '">' +
-                        rangeText +
-                        '</strong>' +
-                        '</div>'
-                    );
-
-                    const routeStateForLabel = state.routeStates[employeeId] || {};
-                    const cachedRouteForLabel = routeStateForLabel.route;
-                    const labelDistance = cachedRouteForLabel?.distanceMeters > 0
-                        ? window.payrollFormatRouteDistance(cachedRouteForLabel.distanceMeters)
+                    const routeStateForTooltip = state.routeStates[employeeId] || {};
+                    const cachedRouteForTooltip = routeStateForTooltip.route;
+                    const tooltipDistance = cachedRouteForTooltip?.distanceMeters > 0
+                        ? window.payrollFormatRouteDistance(cachedRouteForTooltip.distanceMeters)
                         : distance;
-                    const labelEta = cachedRouteForLabel?.durationSeconds > 0
-                        ? window.payrollFormatRouteDuration(cachedRouteForLabel.durationSeconds)
+                    const tooltipEta = cachedRouteForTooltip?.durationSeconds > 0
+                        ? window.payrollFormatRouteDuration(cachedRouteForTooltip.durationSeconds)
                         : 'Calculating…';
-                    const labelSpeed = window.payrollFormatSpeed(routeStateForLabel.speedMps || 0);
-                    const labelAccuracy = Number(x.accuracyMeters) > 0
+                    const tooltipAccuracy = Number(x.accuracyMeters) > 0
                         ? `±${Math.round(Number(x.accuracyMeters))} m`
                         : 'Unknown';
-                    const labelStatus = withinRange
-                        ? 'Within range'
-                        : 'Outside range';
-                    const labelStatusIcon = withinRange ? '🟢' : '🔴';
-                    const journeyLabelHtml =
-                        `<div class="payroll-admin-journey-label">` +
-                        `<div class="payroll-admin-journey-head"><span class="payroll-admin-journey-name">👤 ${safeName}</span><span class="payroll-admin-journey-state">${labelStatusIcon} ${labelStatus}</span></div>` +
-                        `<div class="payroll-admin-journey-destination">🏢 To Office</div>` +
-                        `<div class="payroll-admin-journey-grid">` +
-                        `<span>📏 <b>${labelDistance}</b></span>` +
-                        `<span>⏱️ <b>${labelEta}</b></span>` +
-                        `<span>🚦 <b>${window.payrollEscapeHtml(labelSpeed)}</b></span>` +
-                        `<span>🎯 <b>${window.payrollEscapeHtml(labelAccuracy)}</b></span>` +
-                        `</div>` +
-                        `</div>`;
+                    const tooltipHtml =
+                        `<div class="admin-live-hover-card">` +
+                        `<div class="admin-live-hover-title"><span class="hover-avatar">${window.escapeAdminHtml(initials.toUpperCase())}</span><strong>${safeName}</strong><span class="hover-state ${withinRange ? 'within' : 'outside'}">${withinRange ? 'Within range' : 'Outside range'}</span></div>` +
+                        `<div class="admin-live-hover-grid">` +
+                        `<span><small>Distance</small><b>${tooltipDistance}</b></span>` +
+                        `<span><small>ETA</small><b>${tooltipEta}</b></span>` +
+                        `<span><small>Speed</small><b>${window.payrollEscapeHtml(window.payrollFormatSpeed(routeStateForTooltip.speedMps || 0))}</b></span>` +
+                        `<span><small>Accuracy</small><b>${window.payrollEscapeHtml(tooltipAccuracy)}</b></span>` +
+                        `</div></div>`;
 
-                    if (!state.journeyLabels[employeeId]) {
-                        state.journeyLabels[employeeId] = L.tooltip({
-                            permanent: true,
-                            direction: 'top',
-                            offset: [0, -22],
-                            className: 'payroll-admin-journey-tooltip',
-                            opacity: 0.98
-                        })
-                            .setContent(journeyLabelHtml)
-                            .setLatLng(displayPosition)
-                            .addTo(state.map);
+                    if (state.markers[employeeId].getTooltip()) {
+                        state.markers[employeeId].setTooltipContent(tooltipHtml);
                     } else {
-                        state.journeyLabels[employeeId]
-                            .setContent(journeyLabelHtml)
-                            .setLatLng(displayPosition);
+                        state.markers[employeeId].bindTooltip(tooltipHtml, {
+                            permanent: false,
+                            direction: 'top',
+                            offset: [0, -24],
+                            sticky: true,
+                            opacity: .98,
+                            className: 'admin-live-hover-tooltip'
+                        });
                     }
 
                     const lineOptions = {
@@ -3285,39 +3257,28 @@ window.updateAdminLiveStaffMap =
                         state.roadRouteCasings[employeeId]?.setLatLngs(route.geometry);
                         state.roadRouteLines[employeeId]?.setLatLngs(route.geometry);
                         state.lines[employeeId]?.setStyle({ opacity: 0 });
-                        const road = window.payrollEscapeHtml(window.payrollGetNextRoadName(route));
                         const routeDistance = window.payrollFormatRouteDistance(remaining);
                         const eta = window.payrollFormatRouteDuration(route.durationSeconds);
                         const name = window.payrollEscapeHtml(x.name || 'Employee');
-                        if (state.labels[employeeId]) {
-                            state.labels[employeeId].setContent(`${name}<br><span style="font-size:10px;opacity:.8">${routeDistance} • ${eta}</span>`);
-                        }
-                        if (state.journeyLabels[employeeId]) {
-                            const rs = state.routeStates[employeeId] || {};
-                            const within = Boolean(x.isWithinAllowedRadius);
-                            const acc = Number(x.accuracyMeters) > 0 ? `±${Math.round(Number(x.accuracyMeters))} m` : 'Unknown';
-                            state.journeyLabels[employeeId].setContent(
-                                `<div class="payroll-admin-journey-label">` +
-                                `<div class="payroll-admin-journey-head"><span class="payroll-admin-journey-name">👤 ${name}</span><span class="payroll-admin-journey-state">${within ? '🟢 Within range' : '🔴 Outside range'}</span></div>` +
-                                `<div class="payroll-admin-journey-destination">🏢 To Office</div>` +
-                                `<div class="payroll-admin-journey-grid">` +
-                                `<span>📏 <b>${routeDistance}</b></span>` +
-                                `<span>⏱️ <b>${eta}</b></span>` +
-                                `<span>🚦 <b>${window.payrollEscapeHtml(window.payrollFormatSpeed(rs.speedMps || 0))}</b></span>` +
-                                `<span>🎯 <b>${window.payrollEscapeHtml(acc)}</b></span>` +
+                        const hoverAccuracy = Number(x.accuracyMeters) > 0 ? `±${Math.round(Number(x.accuracyMeters))} m` : 'Unknown';
+                        const hoverWithin = Boolean(x.isWithinAllowedRadius);
+                        const cleanName = name.replace(/<[^>]*>/g, '').trim();
+                        const parts = cleanName.split(/\s+/).filter(Boolean);
+                        const hoverInitials = parts.length > 1
+                            ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+                            : (parts[0] || 'E').slice(0, 1).toUpperCase();
+                        if (state.markers[employeeId].getTooltip()) {
+                            state.markers[employeeId].setTooltipContent(
+                                `<div class="admin-live-hover-card">` +
+                                `<div class="admin-live-hover-title"><span class="hover-avatar">${hoverInitials}</span><strong>${name}</strong><span class="hover-state ${hoverWithin ? 'within' : 'outside'}">${hoverWithin ? 'Within range' : 'Outside range'}</span></div>` +
+                                `<div class="admin-live-hover-grid">` +
+                                `<span><small>Distance</small><b>${routeDistance}</b></span>` +
+                                `<span><small>ETA</small><b>${eta}</b></span>` +
+                                `<span><small>Speed</small><b>${window.payrollEscapeHtml(window.payrollFormatSpeed(state.routeStates[employeeId].speedMps || 0))}</b></span>` +
+                                `<span><small>Accuracy</small><b>${window.payrollEscapeHtml(hoverAccuracy)}</b></span>` +
                                 `</div></div>`
                             );
                         }
-                        state.markers[employeeId].bindPopup(
-                            `<div style="min-width:210px"><strong>${name}</strong>` +
-                            `<div style="margin-top:5px"><b>To Office</b></div>` +
-                            `<div>Road distance: ${routeDistance}</div>` +
-                            `<div>ETA: ${eta}</div>` +
-                            `<div>Current road: ${road}</div>` +
-                            `<div>GPS accuracy: ${Number(x.accuracyMeters) > 0 ? '±' + Math.round(Number(x.accuracyMeters)) + ' m' : 'Unknown'}</div>` +
-                            `<div>Speed: ${window.payrollFormatSpeed(state.routeStates[employeeId].speedMps || 0)}</div>` +
-                            `</div>`
-                        );
                     }).catch(function() {});
 
                     if (!state.lines[employeeId]) {
@@ -3345,50 +3306,7 @@ window.updateAdminLiveStaffMap =
                         );
                     }
 
-                    if (
-                        !state.labels[
-                        employeeId
-                        ]
-                    ) {
-                        state.labels[
-                            employeeId
-                        ] =
-                            L.tooltip({
-                                permanent:
-                                    true,
-                                direction:
-                                    'center',
-                                className:
-                                    'admin-distance-label',
-                                opacity: .95
-                            })
-                                .setContent(
-                                    distance
-                                )
-                                .setLatLng(
-                                    window.getAdminLineMidpoint(
-                                        office,
-                                        position
-                                    )
-                                )
-                                .addTo(
-                                    state.map
-                                );
-                    }
-                    else {
-                        state.labels[
-                            employeeId
-                        ].setContent(
-                            distance
-                        );
-                        // Position is updated continuously by the marker
-                        // animation callback above.
-                    }
 
-                    if (isSelected && membershipChanged) {
-                        state.markers[employeeId].openPopup();
-                        state.map.setView(position, 17, { animate: true });
-                    }
                 }
             );
 
