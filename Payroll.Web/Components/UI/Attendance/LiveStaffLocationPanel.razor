@@ -2161,6 +2161,37 @@
         overflow: hidden !important;
     }
 
+    /*
+       REPLAY ISOLATION
+       Keep the existing application DOM and layout intact, but visually
+       isolate the replay surface while it is active. A viewport overlay
+       sits behind the replay card, so dashboard cards outside this component
+       cannot remain visible during playback. Exiting replay removes the body
+       class and everything returns to the normal page immediately.
+    */
+    body.payroll-workforce-replay-mode::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 99990;
+        background: #f4f7fb;
+        pointer-events: none;
+    }
+
+    body.dark.payroll-workforce-replay-mode::before {
+        background: #0b1220;
+    }
+
+    body.payroll-workforce-replay-mode {
+        overflow: hidden !important;
+    }
+
+    body.payroll-workforce-replay-mode .live-staff-card.workforce-replay-active {
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+
+
     .live-staff-card.workforce-replay-active > .live-staff-header,
     .live-staff-card.workforce-replay-active > .live-staff-footer,
     .live-staff-card.workforce-replay-active > .geo-punch-audit-card,

@@ -4927,6 +4927,10 @@ window.startAdminWorkforceJourneyReplay = async function (mapId, tracks, dateTex
         };
         state.workforceReplay = replay;
         window.adminWorkforceJourneyReplay[mapId] = replay;
+
+        // Isolate the replay surface from the rest of the dashboard without
+        // changing the application's existing DOM/layout structure.
+        document.body.classList.add('payroll-workforce-replay-mode');
         document.body.style.overflow = 'hidden';
         window.setAdminLiveLayersVisible(state, false);
 
@@ -5216,6 +5220,7 @@ window.stopAdminWorkforceJourneyReplay = function (mapId) {
     const replay = window.adminWorkforceJourneyReplay?.[mapId];
     const state = window.adminLiveMaps?.[mapId];
     if (!replay) {
+        document.body.classList.remove('payroll-workforce-replay-mode');
         if (state) {
             state.workforceReplay = null;
             window.setAdminLiveLayersVisible(state, true);
@@ -5234,6 +5239,9 @@ window.stopAdminWorkforceJourneyReplay = function (mapId) {
         if (replay.overlay?.parentNode) replay.overlay.parentNode.removeChild(replay.overlay);
     } catch { }
     delete window.adminWorkforceJourneyReplay[mapId];
+
+    // Restore the normal application view after leaving replay.
+    document.body.classList.remove('payroll-workforce-replay-mode');
     if (replay?.bodyOverflow !== undefined) {
         document.body.style.overflow = replay.bodyOverflow;
     }

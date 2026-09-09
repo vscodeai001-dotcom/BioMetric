@@ -410,6 +410,7 @@ public sealed class MobileEmployeeController : ControllerBase
             .OrderByDescending(x => x.PayYear).ThenByDescending(x => x.PayMonth).FirstOrDefaultAsync();
 
         var company = await db.CompanySettings.AsNoTracking().FirstOrDefaultAsync(x => x.SettingID == 1);
+        var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == 1);
 
         return Ok(new {
             success = true,
@@ -422,7 +423,10 @@ public sealed class MobileEmployeeController : ControllerBase
             latestPayslip = latest == null ? null : ToPayslip(latest),
             officeLatitude = company?.OfficeLatitude ?? 0,
             officeLongitude = company?.OfficeLongitude ?? 0,
-            geoRadiusMeters = company?.GeoRadiusMeters ?? 100
+            geoRadiusMeters = company?.GeoRadiusMeters ?? 100,
+            enableGeoFencing = features?.EnableGeoFencing ?? true,
+            enableDualAttendance = features?.EnableDualAttendance ?? false,
+            enableAutomaticGeofencePunching = features?.EnableAutomaticGeofencePunching ?? false
         });
     }
 
