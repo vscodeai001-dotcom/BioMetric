@@ -678,6 +678,32 @@
                      PLAYBACK TOOLBAR
                      ==================================================== -->
 
+                <div class="history-replay-console">
+                    <div class="history-replay-console-head">
+                        <div>
+                            <div class="history-replay-kicker"><i class="bi bi-broadcast-pin"></i> JOURNEY REPLAY</div>
+                            <strong>@SelectedEmployeeName · @historyDate.ToString("dd MMM yyyy")</strong>
+                        </div>
+                        <span class="history-replay-mode"><i class="bi bi-camera-video-fill"></i> MAP REPLAY</span>
+                    </div>
+                    <div class="history-replay-metrics">
+                        <span><small>TRAVEL</small><b>@FormatDistance(PlaybackTravelDistance)</b></span>
+                        <span><small>GPS</small><b>@PlaybackPoints.Count</b></span>
+                        <span><small>WITHIN</small><b class="text-success">@FormatShortDuration(PlaybackWithinDuration)</b></span>
+                        <span><small>OUTSIDE</small><b class="text-danger">@FormatShortDuration(PlaybackOutsideDuration)</b></span>
+                        <span><small>IN POINTS</small><b class="text-success">@PlaybackWithinCount</b></span>
+                        <span><small>OUT POINTS</small><b class="text-danger">@PlaybackOutsideCount</b></span>
+                        <span><small>GEOFENCE</small><b>@PlaybackGeofenceEventCount</b></span>
+                    </div>
+                </div>
+                <div class="history-replay-filters">
+                    <span class="filter-label"><i class="bi bi-layers"></i> Route layer</span>
+                    <button type="button" class="replay-filter @(playbackFilter == "all" ? "active" : "")" @onclick='() => ChangePlaybackFilter("all")'>All journey</button>
+                    <button type="button" class="replay-filter within @(playbackFilter == "within" ? "active" : "")" @onclick='() => ChangePlaybackFilter("within")'><i class="bi bi-circle-fill"></i> Within radius</button>
+                    <button type="button" class="replay-filter outside @(playbackFilter == "outside" ? "active" : "")" @onclick='() => ChangePlaybackFilter("outside")'><i class="bi bi-circle-fill"></i> Outside radius</button>
+                    <button type="button" class="replay-filter events @(playbackFilter == "events" ? "active" : "")" @onclick='() => ChangePlaybackFilter("events")'><i class="bi bi-shield-check"></i> Geofence events</button>
+                </div>
+
                 <div class="history-playback-toolbar">
 
                     <div class="history-playback-title">
@@ -779,15 +805,13 @@
                            @oninput="SeekHistoryFromSlider" />
 
                     <div class="playback-progress-bottom">
-
-                        <span>
-                            @PlaybackTimeText
-                        </span>
-
-                        <span>
-                            @PlaybackDistanceText
-                        </span>
-
+                        <span><i class="bi bi-clock"></i> @PlaybackTimeText</span>
+                        <span><i class="bi bi-geo-alt"></i> @PlaybackDistanceText from office</span>
+                        @if (PlaybackPoints.Count > 0)
+                        {
+                            var current = PlaybackPoints[PlaybackIndex];
+                            <span class="@(current.IsWithinAllowedRadius ? "text-success" : "text-danger")"><i class="bi bi-record-fill"></i> @(current.IsWithinAllowedRadius ? "Within radius" : "Outside radius")</span>
+                        }
                     </div>
 
                 </div>
@@ -2044,6 +2068,34 @@
         }
     }
 
+
+    .history-replay-console { margin:14px 0 10px; border:1px solid rgba(15,23,42,.08); border-radius:14px; background:linear-gradient(135deg,#fff,#f8fafc); overflow:hidden; }
+    .history-replay-console-head { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(15,23,42,.07); }
+    .history-replay-kicker { font-size:.62rem; font-weight:800; letter-spacing:.12em; color:#64748b; margin-bottom:3px; }
+    .history-replay-kicker i { color:#0d6efd; margin-right:5px; }
+    .history-replay-console-head strong { font-size:.88rem; }
+    .history-replay-mode { font-size:.62rem; font-weight:800; padding:6px 9px; border-radius:999px; background:#eef2ff; color:#4f46e5; white-space:nowrap; }
+    .history-replay-metrics { display:grid; grid-template-columns:repeat(7,1fr); }
+    .history-replay-metrics span { padding:10px 13px; border-right:1px solid rgba(15,23,42,.06); }
+    .history-replay-metrics span:last-child { border-right:0; }
+    .history-replay-metrics small { display:block; color:#64748b; font-size:.56rem; font-weight:800; letter-spacing:.08em; }
+    .history-replay-metrics b { display:block; margin-top:2px; font-size:.82rem; }
+    .history-replay-filters { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:9px 12px; border:1px solid rgba(15,23,42,.07); border-radius:12px; background:#fff; margin-bottom:10px; }
+    .filter-label { font-size:.64rem; font-weight:800; color:#64748b; margin-right:4px; }
+    .replay-filter { border:1px solid #dbe2ea; background:#fff; color:#475569; border-radius:999px; padding:6px 10px; font-size:.64rem; font-weight:700; cursor:pointer; }
+    .replay-filter.active { background:#0d6efd; color:#fff; border-color:#0d6efd; }
+    .replay-filter.within i { color:#22c55e; } .replay-filter.outside i { color:#ef4444; } .replay-filter.active i { color:inherit; }
+    .admin-replay-marker { background:transparent !important; border:0 !important; }
+    .admin-replay-pin { width:30px; height:30px; border-radius:10px 10px 10px 2px; transform:rotate(-45deg); background:var(--pin-color); border:2px solid #fff; box-shadow:0 5px 12px rgba(15,23,42,.25); display:flex; align-items:center; justify-content:center; }
+    .admin-replay-pin span { transform:rotate(45deg); color:#fff; font-size:9px; font-weight:900; }
+    .admin-replay-avatar { width:42px; height:42px; border-radius:50%; background:#2563eb; border:3px solid #fff; box-shadow:0 7px 18px rgba(15,23,42,.28); display:flex; align-items:center; justify-content:center; color:#fff; font-size:18px; position:relative; }
+    .admin-replay-avatar span { position:absolute; right:-1px; bottom:0; width:9px; height:9px; border-radius:50%; background:#22c55e; border:2px solid #fff; }
+    .admin-replay-tooltip { background:rgba(12,18,30,.95) !important; color:#eef5ff !important; border:1px solid rgba(255,255,255,.12) !important; border-radius:11px !important; box-shadow:0 10px 26px rgba(0,0,0,.28) !important; }
+    .admin-replay-tooltip::before { border-top-color:rgba(12,18,30,.95) !important; }
+    .admin-replay-tooltip-card { min-width:190px; display:flex; flex-direction:column; gap:3px; font-size:10px; }
+    .admin-replay-tooltip-card strong { font-size:11px; }
+    .admin-replay-tooltip-card span { color:#b8c4d3; }
+
 </style>
 
 
@@ -2081,6 +2133,7 @@
     private DateTime? lastRefresh;
 
     private double playbackSpeed = 1;
+    private string playbackFilter = "all";
 
     // Null = full-day playback. A value = playback for one GPS session only.
     private Guid? selectedPlaybackSessionId;
@@ -2105,13 +2158,62 @@
             0,
             employees.Count - liveCount - staleCount);
 
-    private IReadOnlyList<EmployeeLocationHistory> PlaybackPoints =>
-        selectedPlaybackSessionId.HasValue
-            ? selectedHistory
-                .Where(x => x.SessionId == selectedPlaybackSessionId.Value)
-                .OrderBy(x => x.RecordedAtUtc)
-                .ToList()
-            : selectedHistory;
+    private IReadOnlyList<EmployeeLocationHistory> PlaybackPoints
+    {
+        get
+        {
+            IEnumerable<EmployeeLocationHistory> query = selectedHistory.OrderBy(x => x.RecordedAtUtc);
+            if (selectedPlaybackSessionId.HasValue)
+                query = query.Where(x => x.SessionId == selectedPlaybackSessionId.Value);
+            return playbackFilter switch
+            {
+                "within" => query.Where(x => x.IsWithinAllowedRadius).ToList(),
+                "outside" => query.Where(x => !x.IsWithinAllowedRadius).ToList(),
+                "events" => query.Where(IsGeofenceEvent).ToList(),
+                _ => query.ToList()
+            };
+        }
+    }
+
+    private bool IsGeofenceEvent(EmployeeLocationHistory point)
+    {
+        var ordered = selectedHistory
+            .Where(x => !selectedPlaybackSessionId.HasValue || x.SessionId == selectedPlaybackSessionId.Value)
+            .OrderBy(x => x.RecordedAtUtc)
+            .ToList();
+        var index = ordered.FindIndex(x => x.Id == point.Id);
+        return index == 0 || (index > 0 && ordered[index - 1].IsWithinAllowedRadius != point.IsWithinAllowedRadius);
+    }
+
+    private int PlaybackWithinCount => PlaybackPoints.Count(x => x.IsWithinAllowedRadius);
+    private int PlaybackOutsideCount => PlaybackPoints.Count(x => !x.IsWithinAllowedRadius);
+    private int PlaybackGeofenceEventCount => PlaybackPoints.Count(IsGeofenceEvent);
+    private double PlaybackTravelDistance
+    {
+        get
+        {
+            var points = PlaybackPoints;
+            double total = 0;
+            for (var i = 1; i < points.Count; i++)
+                total += CalculateDistance(points[i - 1].Latitude, points[i - 1].Longitude, points[i].Latitude, points[i].Longitude);
+            return total;
+        }
+    }
+    private TimeSpan CalculateRadiusDuration(bool within)
+    {
+        var points = PlaybackPoints;
+        var total = TimeSpan.Zero;
+        for (var i = 1; i < points.Count; i++)
+        {
+            if (points[i - 1].IsWithinAllowedRadius != within) continue;
+            var gap = points[i].RecordedAtUtc - points[i - 1].RecordedAtUtc;
+            if (gap > TimeSpan.Zero && gap <= TimeSpan.FromMinutes(30)) total += gap;
+        }
+        return total;
+    }
+    private TimeSpan PlaybackWithinDuration => CalculateRadiusDuration(true);
+    private TimeSpan PlaybackOutsideDuration => CalculateRadiusDuration(false);
+    private string FormatShortDuration(TimeSpan value) => value <= TimeSpan.Zero ? "0m" : value.TotalHours >= 1 ? $"{(int)value.TotalHours}h {value.Minutes}m" : $"{Math.Max(1, (int)value.TotalMinutes)}m";
 
     private bool CanPlayback =>
         PlaybackPoints.Count > 0;
@@ -2616,6 +2718,7 @@
 
     private async Task LoadSelectedEmployeeHistory()
     {
+        playbackFilter = "all";
         if (selectedEmployeeId <= 0)
         {
             selectedHistory.Clear();
@@ -3165,6 +3268,24 @@
             StateHasChanged);
     }
 
+
+    private async Task ChangePlaybackFilter(string filter)
+    {
+        playbackFilter = filter is "within" or "outside" or "events" ? filter : "all";
+        await StopPlayback();
+        playbackIndex = 0;
+        playbackStatus = "Ready";
+        if (CanPlayback)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("startAdminHistoryPlayback", mapId, PlaybackPoints, SelectedEmployeeName, playbackSpeed, 0);
+                await JSRuntime.InvokeVoidAsync("pauseAdminHistoryPlayback", mapId);
+            }
+            catch { }
+        }
+        await InvokeAsync(StateHasChanged);
+    }
 
     private async Task ChangePlaybackSpeed(
         ChangeEventArgs e)
