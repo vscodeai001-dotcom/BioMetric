@@ -2744,7 +2744,7 @@ window.registerAdminLiveLocationRealtime = function (mapId) {
             if (typeof window.payrollSmoothMoveMarker === 'function') {
                 window.payrollSmoothMoveMarker(
                     marker,
-                    'admin-realtime:' + mapId + ':' + employeeId,
+                    mapId + ':' + employeeId,
                     displayTarget,
                     duration,
                     function (animatedPosition) {
@@ -3309,7 +3309,7 @@ window.updateAdminLiveStaffMap =
 
                         window.payrollSmoothMoveMarker(
                             state.markers[employeeId],
-                            'admin:' + mapId + ':' + employeeId,
+                            mapId + ':' + employeeId,
                             displayPosition,
                             moveDuration,
                             function (animatedPosition) {

@@ -354,7 +354,7 @@
              GEO PUNCH AUDIT
              ============================================================ -->
         <div class="geo-punch-audit-card card border-0 shadow-sm mb-4">
-            <div class="geo-punch-audit-header d-flex justify-content-between align-items-center">
+            <div class="geo-punch-audit-header d-flex justify-content-between align-items-center clickable" @onclick="() => isPunchAuditExpanded = !isPunchAuditExpanded">
                 <div>
                     <h5 class="fw-bold mb-1">
                         <i class="bi bi-shield-check text-primary me-2"></i>
@@ -363,110 +363,117 @@
                     <small class="text-muted">GPS validation and attendance punch audit</small>
                 </div>
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <button type="button" class="btn btn-outline-primary btn-sm"
-                            title="Previous day" aria-label="Previous day"
-                            @onclick="() => ChangeAuditDateByDays(-1)"
-                            disabled="@punchAuditLoading">
-                        <i class="bi bi-chevron-left"></i>
-                    </button>
-                    <input type="date" class="form-control form-control-sm history-date-input"
-                           value="@punchAuditDate.ToString("yyyy-MM-dd")"
-                           @onchange="ChangePunchAuditDate" />
-                    <button type="button" class="btn btn-outline-primary btn-sm"
-                            title="Next day" aria-label="Next day"
-                            @onclick="() => ChangeAuditDateByDays(1)"
-                            disabled="@punchAuditLoading">
-                        <i class="bi bi-chevron-right"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-primary btn-sm"
-                            @onclick="LoadSelectedEmployeePunchAudits"
-                            disabled="@punchAuditLoading">
-                        <i class="bi bi-arrow-clockwise @(punchAuditLoading ? "spin" : "")"></i>
-                        <span class="d-none d-md-inline ms-1">Refresh</span>
-                    </button>
+                    @if (isPunchAuditExpanded)
+                    {
+                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                title="Previous day" aria-label="Previous day"
+                                @onclick="() => ChangeAuditDateByDays(-1)" @onclick:stopPropagation="true"
+                                disabled="@punchAuditLoading">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <input type="date" class="form-control form-control-sm history-date-input"
+                               value="@punchAuditDate.ToString("yyyy-MM-dd")"
+                               @onchange="ChangePunchAuditDate" @onclick:stopPropagation="true" />
+                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                title="Next day" aria-label="Next day"
+                                @onclick="() => ChangeAuditDateByDays(1)" @onclick:stopPropagation="true"
+                                disabled="@punchAuditLoading">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                @onclick="LoadSelectedEmployeePunchAudits" @onclick:stopPropagation="true"
+                                disabled="@punchAuditLoading">
+                            <i class="bi bi-arrow-clockwise @(punchAuditLoading ? "spin" : "")"></i>
+                            <span class="d-none d-md-inline ms-1">Refresh</span>
+                        </button>
+                    }
+                    <i class="bi @(isPunchAuditExpanded ? "bi-chevron-up" : "bi-chevron-down") ms-2 opacity-50"></i>
                 </div>
             </div>
-            @if (punchAuditLoading)
+            @if (isPunchAuditExpanded)
             {
-                <div class="history-loading">
-                    <span class="spinner-border spinner-border-sm me-2"></span>
-                    Loading punch audit...
-                </div>
-            }
-            else if (selectedPunchAudits.Count == 0)
-            {
-                <div class="history-empty">
-                    <i class="bi bi-shield-x"></i>
-                    <strong>No GPS punch audit records</strong>
-                    <span>No punch audit records were found for @punchAuditDate.ToString("dd MMM yyyy").</span>
-                </div>
-            }
-            else
-            {
-                <div class="geo-punch-audit-summary">
-                    <div><small>TOTAL</small><strong>@selectedPunchAudits.Count</strong></div>
-                    <div><small>SUCCESS</small><strong class="text-success">@selectedPunchAudits.Count(x => x.Success)</strong></div>
-                    <div><small>FAILED</small><strong class="text-danger">@selectedPunchAudits.Count(x => !x.Success)</strong></div>
-                    <div><small>OUTSIDE RANGE</small><strong class="text-danger">@selectedPunchAudits.Count(x => !x.IsWithinAllowedRadius)</strong></div>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover geo-punch-audit-table mb-0">
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Result</th>
-                                <th>Accuracy</th>
-                                <th>Distance</th>
-                                <th>Allowed</th>
-                                <th>Geofence</th>
-                                <th>Message</th>
-                                <th>Session</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var audit in selectedPunchAudits)
-                            {
-                                <tr class="geo-punch-audit-row" @onclick="() => OpenPunchAudit(audit)" title="Click to view punch details">
-                                    <td class="fw-semibold">@ToLocalTime(audit.PunchTimeUtc).ToString("HH:mm:ss")</td>
-                                    <td>
-                                        @if (audit.Success)
-                                        {
-                                            <span class="geo-audit-success"><i class="bi bi-check-circle-fill me-1"></i>Success</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="geo-audit-failed"><i class="bi bi-x-circle-fill me-1"></i>Failed</span>
-                                        }
-                                    </td>
-                                    <td><span class="gps-accuracy-badge @GetAccuracyClass(audit.AccuracyMeters)">@GetAccuracyLabel(audit.AccuracyMeters) <small>@FormatAccuracy(audit.AccuracyMeters)</small></span></td>
-                                    <td>@FormatDistance(audit.DistanceFromOfficeMeters)</td>
-                                    <td>@audit.AllowedRadiusMeters m</td>
-                                    <td>
-                                        @if (audit.IsWithinAllowedRadius)
-                                        {
-                                            <span class="geo-audit-within"><i class="bi bi-geo-alt-fill me-1"></i>Within</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="geo-audit-outside"><i class="bi bi-geo-alt-fill me-1"></i>Outside</span>
-                                        }
-                                    </td>
-                                    <td class="geo-audit-message" title="@audit.ResultMessage">@audit.ResultMessage</td>
-                                    <td>
-                                        @if (audit.SessionId.HasValue)
-                                        {
-                                            <span title="@audit.SessionId.Value">@audit.SessionId.Value.ToString("N").Substring(0, 8)</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">-</span>
-                                        }
-                                    </td>
+                @if (punchAuditLoading)
+                {
+                    <div class="history-loading">
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        Loading punch audit...
+                    </div>
+                }
+                else if (selectedPunchAudits.Count == 0)
+                {
+                    <div class="history-empty">
+                        <i class="bi bi-shield-x"></i>
+                        <strong>No GPS punch audit records</strong>
+                        <span>No punch audit records were found for @punchAuditDate.ToString("dd MMM yyyy").</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="geo-punch-audit-summary">
+                        <div><small>TOTAL</small><strong>@selectedPunchAudits.Count</strong></div>
+                        <div><small>SUCCESS</small><strong class="text-success">@selectedPunchAudits.Count(x => x.Success)</strong></div>
+                        <div><small>FAILED</small><strong class="text-danger">@selectedPunchAudits.Count(x => !x.Success)</strong></div>
+                        <div><small>OUTSIDE RANGE</small><strong class="text-danger">@selectedPunchAudits.Count(x => !x.IsWithinAllowedRadius)</strong></div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover geo-punch-audit-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Result</th>
+                                    <th>Accuracy</th>
+                                    <th>Distance</th>
+                                    <th>Allowed</th>
+                                    <th>Geofence</th>
+                                    <th>Message</th>
+                                    <th>Session</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                            </thead>
+                            <tbody>
+                                @foreach (var audit in selectedPunchAudits)
+                                {
+                                    <tr class="geo-punch-audit-row" @onclick="() => OpenPunchAudit(audit)" title="Click to view punch details">
+                                        <td class="fw-semibold">@ToLocalTime(audit.PunchTimeUtc).ToString("HH:mm:ss")</td>
+                                        <td>
+                                            @if (audit.Success)
+                                            {
+                                                <span class="geo-audit-success"><i class="bi bi-check-circle-fill me-1"></i>Success</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="geo-audit-failed"><i class="bi bi-x-circle-fill me-1"></i>Failed</span>
+                                            }
+                                        </td>
+                                        <td><span class="gps-accuracy-badge @GetAccuracyClass(audit.AccuracyMeters)">@GetAccuracyLabel(audit.AccuracyMeters) <small>@FormatAccuracy(audit.AccuracyMeters)</small></span></td>
+                                        <td>@FormatDistance(audit.DistanceFromOfficeMeters)</td>
+                                        <td>@audit.AllowedRadiusMeters m</td>
+                                        <td>
+                                            @if (audit.IsWithinAllowedRadius)
+                                            {
+                                                <span class="geo-audit-within"><i class="bi bi-geo-alt-fill me-1"></i>Within</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="geo-audit-outside"><i class="bi bi-geo-alt-fill me-1"></i>Outside</span>
+                                            }
+                                        </td>
+                                        <td class="geo-audit-message" title="@audit.ResultMessage">@audit.ResultMessage</td>
+                                        <td>
+                                            @if (audit.SessionId.HasValue)
+                                            {
+                                                <span title="@audit.SessionId.Value">@audit.SessionId.Value.ToString("N").Substring(0, 8)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
             }
         </div>
 
@@ -500,7 +507,7 @@
 
         <div class="location-history-card card border-0 shadow-sm mb-4">
 
-            <div class="location-history-header d-flex justify-content-between align-items-center">
+            <div class="location-history-header d-flex justify-content-between align-items-center clickable" @onclick="() => isSessionTimelineExpanded = !isSessionTimelineExpanded">
 
                 <div>
 
@@ -519,184 +526,191 @@
                 </div>
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <button type="button"
-                            class="btn btn-outline-primary btn-sm"
-                            title="Previous day" aria-label="Previous day"
-                            @onclick="() => ChangeHistoryDateByDays(-1)"
-                            disabled="@historyLoading">
-                        <i class="bi bi-chevron-left"></i>
-                    </button>
+                    @if (isSessionTimelineExpanded)
+                    {
+                        <button type="button"
+                                class="btn btn-outline-primary btn-sm"
+                                title="Previous day" aria-label="Previous day"
+                                @onclick="() => ChangeHistoryDateByDays(-1)" @onclick:stopPropagation="true"
+                                disabled="@historyLoading">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
 
-                    <input type="date"
-                           class="form-control form-control-sm history-date-input"
-                           value="@historyDate.ToString("yyyy-MM-dd")"
-                           @onchange="ChangeHistoryDate" />
+                        <input type="date"
+                               class="form-control form-control-sm history-date-input"
+                               value="@historyDate.ToString("yyyy-MM-dd")"
+                               @onchange="ChangeHistoryDate" @onclick:stopPropagation="true" />
 
-                    <button type="button"
-                            class="btn btn-outline-primary btn-sm"
-                            title="Next day" aria-label="Next day"
-                            @onclick="() => ChangeHistoryDateByDays(1)"
-                            disabled="@historyLoading">
-                        <i class="bi bi-chevron-right"></i>
-                    </button>
+                        <button type="button"
+                                class="btn btn-outline-primary btn-sm"
+                                title="Next day" aria-label="Next day"
+                                @onclick="() => ChangeHistoryDateByDays(1)" @onclick:stopPropagation="true"
+                                disabled="@historyLoading">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
 
-                    <button type="button"
-                            class="btn btn-outline-primary btn-sm"
-                            @onclick="LoadSelectedEmployeeHistory"
-                            disabled="@historyLoading">
+                        <button type="button"
+                                class="btn btn-outline-primary btn-sm"
+                                @onclick="LoadSelectedEmployeeHistory" @onclick:stopPropagation="true"
+                                disabled="@historyLoading">
 
-                        <i class="bi bi-arrow-clockwise @(historyLoading ? "spin" : "")"></i>
+                            <i class="bi bi-arrow-clockwise @(historyLoading ? "spin" : "")"></i>
 
-                        <span class="d-none d-md-inline ms-1">
-                            Refresh
-                        </span>
+                            <span class="d-none d-md-inline ms-1">
+                                Refresh
+                            </span>
 
-                    </button>
-
+                        </button>
+                    }
+                    <i class="bi @(isSessionTimelineExpanded ? "bi-chevron-up" : "bi-chevron-down") ms-2 opacity-50"></i>
                 </div>
 
             </div>
 
 
-            @if (historyLoading)
+            @if (isSessionTimelineExpanded)
             {
-                <div class="history-loading">
+                @if (historyLoading)
+                {
+                    <div class="history-loading">
 
-                    <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span class="spinner-border spinner-border-sm me-2"></span>
 
-                    Loading location history...
+                        Loading location history...
 
-                </div>
-            }
-            else if (selectedHistory.Count == 0)
-            {
-                <div class="history-empty">
-
-                    <i class="bi bi-geo-alt"></i>
-
-                    <strong>
-                        No GPS history recorded
-                    </strong>
-
-                    <span>
-                        No location records were found for
-                        @historyDate.ToString("dd MMM yyyy").
-                    </span>
-
-                </div>
-            }
-            else
-            {
-                <!-- ====================================================
-                     HISTORY SUMMARY
-                     ==================================================== -->
-
-                <div class="location-history-summary">
-
-                    <div>
-                        <small>STARTED</small>
-                        <strong>@HistoryStartText</strong>
                     </div>
+                }
+                else if (selectedHistory.Count == 0)
+                {
+                    <div class="history-empty">
 
-                    <div>
-                        <small>LAST UPDATE</small>
-                        <strong>@HistoryEndText</strong>
+                        <i class="bi bi-geo-alt"></i>
+
+                        <strong>
+                            No GPS history recorded
+                        </strong>
+
+                        <span>
+                            No location records were found for
+                            @historyDate.ToString("dd MMM yyyy").
+                        </span>
+
                     </div>
+                }
+                else
+                {
+                    <!-- ====================================================
+                         HISTORY SUMMARY
+                         ==================================================== -->
 
-                    <div>
-                        <small>GPS POINTS</small>
-                        <strong>@selectedHistory.Count</strong>
-                    </div>
+                    <div class="location-history-summary">
 
-                    <div>
-                        <small>MAX DISTANCE</small>
-                        <strong>@FormatDistance(HistoryMaxDistance)</strong>
-                    </div>
-
-                    <div>
-                        <small>TRAVEL</small>
-                        <strong>@FormatDistance(HistoryTravelDistance)</strong>
-                    </div>
-
-                </div>
-
-
-
-                <!-- ====================================================
-                     GPS QUALITY + SESSION SUMMARY
-                     ==================================================== -->
-
-                <div class="gps-session-summary">
-                    <div class="gps-quality-grid">
-                        <div><small>AVG ACCURACY</small><strong class="@GetAccuracyClass(HistoryAverageAccuracy)">@GetAccuracyLabel(HistoryAverageAccuracy)</strong><span>@FormatAccuracy(HistoryAverageAccuracy)</span></div>
-                        <div><small>WORST ACCURACY</small><strong class="@GetAccuracyClass(HistoryWorstAccuracy)">@GetAccuracyLabel(HistoryWorstAccuracy)</strong><span>@FormatAccuracy(HistoryWorstAccuracy)</span></div>
-                        <div><small>POOR GPS POINTS</small><strong>@HistoryPoorAccuracyCount</strong><span>Accuracy &gt; 100 m</span></div>
-                        <div><small>OUTSIDE RANGE</small><strong class="@(HistoryOutsideRangeCount > 0 ? "text-danger" : "text-success")">@HistoryOutsideRangeCount</strong><span>GPS points</span></div>
-                        <div><small>SESSIONS</small><strong>@HistorySessionCount</strong><span>Tracking sessions</span></div>
-                    </div>
-
-                    @if (HistorySessions.Count > 0)
-                    {
-                        <div class="gps-session-timeline">
-                            <div class="gps-session-title"><i class="bi bi-diagram-3 me-1"></i>GPS Session Timeline</div>
-                            <div class="table-responsive">
-                                <table class="table table-sm mb-0 gps-session-table">
-                                    <thead><tr><th>Session</th><th>Started</th><th>Last Update</th><th>Duration</th><th>Points</th><th>Travel</th><th>Avg Accuracy</th><th>Status</th></tr></thead>
-                                    <tbody>
-                                        @foreach (var session in HistorySessions)
-                                        {
-                                            <tr class="@(selectedPlaybackSessionId == session.SessionId ? "gps-session-row-selected" : "")"
-                                                @onclick="() => SelectPlaybackSession(session.SessionId)"
-                                                title="Play this session route only">
-                                                <td><code>@ShortSessionId(session.SessionId)</code></td>
-                                                <td>@ToLocalTime(session.StartUtc).ToString("HH:mm:ss")</td>
-                                                <td>@ToLocalTime(session.EndUtc).ToString("HH:mm:ss")</td>
-                                                <td>@FormatDuration(session.EndUtc - session.StartUtc)</td>
-                                                <td>@session.PointCount</td>
-                                                <td>@FormatDistance(session.TravelMeters)</td>
-                                                <td><span class="gps-accuracy-badge @GetAccuracyClass(session.AverageAccuracy)">@GetAccuracyLabel(session.AverageAccuracy) <small>@FormatAccuracy(session.AverageAccuracy)</small></span></td>
-                                                <td>
-                                                    @{
-                                                        var sessionStatus =
-                                                        GetHistorySessionStatus(session.SessionId);
-                                                    }
-
-                                                    @if (sessionStatus == "Active")
-                                                    {
-                                                        <span class="badge bg-success-subtle text-success">
-                                                            <i class="bi bi-broadcast me-1"></i>
-                                                            Active
-                                                        </span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="badge bg-secondary-subtle text-secondary">
-                                                            <i class="bi bi-check-circle me-1"></i>
-                                                            Ended
-                                                        </span>
-                                                    }
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
+                        <div>
+                            <small>STARTED</small>
+                            <strong>@HistoryStartText</strong>
                         </div>
-                    }
-                </div>
 
-                <!-- ====================================================
-                     PLAYBACK TOOLBAR
-                     ==================================================== -->
+                        <div>
+                            <small>LAST UPDATE</small>
+                            <strong>@HistoryEndText</strong>
+                        </div>
 
-                <div class="history-playback-toolbar">
+                        <div>
+                            <small>GPS POINTS</small>
+                            <strong>@selectedHistory.Count</strong>
+                        </div>
 
-                    <div class="history-playback-title">
+                        <div>
+                            <small>MAX DISTANCE</small>
+                            <strong>@FormatDistance(HistoryMaxDistance)</strong>
+                        </div>
 
-                        <i class="bi bi-play-circle-fill text-primary me-1"></i>
+                        <div>
+                            <small>TRAVEL</small>
+                            <strong>@FormatDistance(HistoryTravelDistance)</strong>
+                        </div>
 
-                        Route Playback
+                    </div>
 
+
+
+                    <!-- ====================================================
+                         GPS QUALITY + SESSION SUMMARY
+                         ==================================================== -->
+
+                    <div class="gps-session-summary">
+                        <div class="gps-quality-grid">
+                            <div><small>AVG ACCURACY</small><strong class="@GetAccuracyClass(HistoryAverageAccuracy)">@GetAccuracyLabel(HistoryAverageAccuracy)</strong><span>@FormatAccuracy(HistoryAverageAccuracy)</span></div>
+                            <div><small>WORST ACCURACY</small><strong class="@GetAccuracyClass(HistoryWorstAccuracy)">@GetAccuracyLabel(HistoryWorstAccuracy)</strong><span>@FormatAccuracy(HistoryWorstAccuracy)</span></div>
+                            <div><small>POOR GPS POINTS</small><strong>@HistoryPoorAccuracyCount</strong><span>Accuracy &gt; 100 m</span></div>
+                            <div><small>OUTSIDE RANGE</small><strong class="@(HistoryOutsideRangeCount > 0 ? "text-danger" : "text-success")">@HistoryOutsideRangeCount</strong><span>GPS points</span></div>
+                            <div><small>SESSIONS</small><strong>@HistorySessionCount</strong><span>Tracking sessions</span></div>
+                        </div>
+
+                        @if (HistorySessions.Count > 0)
+                        {
+                            <div class="gps-session-timeline">
+                                <div class="gps-session-title"><i class="bi bi-diagram-3 me-1"></i>GPS Session Timeline</div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm mb-0 gps-session-table">
+                                        <thead><tr><th>Session</th><th>Started</th><th>Last Update</th><th>Duration</th><th>Points</th><th>Travel</th><th>Avg Accuracy</th><th>Status</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var session in HistorySessions)
+                                            {
+                                                <tr class="@(selectedPlaybackSessionId == session.SessionId ? "gps-session-row-selected" : "")"
+                                                    @onclick="() => SelectPlaybackSession(session.SessionId)"
+                                                    title="Play this session route only">
+                                                    <td><code>@ShortSessionId(session.SessionId)</code></td>
+                                                    <td>@ToLocalTime(session.StartUtc).ToString("HH:mm:ss")</td>
+                                                    <td>@ToLocalTime(session.EndUtc).ToString("HH:mm:ss")</td>
+                                                    <td>@FormatDuration(session.EndUtc - session.StartUtc)</td>
+                                                    <td>@session.PointCount</td>
+                                                    <td>@FormatDistance(session.TravelMeters)</td>
+                                                    <td><span class="gps-accuracy-badge @GetAccuracyClass(session.AverageAccuracy)">@GetAccuracyLabel(session.AverageAccuracy) <small>@FormatAccuracy(session.AverageAccuracy)</small></span></td>
+                                                    <td>
+                                                        @{
+                                                            var sessionStatus =
+                                                            GetHistorySessionStatus(session.SessionId);
+                                                        }
+
+                                                        @if (sessionStatus == "Active")
+                                                        {
+                                                            <span class="badge bg-success-subtle text-success">
+                                                                <i class="bi bi-broadcast me-1"></i>
+                                                                Active
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge bg-secondary-subtle text-secondary">
+                                                                <i class="bi bi-check-circle me-1"></i>
+                                                                Ended
+                                                            </span>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+
+
+        <!-- ====================================================
+             ROUTE PLAYBACK
+             ==================================================== -->
+        <div class="location-history-card card border-0 shadow-sm mb-4">
+            <div class="location-history-header d-flex justify-content-between align-items-center clickable" @onclick="() => isRoutePlaybackExpanded = !isRoutePlaybackExpanded">
+                <div class="history-playback-title">
+                    <i class="bi bi-play-circle-fill text-primary me-1"></i>
+                    Route Playback
+                    @if (isRoutePlaybackExpanded)
+                    {
                         @if (selectedPlaybackSessionId.HasValue)
                         {
                             <span class="badge bg-primary-subtle text-primary ms-2">
@@ -709,225 +723,135 @@
                                 Full Day
                             </span>
                         }
-
-                    </div>
-
-                    <div class="history-playback-actions">
-
-                        <button type="button"
-                                class="btn btn-sm @(selectedPlaybackSessionId.HasValue ? "btn-outline-secondary" : "btn-secondary")"
-                                @onclick="SelectFullDayPlayback"
-                                disabled="@(!selectedPlaybackSessionId.HasValue)">
-                            <i class="bi bi-calendar3 me-1"></i>
-                            Full Day
-                        </button>
-
-                        <button type="button"
-                                class="btn btn-sm btn-primary"
-                                @onclick="PlayHistory"
-                                disabled="@(!CanPlayback)">
-                            <i class="bi bi-play-fill me-1"></i>
-                            Play
-                        </button>
-
-                        <button type="button"
-                                class="btn btn-sm btn-outline-secondary"
-                                @onclick="PauseHistory"
-                                disabled="@(!CanPlayback)">
-                            <i class="bi bi-pause-fill me-1"></i>
-                            Pause
-                        </button>
-
-                        <button type="button"
-                                class="btn btn-sm btn-outline-secondary"
-                                @onclick="ResetHistory"
-                                disabled="@(!CanPlayback)">
-                            <i class="bi bi-arrow-counterclockwise me-1"></i>
-                            Reset
-                        </button>
-
-                        <select class="form-select form-select-sm history-speed"
-                                value="@playbackSpeed"
-                                @onchange="ChangePlaybackSpeed">
-                            <option value="0.25">0.25×</option>
-                            <option value="0.5">0.5×</option>
-                            <option value="1">1×</option>
-                            <option value="2">2×</option>
-                            <option value="4">4×</option>
-                            <option value="8">8×</option>
-                        </select>
-
-                    </div>
-
+                    }
                 </div>
+                <div class="d-flex align-items-center">
+                    <i class="bi @(isRoutePlaybackExpanded ? "bi-chevron-up" : "bi-chevron-down") ms-2 opacity-50"></i>
+                </div>
+            </div>
 
+            @if (isRoutePlaybackExpanded)
+            {
+                @if (selectedHistory.Count == 0)
+                {
+                    <div class="history-empty py-4">
+                        <span class="text-muted small">Select a date with GPS history to use playback.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="history-playback-toolbar">
+                        <div class="history-playback-actions">
+                            <button type="button"
+                                    class="btn btn-sm @(selectedPlaybackSessionId.HasValue ? "btn-outline-secondary" : "btn-secondary")"
+                                    @onclick="SelectFullDayPlayback"
+                                    disabled="@(!selectedPlaybackSessionId.HasValue)">
+                                <i class="bi bi-calendar3 me-1"></i>
+                                Full Day
+                            </button>
 
-                <!-- ====================================================
-                     PLAYBACK PROGRESS
-                     ==================================================== -->
+                            <button type="button"
+                                    class="btn btn-sm btn-primary"
+                                    @onclick="PlayHistory"
+                                    disabled="@(!CanPlayback)">
+                                <i class="bi bi-play-fill me-1"></i>
+                                Play
+                            </button>
 
-                <div class="history-playback-progress">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary"
+                                    @onclick="PauseHistory"
+                                    disabled="@(!CanPlayback)">
+                                <i class="bi bi-pause-fill me-1"></i>
+                                Pause
+                            </button>
 
-                    <div class="playback-progress-top">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary"
+                                    @onclick="ResetHistory"
+                                    disabled="@(!CanPlayback)">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>
+                                Reset
+                            </button>
 
-                        <span>
-                            <i class="bi bi-clock me-1"></i>
-
-                            @playbackStatus
-                        </span>
-
-                        <strong>
-                            GPS @PlaybackDisplayIndex / @PlaybackPoints.Count
-                        </strong>
-
+                            <select class="form-select form-select-sm history-speed"
+                                    value="@playbackSpeed"
+                                    @onchange="ChangePlaybackSpeed">
+                                <option value="0.25">0.25×</option>
+                                <option value="0.5">0.5×</option>
+                                <option value="1">1×</option>
+                                <option value="2">2×</option>
+                                <option value="4">4×</option>
+                                <option value="8">8×</option>
+                            </select>
+                        </div>
                     </div>
 
-                    <input type="range"
-                           class="form-range playback-range"
-                           min="0"
-                           max="@(Math.Max(0, PlaybackPoints.Count - 1))"
-                           value="@PlaybackIndex"
-                           @oninput="SeekHistoryFromSlider" />
-
-                    <div class="playback-progress-bottom">
-
-                        <span>
-                            @PlaybackTimeText
-                        </span>
-
-                        <span>
-                            @PlaybackDistanceText
-                        </span>
-
+                    <div class="history-playback-progress">
+                        <div class="playback-progress-top">
+                            <span><i class="bi bi-clock me-1"></i>@playbackStatus</span>
+                            <strong>GPS @PlaybackDisplayIndex / @PlaybackPoints.Count</strong>
+                        </div>
+                        <input type="range"
+                               class="form-range playback-range"
+                               min="0"
+                               max="@(Math.Max(0, PlaybackPoints.Count - 1))"
+                               value="@PlaybackIndex"
+                               @oninput="SeekHistoryFromSlider" />
+                        <div class="playback-progress-bottom">
+                            <span>@PlaybackTimeText</span>
+                            <span>@PlaybackDistanceText</span>
+                        </div>
                     </div>
 
-                </div>
+                    <div class="history-playback-status">
+                        <span><i class="bi bi-broadcast me-1"></i>Playback: <strong>@playbackStatus</strong></span>
+                        <span><i class="bi bi-geo-alt me-1"></i>@PlaybackPoints.Count GPS points</span>
+                    </div>
 
-
-                <!-- ====================================================
-                     PLAYBACK STATUS
-                     ==================================================== -->
-
-                <div class="history-playback-status">
-
-                    <span>
-
-                        <i class="bi bi-broadcast me-1"></i>
-
-                        Playback:
-                        <strong>@playbackStatus</strong>
-
-                    </span>
-
-                    <span>
-
-                        <i class="bi bi-geo-alt me-1"></i>
-
-                        @PlaybackPoints.Count GPS points
-
-                    </span>
-
-                </div>
-
-
-                <!-- ====================================================
-                     HISTORY TABLE
-                     ==================================================== -->
-
-                <div class="table-responsive">
-
-                    <table class="table table-sm table-hover location-history-table mb-0">
-
-                        <thead>
-
-                            <tr>
-                                <th>#</th>
-                                <th>Time</th>
-                                <th>Accuracy</th>
-                                <th>Distance</th>
-                                <th>Allowed</th>
-                                <th>Status</th>
-                                <th>Latitude</th>
-                                <th>Longitude</th>
-                            </tr>
-
-                        </thead>
-
-                        <tbody>
-
-                            @for (int i = 0; i < selectedHistory.Count; i++)
-                            {
-                                var point = selectedHistory[i];
-
-                                <tr class="@(PlaybackIndex == i ? "history-row-active" : "")"
-                                    @onclick="() => SelectHistoryPoint(i)">
-
-                                    <td>
-                                        <span class="history-point-number">
-                                            @(i + 1)
-                                        </span>
-                                    </td>
-
-                                    <td class="fw-semibold">
-                                        @(ToLocalTime(point.RecordedAtUtc).ToString("HH:mm:ss"))
-                                    </td>
-
-                                    <td>
-                                        @FormatAccuracy(point.AccuracyMeters)
-                                    </td>
-
-                                    <td>
-                                        @FormatDistance(point.DistanceFromOfficeMeters)
-                                    </td>
-
-                                    <td>
-                                        @point.AllowedRadiusMeters m
-                                    </td>
-
-                                    <td>
-
-                                        @if (point.IsWithinAllowedRadius)
-                                        {
-                                            <span class="history-status within">
-
-                                                <i class="bi bi-check-circle me-1"></i>
-
-                                                Within range
-
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="history-status outside">
-
-                                                <i class="bi bi-exclamation-circle me-1"></i>
-
-                                                Outside range
-
-                                            </span>
-                                        }
-
-                                    </td>
-
-                                    <td>
-                                        @point.Latitude.ToString("F6")
-                                    </td>
-
-                                    <td>
-                                        @point.Longitude.ToString("F6")
-                                    </td>
-
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover location-history-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Time</th>
+                                    <th>Accuracy</th>
+                                    <th>Distance</th>
+                                    <th>Allowed</th>
+                                    <th>Status</th>
+                                    <th>Latitude</th>
+                                    <th>Longitude</th>
                                 </tr>
-                            }
-
-                        </tbody>
-
-                    </table>
-
-                </div>
-
+                            </thead>
+                            <tbody>
+                                @for (int i = 0; i < selectedHistory.Count; i++)
+                                {
+                                    var point = selectedHistory[i];
+                                    <tr class="@(PlaybackIndex == i ? "history-row-active" : "")" @onclick="() => SelectHistoryPoint(i)">
+                                        <td><span class="history-point-number">@(i + 1)</span></td>
+                                        <td class="fw-semibold">@(ToLocalTime(point.RecordedAtUtc).ToString("HH:mm:ss"))</td>
+                                        <td>@FormatAccuracy(point.AccuracyMeters)</td>
+                                        <td>@FormatDistance(point.DistanceFromOfficeMeters)</td>
+                                        <td>@point.AllowedRadiusMeters m</td>
+                                        <td>
+                                            @if (point.IsWithinAllowedRadius)
+                                            {
+                                                <span class="history-status within"><i class="bi bi-check-circle me-1"></i>Within range</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="history-status outside"><i class="bi bi-exclamation-circle me-1"></i>Outside range</span>
+                                            }
+                                        </td>
+                                        <td>@point.Latitude.ToString("F6")</td>
+                                        <td>@point.Longitude.ToString("F6")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
             }
-
         </div>
     }
 }
@@ -1224,6 +1148,11 @@
         width: 100%;
         height: 430px;
         background: #e9ecef;
+    }
+
+    .clickable { cursor: pointer; }
+    .clickable:hover { background-color: rgba(0,0,0,.02); }
+    body.dark .clickable:hover { background-color: rgba(255,255,255,.02); }
     }
 
     .payroll-user-marker { background: transparent !important; border: 0 !important; }
@@ -2400,6 +2329,11 @@
     // database, or business logic. It temporarily presents the existing map
     // as a focused journey-replay workspace.
     private bool isPlaybackFullscreen;
+
+    // Collapse States (Web Dashboard)
+    private bool isPunchAuditExpanded = false;
+    private bool isSessionTimelineExpanded = false;
+    private bool isRoutePlaybackExpanded = false;
 
 
     private int liveCount =>
