@@ -2417,13 +2417,6 @@
             }
             else
             {
-                // Ported: If the update contains a newer office radius, update the map circle.
-                if (TryGetJsonInt(json, "AllowedRadiusMeters", out var newRadius) &&
-                    newRadius > 0 && newRadius != currentOfficeRadius)
-                {
-                    currentOfficeRadius = newRadius;
-                }
-
                 mapNeedsUpdate = true;
                 await InvokeAsync(StateHasChanged);
             }
@@ -2500,6 +2493,12 @@
         if (!TryGetPayloadEmployeeId(data, out var employeeId))
         {
             return false;
+        }
+
+        if (TryGetJsonInt(json, "AllowedRadiusMeters", out var newRadius) &&
+            newRadius > 0 && newRadius != currentOfficeRadius)
+        {
+            currentOfficeRadius = newRadius;
         }
 
         if (!TryGetJsonDouble(json, "Latitude", out var latitude) ||
@@ -2885,10 +2884,8 @@
                 locations.AddRange(snapshot);
 
                 // Initialize currentOfficeRadius from DB on first load/refresh
-                if (activeSessions.Any())
-                {
-                    currentOfficeRadius = activeSessions.First().LastAllowedRadiusMeters ?? 100;
-                }
+                var office = await GetOfficeLocation();
+                currentOfficeRadius = office.Radius;
 
                 lastRefresh = DateTime.Now;
                 mapNeedsUpdate = true;

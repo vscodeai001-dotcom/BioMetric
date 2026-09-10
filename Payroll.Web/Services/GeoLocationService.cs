@@ -99,6 +99,39 @@ public class GeoLocationService
     }
 
     // ================================================================
+    // REBASELINE ALL ACTIVE SESSIONS (Admin Config Change)
+    // ================================================================
+
+    public async Task RebaselineAllActiveSessionsAsync()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var company = await db.CompanySettings.AsNoTracking().FirstOrDefaultAsync(s => s.SettingID == 1);
+        if (company == null) return;
+
+        var activeSessions = await db.EmployeeGpsSessions
+            .Where(x => x.EndedAtUtc == null && x.LastLatitude.HasValue)
+            .ToListAsync();
+
+        foreach (var session in activeSessions)
+        {
+            var distance = CalculateDistance(
+                session.LastLatitude!.Value,
+                session.LastLongitude!.Value,
+                company.OfficeLatitude,
+                company.OfficeLongitude);
+
+            session.LastAllowedRadiusMeters = company.GeoRadiusMeters;
+            // Haversine rule + 1m buffer for UI stability
+            session.LastIsWithinAllowedRadius = distance <= (company.GeoRadiusMeters + 1);
+        }
+
+        await db.SaveChangesAsync();
+
+        // Notify all dashboards to refresh their authoritative membership
+        await _refreshService.NotifyGlobalRefreshAsync("RADIUS_REBASELINED");
+    }
+
+    // ================================================================
     // START GPS SESSION
     // ================================================================
 

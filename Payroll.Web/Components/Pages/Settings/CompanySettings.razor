@@ -10,6 +10,7 @@
 @inject IToastService toastService
 @inject AuthenticationStateProvider AuthState
 @inject Payroll.Web.Services.AttendanceRefreshService AttendanceRefresh
+@inject Payroll.Web.Services.GeoLocationService GeoService
 @attribute [Authorize(Roles = "Admin, SuperAdmin")]
 
 <PageTitle>Company Settings</PageTitle>
@@ -162,7 +163,10 @@ else
             if (existing == null) dbContext.CompanySettings.Add(settings);
             else { dbContext.Entry(existing).State = EntityState.Detached; dbContext.CompanySettings.Update(settings); }
             await dbContext.SaveChangesAsync();
-            await AttendanceRefresh.NotifyGlobalRefreshAsync("COMPANY_SETTINGS_UPDATED");
+
+            // Re-baseline GPS sessions for instant dashboard status updates
+            await GeoService.RebaselineAllActiveSessionsAsync();
+
             toastService.ShowSuccess("Settings saved!");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error saving."); toastService.ShowError("Save failed."); }
