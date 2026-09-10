@@ -402,19 +402,37 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Dashboard()
     {
         var employeeId = GetEmployeeId();
         await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var company = await db.CompanySettings.AsNoTracking().FirstOrDefaultAsync(x => x.SettingID == 1);
+        var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == 1);
+
+        if (employeeId == 0)
+        {
+            // Admin/SuperAdmin Dashboard (Minimal Info)
+            return Ok(new
+            {
+                success = true,
+                employeeId = 0,
+                name = "Administrator",
+                officeLatitude = company?.OfficeLatitude ?? 0,
+                officeLongitude = company?.OfficeLongitude ?? 0,
+                geoRadiusMeters = company?.GeoRadiusMeters ?? 100,
+                enableGeoFencing = features?.EnableGeoFencing ?? true,
+                enableDualAttendance = features?.EnableDualAttendance ?? false,
+                enableAutomaticGeofencePunching = features?.EnableAutomaticGeofencePunching ?? false
+            });
+        }
+
         var employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(x => x.EmployeeID == employeeId && !x.IsDeleted);
         if (employee == null) return NotFound(new { success = false, message = "Employee not found." });
 
         var latest = await db.PayrollHistories.AsNoTracking().Where(x => x.EmployeeID == employeeId)
             .OrderByDescending(x => x.PayYear).ThenByDescending(x => x.PayMonth).FirstOrDefaultAsync();
-
-        var company = await db.CompanySettings.AsNoTracking().FirstOrDefaultAsync(x => x.SettingID == 1);
-        var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == 1);
 
         return Ok(new {
             success = true,
@@ -443,6 +461,22 @@ public sealed class MobileEmployeeController : ControllerBase
             bankName = employee.BankName,
             bankAccountNumber = employee.BankAccountNumber,
             bankIfscCode = employee.BankIfscCode
+        });
+    }
+
+    [HttpGet("company-settings")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
+    public async Task<IActionResult> GetCompanySettings()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var company = await db.CompanySettings.AsNoTracking().FirstOrDefaultAsync(x => x.SettingID == 1);
+
+        return Ok(new
+        {
+            success = true,
+            officeLatitude = company?.OfficeLatitude ?? 0,
+            officeLongitude = company?.OfficeLongitude ?? 0,
+            geoRadiusMeters = company?.GeoRadiusMeters ?? 100
         });
     }
 
