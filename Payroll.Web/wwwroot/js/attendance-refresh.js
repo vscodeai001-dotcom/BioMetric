@@ -773,25 +773,37 @@ window.attendanceRefresh = (function () {
             }
             catch (error) {
 
-                console.warn(
-                    "Attendance refresh listener failed:",
-                    error
-                );
+                // A Blazor component can disappear while SignalR is still
+                // delivering an event. In that case the DotNetObjectReference
+                // is stale and every future realtime event would fail again.
+                //
+                // Keep the existing callback/fallback behavior, but remove
+                // the reference only when BOTH calls fail. This is lifecycle
+                // cleanup only and does not change any business logic.
 
-                // Some older Blazor circuits cannot bind the optional
-                // event payload. Retry the same callback without it so a
-                // realtime refresh is not lost.
+                let callbackFailed = true;
+
                 if (typeof data !== "undefined") {
                     try {
                         await listener.invokeMethodAsync(
                             methodName
                         );
+
+                        callbackFailed = false;
                     }
                     catch (fallbackError) {
-                        console.warn(
-                            "Attendance refresh fallback failed:",
-                            fallbackError
+                        console.debug(
+                            "Attendance refresh listener became unavailable; removing stale listener.",
+                            methodName
                         );
+                    }
+                }
+
+                if (callbackFailed) {
+                    const index = listeners.indexOf(listener);
+
+                    if (index >= 0) {
+                        listeners.splice(index, 1);
                     }
                 }
 
@@ -895,8 +907,16 @@ window.attendanceRefresh = (function () {
             const handler = function (ev) {
                 try {
                     const detail = ev.detail;
-                    // invoke .NET LocationChanged to trigger lightweight refresh
-                    dotNetReference.invokeMethodAsync('LocationChanged', null).catch(function () { });
+                    // A navigation/disposal can invalidate the reference while
+                    // the browser event listener is still queued. Ignore that
+                    // transient lifecycle condition.
+                    dotNetReference.invokeMethodAsync('LocationChanged', null)
+                        .catch(function () {
+                            try {
+                                unregisterLocationHealth(dotNetReference);
+                            }
+                            catch (cleanupError) { }
+                        });
                 }
                 catch (e) { }
             };
