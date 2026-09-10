@@ -38,6 +38,7 @@ window.attendanceRefresh = (function () {
     }
     return;
 }
+        signalRReady = true;
 
         starting = true;
 
