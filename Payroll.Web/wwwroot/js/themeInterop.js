@@ -2,12 +2,6 @@
 // Payroll.Web - Shared Theme / Browser Interop
 // ============================================================
 
-window.payrollEscapeHtml = function (value) {
-    return String(value ?? '').replace(/[&<>"']/g, function (ch) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch];
-    });
-};
-
 // ============================================================
 // THEME
 // ============================================================
@@ -2168,31 +2162,20 @@ window.updateGeoMap = async function (
         mapData.lastRawPosition = user.slice();
         mapData.lastRawPositionAt = rawNow;
 
-        // Presentation road routing: update UI when route loads, but don't block map readiness.
-        window.payrollRequestJourneyRoute(mapData, user, office, { minMoveMeters: 20, minIntervalMs: 18000 }).then(function(employeeRoute) {
-            if (employeeRoute?.geometry?.length > 1) {
-                mapData.roadRouteCasing.setLatLngs(employeeRoute.geometry);
-                mapData.roadRouteLine.setLatLngs(employeeRoute.geometry);
-                mapData.routeLine.setStyle({ opacity: 0 });
-            } else {
-                mapData.routeLine.setStyle({ opacity: .9 });
-            }
-            const employeeRemaining = employeeRoute?.distanceMeters || window.payrollHaversineMeters(user, office);
-            window.payrollRenderJourneyOverlay(mapData.journeyOverlay, {
-                name: mapData.employeeName, distanceMeters: employeeRemaining,
-                durationSeconds: employeeRoute?.durationSeconds || 0, speedMps: mapData.speedMps,
-                accuracyMeters: mapData.lastAccuracyMeters, journeyStartedAt: mapData.journeyStartedAt,
-                road: window.payrollGetNextRoadName(employeeRoute), arrived: employeeRemaining <= Math.max(25, allowedRadius)
-            });
-        }).catch(function() { });
-
-        // Initial overlay render (Air distance fallback while routing loads)
-        const airRemaining = window.payrollHaversineMeters(user, office);
+        const employeeRoute = await window.payrollRequestJourneyRoute(mapData, user, office, { minMoveMeters: 20, minIntervalMs: 18000 });
+        if (employeeRoute?.geometry?.length > 1) {
+            mapData.roadRouteCasing.setLatLngs(employeeRoute.geometry);
+            mapData.roadRouteLine.setLatLngs(employeeRoute.geometry);
+            mapData.routeLine.setStyle({ opacity: 0 });
+        } else {
+            mapData.routeLine.setStyle({ opacity: .9 });
+        }
+        const employeeRemaining = employeeRoute?.distanceMeters || window.payrollHaversineMeters(user, office);
         window.payrollRenderJourneyOverlay(mapData.journeyOverlay, {
-            name: mapData.employeeName, distanceMeters: airRemaining,
-            durationSeconds: 0, speedMps: mapData.speedMps,
+            name: mapData.employeeName, distanceMeters: employeeRemaining,
+            durationSeconds: employeeRoute?.durationSeconds || 0, speedMps: mapData.speedMps,
             accuracyMeters: mapData.lastAccuracyMeters, journeyStartedAt: mapData.journeyStartedAt,
-            road: 'Calculating road route...', arrived: airRemaining <= Math.max(25, allowedRadius)
+            road: window.payrollGetNextRoadName(employeeRoute), arrived: employeeRemaining <= Math.max(25, allowedRadius)
         });
 
         const employeeAnimationKey =
@@ -3336,6 +3319,15 @@ window.updateAdminLiveStaffMap =
                             moveDuration,
                             function (animatedPosition) {
                                 try {
+                                    // GPS, routes and distances remain anchored to the
+                                    // real coordinate. Only the visual marker is offset.
+                                    if (state.lines[employeeId]) {
+                                        state.lines[employeeId].setLatLngs([
+                                            office,
+                                            position
+                                        ]);
+                                    }
+
                                     if (state.collisionConnectors[employeeId]) {
                                         state.collisionConnectors[employeeId].setLatLngs([
                                             position,
@@ -3417,6 +3409,14 @@ window.updateAdminLiveStaffMap =
                         }
                     }
 
+                    state.markers[employeeId].setOpacity(
+                        Number(selectedId) > 0 && !isSelected ? 0 : 1
+                    );
+
+                    const hasCollisionOffset =
+                        Math.abs(Number(displayItem?.offsetX || 0)) > 0 ||
+                        Math.abs(Number(displayItem?.offsetY || 0)) > 0;
+
                     if (hasCollisionOffset) {
                         if (!state.collisionConnectors[employeeId]) {
                             state.collisionConnectors[employeeId] = L.polyline(
@@ -3447,6 +3447,13 @@ window.updateAdminLiveStaffMap =
                         }
                         catch { }
                         delete state.collisionConnectors[employeeId];
+                    }
+
+                    if (state.lines[employeeId]) {
+                        state.lines[employeeId].setStyle({
+                            color: markerColor,
+                            opacity: Number(selectedId) > 0 && !isSelected ? 0 : .8
+                        });
                     }
 
                     if (state.trails[employeeId]) {
@@ -3528,12 +3535,12 @@ window.updateAdminLiveStaffMap =
                     };
 
                     if (!state.roadRouteCasings[employeeId]) {
-                        state.roadRouteCasings[employeeId] = L.polyline([], {
+                        state.roadRouteCasings[employeeId] = L.polyline([office, position], {
                             color: '#ffffff', weight: 7, opacity: .72, lineCap: 'round', lineJoin: 'round'
                         }).addTo(state.map);
                     }
                     if (!state.roadRouteLines[employeeId]) {
-                        state.roadRouteLines[employeeId] = L.polyline([], {
+                        state.roadRouteLines[employeeId] = L.polyline([office, position], {
                             color: '#1688ff', weight: 4, opacity: .95, lineCap: 'round', lineJoin: 'round'
                         }).addTo(state.map);
                     }
@@ -3556,6 +3563,7 @@ window.updateAdminLiveStaffMap =
                         const remaining = route.distanceMeters || window.payrollHaversineMeters(state.markers[employeeId].getLatLng(), office);
                         state.roadRouteCasings[employeeId]?.setLatLngs(route.geometry);
                         state.roadRouteLines[employeeId]?.setLatLngs(route.geometry);
+                        state.lines[employeeId]?.setStyle({ opacity: 0 });
                         const routeDistance = window.payrollFormatRouteDistance(remaining);
                         const eta = window.payrollFormatRouteDuration(route.durationSeconds);
 
@@ -3585,52 +3593,56 @@ window.updateAdminLiveStaffMap =
                         }
                     }).catch(function() {});
 
-                    // Throttled road routing
-                });
+                    if (state.lines[employeeId]) {
+                        state.lines[employeeId].setStyle({
+                            color: markerColor,
+                            opacity: Number(selectedId) > 0 ? (isSelected ? 0.9 : 0.25) : 0.6
+                        });
+                    }
+                }
+            );
 
-            // --------------------------------------------------------
-            // OFFICE GEOFENCE RADIUS
-            // --------------------------------------------------------
-            // Keep exactly one live circle on the map. The radius comes
-            // from the current CompanySettings value on every Blazor
-            // refresh, so changing the admin radius updates the circle
-            // immediately without requiring a page reload.
-            // --------------------------------------------------------
-            const parsedRadius = Number(officeRadius);
-            const effectiveRadius = Number.isFinite(parsedRadius) && parsedRadius > 0
-                ? parsedRadius
-                : 100;
+            const effectiveRadius = Number(officeRadius) || 100;
 
-            if (!state.circle) {
-                state.circle = L.circle(office, {
-                    radius: effectiveRadius,
-                    color: '#0d6efd',
-                    weight: 2,
-                    opacity: 0.72,
-                    fillColor: '#0d6efd',
-                    fillOpacity: 0.08,
-                    interactive: false,
-                    bubblingMouseEvents: false
-                }).addTo(state.map);
-            } else {
-                state.circle.setLatLng(office);
-                state.circle.setRadius(effectiveRadius);
-                state.circle.setStyle({
-                    color: '#0d6efd',
-                    weight: 2,
-                    opacity: 0.72,
-                    fillColor: '#0d6efd',
-                    fillOpacity: 0.08
-                });
+            if (
+                !state.circle ||
+                state.lastOfficeRadius !==
+                effectiveRadius
+            ) {
+                if (state.circle) {
+                    try {
+                        state.map.removeLayer(
+                            state.circle
+                        );
+                    }
+                    catch { }
+                }
+
+                state.circle =
+                    L.circle(
+                        office,
+                        {
+                            radius:
+                                effectiveRadius,
+                            color:
+                                '#0d6efd',
+                            weight: 1,
+                            fillColor:
+                                '#0d6efd',
+                            fillOpacity: .06
+                        }
+                    ).addTo(
+                        state.map
+                    );
+
+                state.lastOfficeRadius =
+                    effectiveRadius;
             }
-
-            state.lastOfficeRadius = effectiveRadius;
-
-            // Keep the geofence above route/trail overlays and below
-            // employee/office markers, making it visible at all zooms.
-            try {
-                state.circle.bringToFront();
-            } catch { }
+            else {
+                state.circle.setLatLng(
+                    office
+                );
+            }
 
             // Fit map bounds on initial load or selection change
             if (!state.hasInitialFit || membershipChanged) {

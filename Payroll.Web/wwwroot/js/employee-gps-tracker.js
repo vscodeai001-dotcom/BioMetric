@@ -886,25 +886,7 @@ window.EmployeeGpsTracker = (function () {
         clearEmployeeGpsSessionId: clearEmployeeGpsSessionId,
         sendLocationViaHttpApi: sendLocationViaHttpApi,
         processQueuedLocations: processQueuedLocations,
-        forceLocationUpdate: forceLocationUpdate,
-        getLatestLocation: function (maxAgeMs) {
-            if (!lastLocationData) {
-                return null;
-            }
-
-            const age = Date.now() - Number(lastLocationData.timestamp || 0);
-            const maxAge = Number(maxAgeMs) || 30000;
-
-            if (age < 0 || age > maxAge) {
-                return null;
-            }
-
-            return {
-                Latitude: Number(lastLocationData.latitude),
-                Longitude: Number(lastLocationData.longitude),
-                Accuracy: Number(lastLocationData.accuracy || 0)
-            };
-        }
+        forceLocationUpdate: forceLocationUpdate
     };
 
 })();
@@ -989,14 +971,6 @@ window.sendLocationViaHttpApi =
 window.processQueuedLocations =
     function () {
         window.EmployeeGpsTracker.processQueuedLocations();
-    };
-
-// Returns the newest GPS fix already received by the persistent watcher.
-// This lets dashboard widgets reuse the existing watcher instead of
-// starting a second competing getCurrentPosition request.
-window.getPersistentEmployeeGpsLocation =
-    function (maxAgeMs) {
-        return window.EmployeeGpsTracker.getLatestLocation(maxAgeMs || 30000);
     };
 
 console.log('Employee GPS Tracker module loaded');
