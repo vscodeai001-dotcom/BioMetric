@@ -588,9 +588,10 @@ public sealed class MobileEmployeeController : ControllerBase
     {
         if (!DateOnly.TryParse(request.DateOfPunch, out var date) || !TimeOnly.TryParse(request.PunchTimeNew, out var time) || string.IsNullOrWhiteSpace(request.Reason)) return BadRequest(new { success = false, message = "Date, time and reason are required." });
         var employeeId = GetEmployeeId();
+        long createdId;
         try
         {
-            var createdId = await _regularizationService.SubmitRequestAsync(
+            createdId = await _regularizationService.SubmitRequestAsync(
                 employeeId, date, time, request.Reason.Trim(), request.IsInPunch);
         }
         catch (InvalidOperationException ex)
