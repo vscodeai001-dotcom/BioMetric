@@ -16,14 +16,6 @@ window.themeInterop = {
     setThemeOnBody: function (theme) {
         if (theme === 'dark') document.body.classList.add('dark');
         else document.body.classList.remove('dark');
-
-        // Presentation-only notification so already-mounted Leaflet maps can
-        // swap between the premium light/dark basemap without a page reload.
-        try {
-            window.dispatchEvent(new CustomEvent('payroll-theme-changed', {
-                detail: { theme: theme }
-            }));
-        } catch { }
     },
     saveTheme: function (theme) {
         try { localStorage.setItem('payroll_theme', theme); }
@@ -2296,20 +2288,42 @@ window.updateGeoMap = async function (
 
                 try {
 
+                    // Blazor can replace the map DOM node during a render.
+                    // Never call Leaflet invalidateSize() on a detached/stale map.
                     if (
-                        mapData &&
-                        mapData.map
+                        !mapData ||
+                        !mapData.map ||
+                        !mapData.map.getContainer
                     ) {
-                        mapData.map.invalidateSize(
-                            true
-                        );
+                        return;
                     }
+
+                    const currentContainer =
+                        mapData.map.getContainer();
+
+                    if (
+                        currentContainer !== mapElement ||
+                        !document.documentElement.contains(currentContainer) ||
+                        !mapData.map._loaded ||
+                        !mapData.map._mapPane ||
+                        !mapData.map._mapPane._leaflet_pos
+                    ) {
+                        return;
+                    }
+
+                    mapData.map.invalidateSize({
+                        pan: false,
+                        animate: false,
+                        debounceMoveend: true
+                    });
 
                 }
                 catch (error) {
 
-                    console.warn(
-                        "Employee map resize failed:",
+                    // Resize is presentation-only. A transient Leaflet/DOM
+                    // state must never interrupt GPS or attendance updates.
+                    console.debug(
+                        "Employee map resize skipped:",
                         error
                     );
 
@@ -2504,87 +2518,10 @@ window.destroyGeoMap =
     };
 
 // ============================================================
-// PREMIUM ADMIN MAP THEME + TILE LAYER
-// ============================================================
-
-window.payrollAdminMapTileUrls = {
-    light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-};
-
-window.payrollAdminMapIsDark = function () {
-    return !!document.body?.classList.contains('dark');
-};
-
-window.payrollAdminMapCreateTileLayer = function (map, dark) {
-    if (!map || !window.L) return null;
-
-    const url = dark
-        ? window.payrollAdminMapTileUrls.dark
-        : window.payrollAdminMapTileUrls.light;
-
-    return L.tileLayer(url, {
-        maxZoom: 20,
-        minZoom: 2,
-        subdomains: 'abcd',
-        detectRetina: true,
-        updateWhenIdle: true,
-        keepBuffer: 3,
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-    }).addTo(map);
-};
-
-window.payrollRefreshAdminMapTheme = function () {
-    try {
-        const dark = window.payrollAdminMapIsDark();
-
-        Object.keys(window.adminLiveMaps || {}).forEach(function (mapId) {
-            const state = window.adminLiveMaps[mapId];
-            if (!state?.map) return;
-
-            if (state.tileLayer) {
-                try { state.map.removeLayer(state.tileLayer); } catch { }
-            }
-
-            state.tileLayer =
-                window.payrollAdminMapCreateTileLayer(state.map, dark);
-
-            if (state.roadRouteCasings) {
-                Object.keys(state.roadRouteCasings).forEach(function (id) {
-                    try {
-                        state.roadRouteCasings[id].setStyle({
-                            color: dark ? '#07101d' : '#ffffff',
-                            weight: Number(state.lastSelectedId) === Number(id) ? 10 : 8,
-                            opacity: dark ? .90 : .86
-                        });
-                    } catch { }
-                });
-            }
-        });
-    }
-    catch (error) {
-        console.warn('Admin map theme refresh failed:', error);
-    }
-};
-
-window.__payrollAdminMapThemeListenerRegistered =
-    window.__payrollAdminMapThemeListenerRegistered || false;
-
-if (!window.__payrollAdminMapThemeListenerRegistered) {
-    window.__payrollAdminMapThemeListenerRegistered = true;
-    window.addEventListener('payroll-theme-changed', function () {
-        setTimeout(function () {
-            window.payrollRefreshAdminMapTheme?.();
-        }, 40);
-    });
-}
-
-
-// ============================================================
 // ADMIN LIVE STAFF MAP
 // ============================================================
 
-window.adminLiveMaps = window.adminLiveMaps || {};
+window.adminLiveMaps = {};
 
 /*
  * Visually fan out co-located admin staff markers without changing their
@@ -2860,8 +2797,10 @@ window.registerAdminLiveLocationRealtime = function (mapId) {
                     function (animatedPosition) {
                         try {
                             if (state.collisionConnectors?.[employeeId]) {
-                                try { state.map.removeLayer(state.collisionConnectors[employeeId]); } catch { }
-                                delete state.collisionConnectors[employeeId];
+                                state.collisionConnectors[employeeId].setLatLngs([
+                                    target,
+                                    animatedPosition
+                                ]);
                             }
 
                             if (state.journeyLabels?.[employeeId]) {
@@ -2930,9 +2869,10 @@ window.registerAdminLiveLocationRealtime = function (mapId) {
                 }
             }
 
-            // Raw GPS trail is intentionally not rendered. Keeping the points
-            // in memory preserves the existing realtime state without creating
-            // misleading straight-line geometry on the map.
+            if (state.trails?.[employeeId]) {
+                state.trails[employeeId]
+                    .setLatLngs(points);
+            }
 
             // Keep the existing live route endpoint synchronized with the
             // actual GPS coordinate, without changing its routing logic.
@@ -3062,11 +3002,14 @@ window.updateAdminLiveStaffMap =
                         }
                     );
 
-                const tileLayer =
-                    window.payrollAdminMapCreateTileLayer(
-                        map,
-                        window.payrollAdminMapIsDark()
-                    );
+                L.tileLayer(
+                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    {
+                        maxZoom: 19,
+                        attribution:
+                            '© OpenStreetMap contributors'
+                    }
+                ).addTo(map);
 
                 // CRITICAL: Set initial view to prevent "Set map center and zoom first" errors
                 // when subsequent operations (like collision offset calc) are called before fitBounds.
@@ -3105,7 +3048,6 @@ window.updateAdminLiveStaffMap =
 
                 state = {
                     map: map,
-                    tileLayer: tileLayer,
                     officeMarker:
                         officeMarker,
                     circle: null,
@@ -3279,6 +3221,11 @@ window.updateAdminLiveStaffMap =
                             lng + Number(displayItem.offsetX || 0)
                         ]
                         : position.slice();
+                    const hasCollisionOffset =
+                        !!displayItem &&
+                        (Math.abs(Number(displayItem.offsetX || 0)) > 0 ||
+                         Math.abs(Number(displayItem.offsetY || 0)) > 0);
+
                     if (!state.routeStates[employeeId]) {
                         state.routeStates[employeeId] = {};
                     }
@@ -3492,20 +3439,54 @@ window.updateAdminLiveStaffMap =
                         state.lastLocationAt[employeeId] = Date.now();
                     }
 
-                    // Do not draw raw GPS samples as straight segments.
-                    // The visible journey line is the road-routed geometry below.
-                    // Keep trailPoints in memory because the existing realtime
-                    // state uses them for continuity, but keep the raw visual
-                    // layer absent.
-                    if (state.trails[employeeId]) {
-                        try { state.map.removeLayer(state.trails[employeeId]); } catch { }
-                        delete state.trails[employeeId];
+                    if (points.length > 1) {
+                        if (!state.trails[employeeId]) {
+                            state.trails[employeeId] = L.polyline(
+                                points,
+                                {
+                                    color: markerColor,
+                                    weight: isSelected ? 5 : 3,
+                                    opacity: isSelected ? .9 : .45,
+                                    dashArray: isSelected ? null : '5,7'
+                                }
+                            ).addTo(state.map);
+                        }
+                        else {
+                            state.trails[employeeId].setLatLngs(points);
+                            state.trails[employeeId].setStyle({
+                                color: markerColor,
+                                weight: isSelected ? 5 : 3,
+                                opacity: isSelected ? .9 : .45,
+                                dashArray: isSelected ? null : '5,7'
+                            });
+                        }
                     }
 
-                    // Collision offsets are used only to separate co-located
-                    // avatars. Never draw connector lines because they read as
-                    // fake routes on a professional live map.
-                    if (state.collisionConnectors[employeeId]) {
+                    if (hasCollisionOffset) {
+                        if (!state.collisionConnectors[employeeId]) {
+                            state.collisionConnectors[employeeId] = L.polyline(
+                                [position, displayPosition],
+                                {
+                                    color: markerColor,
+                                    weight: 2,
+                                    opacity: .72,
+                                    dashArray: '3,4',
+                                    lineCap: 'round'
+                                }
+                            ).addTo(state.map);
+                        }
+                        else {
+                            state.collisionConnectors[employeeId].setLatLngs([
+                                position,
+                                displayPosition
+                            ]);
+                            state.collisionConnectors[employeeId].setStyle({
+                                color: markerColor,
+                                opacity: .72
+                            });
+                        }
+                    }
+                    else if (state.collisionConnectors[employeeId]) {
                         try {
                             state.map.removeLayer(state.collisionConnectors[employeeId]);
                         }
@@ -3528,9 +3509,8 @@ window.updateAdminLiveStaffMap =
                     }
                     if (state.roadRouteCasings[employeeId]) {
                         state.roadRouteCasings[employeeId].setStyle({
-                            color: window.payrollAdminMapIsDark() ? '#07101d' : '#ffffff',
-                            weight: isSelected ? 10 : 8,
-                            opacity: Number(selectedId) > 0 && !isSelected ? 0 : .86
+                            weight: isSelected ? 9 : 7,
+                            opacity: Number(selectedId) > 0 && !isSelected ? 0 : .72
                         });
                     }
 
@@ -3594,18 +3574,12 @@ window.updateAdminLiveStaffMap =
 
                     if (!state.roadRouteCasings[employeeId]) {
                         state.roadRouteCasings[employeeId] = L.polyline([], {
-                            className: 'payroll-admin-road-casing',
-                            color: window.payrollAdminMapIsDark() ? '#07101d' : '#ffffff',
-                            weight: 8, opacity: .86, lineCap: 'round', lineJoin: 'round'
+                            color: '#ffffff', weight: 7, opacity: .72, lineCap: 'round', lineJoin: 'round'
                         }).addTo(state.map);
                     }
                     if (!state.roadRouteLines[employeeId]) {
                         state.roadRouteLines[employeeId] = L.polyline([], {
-                            className: 'payroll-admin-road-line',
-                            color: isSelected ? '#2563eb' : '#3b82f6',
-                            weight: isSelected ? 6 : 4,
-                            opacity: Number(selectedId) > 0 && !isSelected ? 0 : (isSelected ? .98 : .78),
-                            lineCap: 'round', lineJoin: 'round'
+                            color: '#1688ff', weight: 4, opacity: .95, lineCap: 'round', lineJoin: 'round'
                         }).addTo(state.map);
                     }
 
