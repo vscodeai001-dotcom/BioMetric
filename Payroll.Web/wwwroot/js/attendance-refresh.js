@@ -16,12 +16,28 @@ window.attendanceRefresh = (function () {
             return;
 
         if (!window.signalR) {
-            console.warn(
-                "Attendance refresh: SignalR client is not loaded. Retrying in 2s..."
-            );
-            setTimeout(start, 2000);
-            return;
-        }
+    console.warn("Attendance refresh: SignalR client missing. Attempting dynamic load...");
+    
+    // Check if script element is already injected
+    if (!document.getElementById("signalr-client-script")) {
+        const script = document.createElement("script");
+        script.id = "signalr-client-script";
+        // Update URL to your local lib or CDN
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"; 
+        script.onload = function () {
+            console.log("SignalR client loaded successfully.");
+            start();
+        };
+        script.onerror = function () {
+            console.error("Failed to load SignalR client script.");
+            setTimeout(start, 5000);
+        };
+        document.head.appendChild(script);
+    } else {
+        setTimeout(start, 1000);
+    }
+    return;
+}
 
         starting = true;
 
