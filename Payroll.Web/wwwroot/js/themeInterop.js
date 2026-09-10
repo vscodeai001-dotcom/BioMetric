@@ -1665,10 +1665,25 @@ window.payrollFormatSpeed = function (metersPerSecond) {
     return `${kmh.toFixed(1)} km/h`;
 };
 
-window.payrollEscapeHtml = function (value) {
-    return String(value ?? '')
-        .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+window.payrollCreateAdminTooltipHtml = function (data, initials, withinRange, distance, tooltipDistance, tooltipEta, tooltipSpeed) {
+    const safeName = window.escapeAdminHtml(data.name || 'Employee');
+    const statusText = withinRange ? 'Within range' : 'Outside range';
+    const statusClass = withinRange ? 'within' : 'outside';
+
+    return `<div class="admin-live-hover-card">` +
+           `<div class="admin-live-hover-title">` +
+           `<span class="hover-avatar">${initials}</span>` +
+           `<strong>${safeName}</strong>` +
+           `<span class="hover-state ${statusClass}">${statusText}</span>` +
+           `</div>` +
+           `<div class="admin-live-hover-grid">` +
+           `<span><small>Air Distance</small><b>${distance}</b></span>` +
+           `<span><small>Road Distance</small><b>${tooltipDistance}</b></span>` +
+           `<span><small>ETA</small><b>${tooltipEta}</b></span>` +
+           `<span><small>Speed</small><b>${tooltipSpeed}</b></span>` +
+           `<span><small>Allowed Radius</small><b>${data.allowedRadiusMeters || 0} m</b></span>` +
+           `<span><small>Accuracy</small><b>±${Math.round(data.accuracyMeters || 0)} m</b></span>` +
+           `</div></div>`;
 };
 
 window.payrollFetchRoadRoute = async function (from, to, options = {}) {
@@ -1958,29 +1973,29 @@ window.updateGeoMap = async function (
                     ]
                 });
 
-            // ------------------------------------------------
-            // USER ICON (IDENTITY BASED)
-            // ------------------------------------------------
+    // ------------------------------------------------
+    // USER ICON (IDENTITY BASED PIN)
+    // ------------------------------------------------
 
-            const rawName = String(employeeName || 'You').trim();
-            const nameParts = rawName.split(/\s+/).filter(Boolean);
-            const initials = nameParts.length === 1
-                ? nameParts[0].slice(0, 1)
-                : (nameParts[0][0] + nameParts[nameParts.length - 1][0]);
+    const rawName = String(employeeName || 'You').trim();
+    const nameParts = rawName.split(/\s+/).filter(Boolean);
+    const initials = nameParts.length === 1
+        ? nameParts[0].slice(0, 1)
+        : (nameParts[0][0] + nameParts[nameParts.length - 1][0]);
 
-            const avatarClass = isWithin ? 'within' : 'outside';
+    const avatarClass = isWithin ? 'within' : 'outside';
 
-            const userIcon =
-                L.divIcon({
-                    className: "payroll-user-marker",
-                    html:
-                        '<div class="payroll-map-user payroll-map-user-' + avatarClass + '">' +
-                        '<span class="payroll-map-user-initials">' + window.escapeAdminHtml(initials.toUpperCase()) + '</span>' +
-                        '<span class="payroll-map-user-status"></span>' +
-                        '</div>',
-                    iconSize: [46, 54],
-                    iconAnchor: [23, 54]
-                });
+    const userIcon =
+        L.divIcon({
+            className: "payroll-user-marker",
+            html:
+                '<div class="payroll-map-user payroll-map-user-' + avatarClass + '">' +
+                '<span class="payroll-map-user-initials">' + window.escapeAdminHtml(initials.toUpperCase()) + '</span>' +
+                '<span class="payroll-map-user-status"></span>' +
+                '</div>',
+            iconSize: [46, 54],
+            iconAnchor: [23, 54]
+        });
 
             // ------------------------------------------------
             // OFFICE MARKER
@@ -3498,15 +3513,9 @@ window.updateAdminLiveStaffMap =
                     const tooltipAccuracy = Number(x.accuracyMeters) > 0
                         ? `±${Math.round(Number(x.accuracyMeters))} m`
                         : 'Unknown';
-                    const tooltipHtml =
-                        `<div class="admin-live-hover-card">` +
-                        `<div class="admin-live-hover-title"><span class="hover-avatar">${window.escapeAdminHtml(initials.toUpperCase())}</span><strong>${safeName}</strong><span class="hover-state ${withinRange ? 'within' : 'outside'}">${withinRange ? 'Within range' : 'Outside range'}</span></div>` +
-                        `<div class="admin-live-hover-grid">` +
-                        `<span><small>Air Distance</small><b>${distance}</b></span>` +
-                        `<span><small>Road Distance</small><b>${tooltipDistance}</b></span>` +
-                        `<span><small>ETA</small><b>${tooltipEta}</b></span>` +
-                        `<span><small>Speed</small><b>${window.payrollEscapeHtml(tooltipSpeed)}</b></span>` +
-                        `</div></div>`;
+                    const tooltipHtml = window.payrollCreateAdminTooltipHtml(
+                        x, initials.toUpperCase(), withinRange, distance, tooltipDistance, tooltipEta, tooltipSpeed
+                    );
 
                     if (state.markers[employeeId].getTooltip()) {
                         state.markers[employeeId].setTooltipContent(tooltipHtml);
@@ -3576,19 +3585,13 @@ window.updateAdminLiveStaffMap =
                         const hoverWithin = Boolean(x.isWithinAllowedRadius);
                         const cleanName = name.replace(/<[^>]*>/g, '').trim();
                         const parts = cleanName.split(/\s+/).filter(Boolean);
-                        const hoverInitials = parts.length > 1
-                            ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-                            : (parts[0] || 'E').slice(0, 1).toUpperCase();
+                        const hoverInitials = initials.toUpperCase();
+
                         if (state.markers[employeeId].getTooltip()) {
                             state.markers[employeeId].setTooltipContent(
-                                `<div class="admin-live-hover-card">` +
-                                `<div class="admin-live-hover-title"><span class="hover-avatar">${hoverInitials}</span><strong>${name}</strong><span class="hover-state ${hoverWithin ? 'within' : 'outside'}">${hoverWithin ? 'Within range' : 'Outside range'}</span></div>` +
-                                `<div class="admin-live-hover-grid">` +
-                                `<span><small>Air Distance</small><b>${distance}</b></span>` +
-                                `<span><small>Road Distance</small><b>${routeDistance}</b></span>` +
-                                `<span><small>ETA</small><b>${eta}</b></span>` +
-                                `<span><small>Speed</small><b>${window.payrollEscapeHtml(hoverSpeed)}</b></span>` +
-                                `</div></div>`
+                                window.payrollCreateAdminTooltipHtml(
+                                    x, hoverInitials, hoverWithin, distance, routeDistance, eta, hoverSpeed
+                                )
                             );
                         }
                     }).catch(function() {});

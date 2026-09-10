@@ -156,6 +156,14 @@
                                 <small>ACCURACY</small>
                                 <strong>@FormatAccuracy(selectedLocation.AccuracyMeters)</strong>
                             </div>
+                            <div class="metric-item">
+                                <small>JOURNEY</small>
+                                <strong>@FormatDuration(GetSessionDuration(selectedLocation))</strong>
+                            </div>
+                            <div class="metric-item">
+                                <small>ALLOWED</small>
+                                <strong>@selectedLocation.AllowedRadiusMeters m</strong>
+                            </div>
                         </div>
 
                         <div class="metric-item-full mt-2">
@@ -1077,7 +1085,7 @@
     }
 
     /* ============================================================
-       GPS / HISTORY SURFACE THEME HARDENING
+       GPS / HISTORY SURFACE THEME HARDENING (SLATE REFINEMENT)
        ============================================================ */
     body.dark .location-history-card,
     body.dark .location-history-card.card,
@@ -1087,37 +1095,37 @@
     body.dark .gps-session-timeline,
     body.dark .gps-session-table,
     body.dark .location-history-table {
-        background-color: #161f2d !important;
-        color: #e7edf6 !important;
-        border-color: rgba(255,255,255,.09) !important;
+        background-color: #0f172a !important;
+        color: #f1f5f9 !important;
+        border-color: rgba(148,163,184,0.1) !important;
     }
 
     body.dark .gps-session-table > :not(caption) > * > *,
     body.dark .location-history-table > :not(caption) > * > * {
-        background-color: #161f2d !important;
-        color: #e7edf6 !important;
-        border-color: rgba(255,255,255,.09) !important;
+        background-color: #0f172a !important;
+        color: #f1f5f9 !important;
+        border-color: rgba(148,163,184,0.1) !important;
     }
 
     body.dark .gps-session-table thead th,
     body.dark .location-history-table thead th {
-        background-color: #1b2635 !important;
-        color: #aebbd0 !important;
+        background-color: #1e293b !important;
+        color: #94a3b8 !important;
     }
 
     body.dark .gps-session-table tbody tr:hover > *,
     body.dark .location-history-table tbody tr:hover > * {
-        background-color: rgba(13,110,253,.10) !important;
-        color: #f4f8ff !important;
+        background-color: rgba(59,130,246,0.1) !important;
+        color: #fff !important;
     }
 
     body.dark .history-playback-toolbar,
     body.dark .history-playback-progress,
     body.dark .history-playback-status,
     body.dark .gps-session-title {
-        background-color: #1b2635 !important;
-        color: #e7edf6 !important;
-        border-color: rgba(255,255,255,.09) !important;
+        background-color: #1e293b !important;
+        color: #f1f5f9 !important;
+        border-color: rgba(148,163,184,0.1) !important;
     }
 
     body.dark .history-playback-toolbar .form-control,
@@ -1125,9 +1133,9 @@
     body.dark .history-playback-progress input,
     body.dark .location-history-card input,
     body.dark .location-history-card select {
-        background-color: #111a27 !important;
-        color: #e7edf6 !important;
-        border-color: rgba(255,255,255,.16) !important;
+        background-color: #0f172a !important;
+        color: #f1f5f9 !important;
+        border-color: rgba(148,163,184,0.2) !important;
     }
 
     body.dark .history-playback-toolbar .form-control::placeholder,
@@ -1155,52 +1163,103 @@
     }
 
     .live-staff-body {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        min-height: 430px;
-        background: rgba(8, 15, 28, .02);
+        display: flex;
+        min-height: 500px;
+        background: #0f172a; /* Slate 900 */
+        position: relative;
+        overflow: hidden;
+        border-radius: 16px;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.3);
     }
 
-    .live-staff-body.has-selection {
-        grid-template-columns: 1fr;
+    .admin-map-wrapper {
+        flex: 1;
+        position: relative;
+        min-width: 0;
+        height: 500px;
+        transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .selected-live-card {
-        position: absolute; top: 16px; right: 16px; z-index: 1000;
-        width: 340px; padding: 20px;
-        background: rgba(255,255,255,0.92);
-        backdrop-filter: blur(20px) saturate(160%);
-        box-shadow: 0 15px 45px rgba(0,0,0,0.15);
-        border-radius: 24px;
-        border: 1px solid rgba(255,255,255,0.5);
-        animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        flex: 0 0 380px;
+        height: 500px;
+        padding: 24px;
+        background: #1e293b; /* Slate 800 */
+        border-left: 1px solid rgba(255,255,255,0.08);
+        overflow-y: auto;
+        z-index: 100;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        animation: slideInRight 0.4s ease-out;
     }
 
-    .selected-identity { gap: 14px; min-width: 0; flex: 1; }
-    .selected-identity-text strong { font-size: 1.1rem; color: #1e293b; letter-spacing: -0.2px; }
+    body.dark .selected-live-card { background: #0f172a; }
+
+    .selected-live-card-header {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 24px;
+        position: relative;
+        width: 100%;
+    }
+
+    .selected-identity { display: flex; align-items: center; gap: 16px; }
+
+    .premium-avatar {
+        position:relative; width:52px; height:52px; flex:0 0 52px; border-radius:16px;
+        display:flex; align-items:center; justify-content:center;
+        color:#fff; font-size:1.1rem; font-weight:900;
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+        box-shadow: 0 8px 16px rgba(37, 99, 235, 0.3);
+    }
+
+    .selected-identity-text strong { font-size: 1.25rem; color: #f8fafc; font-weight: 850; letter-spacing: -0.3px; }
 
     .staff-range-pill {
-        padding: 4px 10px; border-radius: 999px; font-size: 9px; font-weight: 850;
-        text-transform: uppercase; letter-spacing: 0.4px;
+        display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 9px; font-weight: 850;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        background: rgba(34, 197, 94, 0.1); color: #4ade80;
     }
-    .staff-range-pill.within { background: rgba(34,197,94,0.1); color: #16a34a; }
-    .staff-range-pill.outside { background: rgba(239,68,68,0.1); color: #ef4444; }
+    .staff-range-pill.outside { background: rgba(239, 68, 68, 0.1); color: #f87171; }
+
+    .selected-close {
+        width: 36px; height: 36px; border: 0; border-radius: 10px;
+        background: rgba(255,255,255,0.05); color: #94a3b8;
+        display: flex; align-items: center; justify-content: center;
+        transition: 0.3s;
+        margin-top: 8px;
+    }
+    .selected-close:hover { background: rgba(255,255,255,0.1); color: #fff; transform: scale(1.05); }
 
     .selected-metrics-grid {
-        display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px;
     }
-    .metric-item, .metric-item-full {
-        background: rgba(15,23,42,0.04); padding: 12px; border-radius: 14px;
-        border: 1px solid rgba(0,0,0,0.03);
+    .metric-item {
+        background: rgba(255,255,255,0.03); padding: 16px; border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.05);
     }
-    .metric-item small, .metric-item-full small {
-        display: block; font-size: 8px; font-weight: 800; color: #64748b; margin-bottom: 4px; letter-spacing: 0.5px;
+    .metric-item small { display: block; font-size: 8px; font-weight: 800; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; }
+    .metric-item strong { display: block; font-size: 14px; color: #f8fafc; font-weight: 800; }
+
+    .metric-item-full {
+        background: rgba(59,130,246,0.06); border-radius: 14px; padding: 16px;
+        border: 1px solid rgba(59,130,246,0.1); margin-top: 12px;
     }
-    .metric-item strong, .metric-item-full strong {
-        display: block; font-size: 13px; color: #1e293b; font-weight: 800;
+    .metric-item-full small { display: block; font-size: 8px; font-weight: 800; color: #60a5fa; margin-bottom: 4px; text-transform: uppercase; }
+    .metric-item-full strong { display: block; font-size: 15px; color: #60a5fa; font-weight: 850; }
+
+    .selected-coordinates {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;
+        background: rgba(255,255,255,0.02); padding: 14px; border-radius: 14px;
     }
+    .selected-coordinates span { display: block; font-size: 7px; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
+    .selected-coordinates strong { display: block; font-size: 10px; color: #cbd5e1; }
+
     .metric-item-full { grid-column: 1/-1; background: rgba(59,130,246,0.06); border-color: rgba(59,130,246,0.1); }
     .metric-item-full strong { color: #2563eb; }
+    body.dark .metric-item-full strong { color: #60a5fa; }
 
     .premium-avatar {
         position:relative; width:46px; height:46px; flex:0 0 46px; border-radius:15px;
@@ -1260,38 +1319,51 @@
         background: #e9ecef;
     }
 
-    .payroll-user-marker { background: transparent !important; border: 0 !important; }
     .payroll-map-user {
-        position: relative; width: 44px; height: 52px;
+        position: relative; width: 46px; height: 54px;
         display:flex; align-items:center; justify-content:center;
-        color:#fff; font-size:12px; font-weight:850; letter-spacing:.5px;
-        filter: drop-shadow(0 4px 8px rgba(15,23,42,0.35));
-        transition: transform 0.2s ease;
+        color:#fff; font-size:12px; font-weight:900; letter-spacing:.5px;
+        filter: drop-shadow(0 6px 12px rgba(15,23,42,0.3));
+        transition: transform 0.2s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+        cursor: pointer;
     }
+    .payroll-map-user-within { color: #2563eb; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); }
+    .payroll-map-user-outside { color: #e11d48; background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); }
+    .payroll-map-user-stale { color: #d97706; background: linear-gradient(135deg, #f59e0b 0%, #b45309 100%); }
+
     .payroll-map-user::before {
         content: ""; position: absolute; inset: 0;
-        background: currentColor;
-        clip-path: polygon(50% 100%, 0% 35%, 0% 15%, 10% 4%, 30% 0%, 70% 0%, 90% 4%, 100% 15%, 100% 35%);
-        border-radius: 22px 22px 5px 5px;
+        background: inherit;
+        clip-path: path('M23 0C10.3 0 0 10.3 0 23C0 36.6 23 54 23 54C23 54 46 36.6 46 23C46 10.3 35.7 0 23 0Z');
         z-index: -1;
     }
-    .payroll-map-user:hover { transform:translateY(-2px) scale(1.05); }
-    .payroll-map-user-within { color: #3b82f6; } /* Enterprise Blue */
-    .payroll-map-user-outside { color: #ef4444; } /* Enterprise Red */
-    .payroll-map-user-stale { color: #f59e0b; } /* Enterprise Amber */
+    .payroll-map-user:hover { transform:translateY(-3px) scale(1.08); filter: drop-shadow(0 8px 16px rgba(15,23,42,0.4)); }
+    .payroll-map-user-within { color: #2563eb; } /* Enterprise Blue */
+    .payroll-map-user-outside { color: #e11d48; } /* Enterprise Red */
+    .payroll-map-user-stale { color: #d97706; } /* Enterprise Amber */
 
     .payroll-map-user-status {
-        position:absolute; right:3px; top:3px; width:11px; height:11px; border-radius:50%;
-        background:#22c55e; border:2px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.2);
+        position:absolute; right:4px; top:4px; width:10px; height:10px; border-radius:50%;
+        background:#22c55e; border:2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.05);
         z-index: 2;
+    }
+    .payroll-map-user-status::after {
+        content: ""; position: absolute; inset: -4px; border-radius: 50%;
+        background: inherit; opacity: 0.4;
+        animation: statusPulse 2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+    }
+
+    @keyframes statusPulse {
+        0% { transform: scale(1); opacity: 0.4; }
+        100% { transform: scale(2.5); opacity: 0; }
     }
     .payroll-map-user-status.stale { background:#f59e0b; }
     .payroll-map-user-status.offline { background:#94a3b8; }
 
     .payroll-map-user-initials {
         line-height: 1; user-select: none; z-index: 1;
-        margin-top: -15px; /* Centered in the top bulb of the pin */
-        font-size: 11px; text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        margin-top: -16px; /* High-precision centering */
+        font-size: 11px; font-weight: 850; text-shadow: 0 1px 2px rgba(0,0,0,0.15);
     }
 
     .admin-office-tooltip, .admin-live-hover-tooltip {
@@ -2013,7 +2085,7 @@
     body.dark .avatar-status-dot { border-color:#101826; }
 
     body.dark .admin-live-map .leaflet-tile-pane {
-        filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(1.1) saturate(0.6) sepia(0.1) hue-rotate(200deg);
+        filter: invert(95%) hue-rotate(180deg) brightness(95%) contrast(90%) saturate(30%) brightness(0.85);
     }
 
     body.dark .admin-live-map {
