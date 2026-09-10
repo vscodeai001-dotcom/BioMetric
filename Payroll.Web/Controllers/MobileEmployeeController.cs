@@ -97,12 +97,13 @@ public sealed class MobileEmployeeController : ControllerBase
         var employee = await db.Employees.AsNoTracking()
             .FirstOrDefaultAsync(x => (x.AspNetUserId == user.Id || x.Email == user.Email || x.Email == emailIdentifier.Trim()) && !x.IsDeleted);
 
-        if (employee == null)
-            return Unauthorized(new { success = false, code = "NOT_LINKED", message = "Identity account verified, but no active payroll link found." });
-
         // Check for roles
         var roles = await _userManager.GetRolesAsync(user);
         var primaryRole = roles.FirstOrDefault() ?? "Employee";
+        var isAdmin = primaryRole.Contains("Admin", StringComparison.OrdinalIgnoreCase);
+
+        if (employee == null && !isAdmin)
+            return Unauthorized(new { success = false, code = "NOT_LINKED", message = "Identity account verified, but no active payroll link found." });
 
         var suppliedDeviceId = request.DeviceId.Trim();
         var mobileDeviceId = NormalizeMobileDeviceId(suppliedDeviceId);
@@ -137,9 +138,17 @@ public sealed class MobileEmployeeController : ControllerBase
             // Replacing a mobile device is an explicit force logout of the
             // previous device. End every active GPS session before releasing
             // the old device lock so no live session survives replacement.
-            var endedCount = await _geo.EndAllGpsSessionsAsync(
-                employee.EmployeeID,
-                "FORCE_LOGGED_OUT");
+            if (employee != null)
+            {
+                var endedCount = await _geo.EndAllGpsSessionsAsync(
+                    employee.EmployeeID,
+                    "FORCE_LOGGED_OUT");
+
+                _logger.LogInformation(
+                    "Mobile employee session replaced. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=FORCE_LOGGED_OUT",
+                    employee.EmployeeID,
+                    endedCount);
+            }
 
             var stampResult = await _userManager.UpdateSecurityStampAsync(user);
             if (!stampResult.Succeeded)
@@ -148,11 +157,6 @@ public sealed class MobileEmployeeController : ControllerBase
             db.EmployeeDeviceLocks.Remove(existing);
             await db.SaveChangesAsync();
             existing = null;
-
-            _logger.LogInformation(
-                "Mobile employee session replaced. EmployeeId={EmployeeId}, SessionsEnded={SessionsEnded}, Reason=FORCE_LOGGED_OUT",
-                employee.EmployeeID,
-                endedCount);
         }
 
         if (existing == null)
@@ -173,20 +177,20 @@ public sealed class MobileEmployeeController : ControllerBase
             await db.SaveChangesAsync();
         }
 
-        var token = _tokens.Create(user.Id, employee.EmployeeID, mobileDeviceId);
+        var token = _tokens.Create(user.Id, employee?.EmployeeID ?? 0, mobileDeviceId);
 
         return Ok(new MobileLoginResponse
         {
             Success = true,
             Token = token,
-            EmployeeId = employee.EmployeeID,
-            Name = employee.Name,
-            Email = employee.Email ?? user.Email ?? string.Empty,
+            EmployeeId = employee?.EmployeeID ?? 0,
+            Name = employee?.Name ?? user.UserName ?? "Admin",
+            Email = employee?.Email ?? user.Email ?? string.Empty,
             Role = primaryRole,
             Message = "Login successful",
-            MonthlySalary = employee.MonthlySalary,
-            PaidLeaveBalance = employee.PaidLeaveBalance,
-            SickLeaveBalance = employee.SickLeaveBalance
+            MonthlySalary = employee?.MonthlySalary ?? 0,
+            PaidLeaveBalance = employee?.PaidLeaveBalance ?? 0,
+            SickLeaveBalance = employee?.SickLeaveBalance ?? 0
         });
     }
 
