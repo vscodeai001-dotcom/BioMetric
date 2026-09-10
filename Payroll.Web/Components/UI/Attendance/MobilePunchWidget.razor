@@ -683,7 +683,7 @@
                 try
                 {
                     var coords =
-                        await JSRuntime.InvokeAsync<LocationData>("getCoords");
+                        await GetBestAvailableLocationAsync();
 
                     await UpdateDistance(coords);
 
@@ -768,6 +768,33 @@
         }
     }
 
+    private async Task<LocationData> GetBestAvailableLocationAsync()
+    {
+        // EmployeeGpsTracker is the single persistent browser GPS watcher.
+        // Reuse its newest fix first so this dashboard widget does not
+        // compete with another getCurrentPosition request.
+        try
+        {
+            var persistent = await JSRuntime.InvokeAsync<LocationData?>(
+                "getPersistentEmployeeGpsLocation",
+                30000);
+
+            if (persistent != null &&
+                double.IsFinite(persistent.Latitude) &&
+                double.IsFinite(persistent.Longitude))
+            {
+                return persistent;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Persistent GPS fix was not available. Falling back to browser GPS: {ex.Message}");
+        }
+
+        return await JSRuntime.InvokeAsync<LocationData>("getCoords");
+    }
+
     private async Task RefreshLocation()
     {
         if (isRefreshingLocation || isPunching)
@@ -780,7 +807,7 @@
 
         try
         {
-            var coords = await JSRuntime.InvokeAsync<LocationData>("getCoords");
+            var coords = await GetBestAvailableLocationAsync();
             await UpdateDistance(coords);
 
             if (hasLocation)
@@ -823,7 +850,7 @@
              * associated with a user gesture.
              */
             var coords =
-                await JSRuntime.InvokeAsync<LocationData>("getCoords");
+                await GetBestAvailableLocationAsync();
 
             await UpdateDistance(coords);
 
@@ -905,7 +932,7 @@
 
         try
         {
-            var coords = await JSRuntime.InvokeAsync<LocationData>("getCoords");
+            var coords = await GetBestAvailableLocationAsync();
 
             await UpdateDistance(coords);
 
