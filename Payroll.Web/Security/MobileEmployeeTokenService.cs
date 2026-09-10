@@ -14,13 +14,14 @@ public sealed class MobileEmployeeTokenService
         _protector = provider.CreateProtector(Purpose);
     }
 
-    public string Create(string userId, int employeeId, string deviceId)
+    public string Create(string userId, int employeeId, string deviceId, string role)
     {
         var payload = new MobileEmployeeTokenPayload
         {
             UserId = userId,
             EmployeeId = employeeId,
             DeviceId = deviceId,
+            Role = role,
             ExpiresAtUtc = DateTimeOffset.UtcNow.AddYears(10).ToUnixTimeSeconds()
         };
 
@@ -37,7 +38,7 @@ public sealed class MobileEmployeeTokenService
             var json = _protector.Unprotect(token);
             var parsed = JsonSerializer.Deserialize<MobileEmployeeTokenPayload>(json);
             if (parsed == null || string.IsNullOrWhiteSpace(parsed.UserId) ||
-                parsed.EmployeeId <= 0 || string.IsNullOrWhiteSpace(parsed.DeviceId))
+                parsed.EmployeeId < 0 || string.IsNullOrWhiteSpace(parsed.DeviceId))
                 return false;
 
             if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= parsed.ExpiresAtUtc)
@@ -58,5 +59,6 @@ public sealed class MobileEmployeeTokenPayload
     public string UserId { get; set; } = string.Empty;
     public int EmployeeId { get; set; }
     public string DeviceId { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
     public long ExpiresAtUtc { get; set; }
 }

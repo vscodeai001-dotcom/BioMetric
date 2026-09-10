@@ -177,7 +177,7 @@ public sealed class MobileEmployeeController : ControllerBase
             await db.SaveChangesAsync();
         }
 
-        var token = _tokens.Create(user.Id, employee?.EmployeeID ?? 0, mobileDeviceId);
+        var token = _tokens.Create(user.Id, employee?.EmployeeID ?? 0, mobileDeviceId, primaryRole);
 
         return Ok(new MobileLoginResponse
         {
@@ -195,11 +195,24 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("me")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Me()
     {
         var employeeId = GetEmployeeId();
         await using var db = await _dbFactory.CreateDbContextAsync();
+
+        if (employeeId == 0)
+        {
+             return Ok(new MobileLoginResponse
+             {
+                 Success = true,
+                 EmployeeId = 0,
+                 Name = User.Identity?.Name ?? "Administrator",
+                 Email = User.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
+                 Role = User.FindFirstValue(ClaimTypes.Role) ?? "Admin"
+             });
+        }
+
         var employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(x => x.EmployeeID == employeeId && !x.IsDeleted);
         if (employee == null) return NotFound(new { success = false, message = "Employee not found." });
 
@@ -216,7 +229,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("logout")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Logout()
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -249,7 +262,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("gps/start")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> StartGps([FromBody] GpsSessionRequest request)
     {
         var employeeId = GetEmployeeId();
@@ -263,7 +276,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("gps/update")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> UpdateGps([FromBody] GpsUpdateRequest request)
     {
         var employeeId = GetEmployeeId();
@@ -312,7 +325,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("gps/end")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> EndGps([FromBody] GpsSessionRequest request)
     {
         var employeeId = GetEmployeeId();
@@ -324,7 +337,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("punch-status")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> PunchStatus()
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
@@ -335,7 +348,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("punch")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Punch([FromBody] EmployeePunchRequest request)
     {
         var type = request.Type?.Trim().ToUpperInvariant();
@@ -481,7 +494,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("attendance")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Attendance([FromQuery] DateOnly from, [FromQuery] DateOnly to)
     {
         var employeeId = GetEmployeeId();
@@ -501,7 +514,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("payslips")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Payslips()
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
@@ -510,7 +523,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("leaves")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Leaves()
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
@@ -519,7 +532,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("leaves")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> CreateLeave([FromBody] LeaveCreateRequest request)
     {
         if (!DateTime.TryParse(request.LeaveDate, out var date) || string.IsNullOrWhiteSpace(request.LeaveType)) return BadRequest(new { success = false, message = "Valid leave date and type are required." });
@@ -530,7 +543,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("advances")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Advances()
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
@@ -539,7 +552,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("bonuses")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Bonuses()
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
@@ -548,7 +561,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("regularizations")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Regularizations()
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
@@ -557,7 +570,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("regularizations")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> CreateRegularization([FromBody] RegularizationCreateRequest request)
     {
         if (!DateOnly.TryParse(request.DateOfPunch, out var date) || !TimeOnly.TryParse(request.PunchTimeNew, out var time) || string.IsNullOrWhiteSpace(request.Reason)) return BadRequest(new { success = false, message = "Date, time and reason are required." });
@@ -568,7 +581,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("resignation")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Resignation()
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
@@ -577,7 +590,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("resignation")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> CreateResignation([FromBody] ResignationCreateRequest request)
     {
         if (!DateOnly.TryParse(request.DesiredLastWorkingDay, out var lastDay) || string.IsNullOrWhiteSpace(request.Reason)) return BadRequest(new { success = false, message = "Last working day and reason are required." });
@@ -590,7 +603,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("tax")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Tax([FromQuery] int financialYear)
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync(); var x = await db.TaxDeclarations.AsNoTracking().FirstOrDefaultAsync(r => r.EmployeeId == employeeId && r.FinancialYear == financialYear);
@@ -598,7 +611,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("tax")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> SaveTax([FromBody] TaxDeclarationRequest request)
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
@@ -610,7 +623,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("fbp")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Fbp([FromQuery] int financialYear)
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync(); var rows = await db.FlexibleBenefitDeclarations.AsNoTracking().Where(x => x.EmployeeId == employeeId && x.FinancialYear == financialYear && x.IsActive).OrderBy(x => x.ComponentName).ToListAsync();
@@ -618,7 +631,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpPost("fbp")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> SaveFbp([FromBody] FbpRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ComponentName) || request.AnnualAllocatedAmount < 0) return BadRequest(new { success = false, message = "Component and amount are required." });
@@ -633,7 +646,7 @@ public sealed class MobileEmployeeController : ControllerBase
     }
 
     [HttpGet("shifts")]
-    [Authorize(AuthenticationSchemes = "MobileBearer", Roles = "Employee")]
+    [Authorize(AuthenticationSchemes = "MobileBearer")]
     public async Task<IActionResult> Shifts([FromQuery] string month)
     {
         if (!DateTime.TryParse($"{month}-01", out var parsed)) return BadRequest(new { success = false, message = "Month must be YYYY-MM." });

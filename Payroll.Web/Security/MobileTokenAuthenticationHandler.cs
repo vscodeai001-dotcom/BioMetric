@@ -76,15 +76,23 @@ public sealed class MobileTokenAuthenticationHandler : AuthenticationHandler<Aut
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.EmployeeID == payload.EmployeeId && !x.IsDeleted, Context.RequestAborted);
 
-        if (employee == null || !string.Equals(employee.AspNetUserId, payload.UserId, StringComparison.Ordinal))
-            return AuthenticateResult.Fail("Employee session is invalid.");
+        // Security check for staff: they MUST be linked to an employee record.
+        // Admins/SuperAdmins can use the portal even if unlinked (EmployeeId 0).
+        var role = payload.Role ?? "Employee";
+        var isAdmin = role.Contains("Admin", StringComparison.OrdinalIgnoreCase);
 
-        var claims = new[]
+        if (employee == null && !isAdmin)
+            return AuthenticateResult.Fail("Employee session is invalid or not linked.");
+
+        if (employee != null && !string.Equals(employee.AspNetUserId, payload.UserId, StringComparison.Ordinal))
+            return AuthenticateResult.Fail("Employee link mismatch.");
+
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, payload.UserId),
-            new Claim(ClaimTypes.Name, employee.Name),
-            new Claim(ClaimTypes.Role, "Employee"),
-            new Claim("employee_id", payload.EmployeeId.ToString()),
+            new Claim(ClaimTypes.Name, employee?.Name ?? "Administrator"),
+            new Claim(ClaimTypes.Role, role),
+            new Claim("employee_id", (employee?.EmployeeID ?? 0).ToString()),
             new Claim("device_id", normalizedPayloadDeviceId),
             new Claim("mobile_session", "true")
         };
