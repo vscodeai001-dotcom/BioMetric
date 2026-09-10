@@ -1751,8 +1751,16 @@ window.payrollCreateJourneyOverlay = function (mapElement, className) {
 
 window.payrollRenderJourneyOverlay = function (overlay, data) {
     if (!overlay) return;
-    const name = window.payrollEscapeHtml(data.name || 'Employee');
-    const road = window.payrollEscapeHtml(data.road || 'Calculating road route...');
+    const escapeHtml =
+        typeof window.payrollEscapeHtml === 'function'
+            ? window.payrollEscapeHtml
+            : function (value) {
+                return String(value ?? '').replace(/[&<>"']/g, function (ch) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch];
+                });
+            };
+    const name = escapeHtml(data.name || 'Employee');
+    const road = escapeHtml(data.road || 'Calculating road route...');
     const distance = window.payrollFormatRouteDistance(data.distanceMeters);
     const eta = data.durationSeconds > 0 ? window.payrollFormatRouteDuration(data.durationSeconds) : 'Calculating...';
     const speed = window.payrollFormatSpeed(data.speedMps);
@@ -1772,7 +1780,7 @@ window.payrollRenderJourneyOverlay = function (overlay, data) {
         `<div class="payroll-journey-metrics">` +
         `<div class="payroll-journey-metric"><div class="payroll-journey-icon">📏</div><div class="payroll-journey-label">Remaining</div><div class="payroll-journey-value">${distance}</div></div>` +
         `<div class="payroll-journey-metric"><div class="payroll-journey-icon">⏱️</div><div class="payroll-journey-label">ETA</div><div class="payroll-journey-value">${eta}</div></div>` +
-        `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🚦</div><div class="payroll-journey-label">Speed</div><div class="payroll-journey-value">${window.payrollEscapeHtml(speed)}</div></div>` +
+        `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🚦</div><div class="payroll-journey-label">Speed</div><div class="payroll-journey-value">${escapeHtml(speed)}</div></div>` +
         `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🎯</div><div class="payroll-journey-label">Accuracy</div><div class="payroll-journey-value">${accuracy}</div></div>` +
         `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🕐</div><div class="payroll-journey-label">Journey</div><div class="payroll-journey-value">${elapsed}</div></div>` +
         `<div class="payroll-journey-metric"><div class="payroll-journey-icon">🛣️</div><div class="payroll-journey-label">Route</div><div class="payroll-journey-value">Road</div></div>` +
@@ -2920,6 +2928,17 @@ window.updateAdminLiveStaffMap =
         isPlayback,
         dotNetRef
     ) {
+        // Defensive fallback for presentation-only escaping. This keeps the
+        // live map usable even if a stale browser cache briefly omits the
+        // shared helper. It does not affect GPS, attendance, sessions or DB.
+        if (typeof window.payrollEscapeHtml !== 'function') {
+            window.payrollEscapeHtml = function (value) {
+                return String(value ?? '').replace(/[&<>"']/g, function (ch) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch];
+                });
+            };
+        }
+
         const parsedOfficeLat = Number(officeLat);
         const parsedOfficeLng = Number(officeLng);
 
@@ -3180,6 +3199,10 @@ window.updateAdminLiveStaffMap =
                             lng + Number(displayItem.offsetX || 0)
                         ]
                         : position.slice();
+                    const hasCollisionOffset =
+                        !!displayItem &&
+                        (Math.abs(Number(displayItem.offsetX || 0)) > 0 ||
+                         Math.abs(Number(displayItem.offsetY || 0)) > 0);
 
                     if (!state.routeStates[employeeId]) {
                         state.routeStates[employeeId] = {};

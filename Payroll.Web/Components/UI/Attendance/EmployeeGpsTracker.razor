@@ -176,46 +176,14 @@
                 return;
             }
 
-            dotNetReference ??=
-                DotNetObjectReference.Create(this);
-
             /*
-             * Start browser GPS watcher.
-             * 
-             * IMPORTANT:
-             * The GPS watcher has its own internal state tracking.
-             * If it's already running from a previous circuit,
-             * this will reuse that instance.
-             * 
-             * Parameters:
-             * 1. dotNetReference: For Blazor JSInterop callbacks
-             * 2. employeeId: Employee ID for API calls
-             * 3. sessionId: Unique session identifier
-             * 4. apiEndpoint: HTTP API endpoint for GPS updates (when circuit disconnected)
+             * Establish the authoritative database GPS session BEFORE binding
+             * the browser watcher to it. The watcher sends its SessionId on
+             * every HTTP fallback request. Starting the watcher first could
+             * leave it sending an old localStorage SessionId while the server
+             * has already created a replacement session, producing repeated
+             * HTTP 409 responses and preventing the live map from updating.
              */
-            var gpsStarted =
-                await JSRuntime.InvokeAsync<bool>(
-                    "bindPersistentEmployeeGps",
-                    dotNetReference,
-                    EmployeeId,
-                    liveLocationSessionId.ToString("D"),
-                    "/api/employee-location/update");
-
-            if (!gpsStarted)
-            {
-                Console.Error.WriteLine(
-                    $"Browser GPS watcher could not start. " +
-                    $"EmployeeId={EmployeeId}");
-
-                return;
-            }
-
-            Console.WriteLine(
-                $"GPS watcher initialized. " +
-                $"EmployeeId={EmployeeId}, " +
-                $"SessionId={liveLocationSessionId}, " +
-                $"ReconnectAttempt={reconnectAttempts}");
-
             /*
              * Try to reuse the existing database session.
              * 
@@ -277,17 +245,40 @@
                     $"EmployeeId={EmployeeId}, " +
                     $"SessionId={liveLocationSessionId}");
 
-                try
-                {
-                    await JSRuntime.InvokeVoidAsync(
-                        "stopPersistentEmployeeGps");
-                }
-                catch
-                {
-                }
+                return;
+            }
+
+            dotNetReference ??=
+                DotNetObjectReference.Create(this);
+
+            /*
+             * Bind the persistent browser GPS watcher only after the
+             * authoritative database session is ready. If a previous browser
+             * watcher is already alive, this call rebinds it to the current
+             * session ID without changing the existing watcher lifecycle.
+             */
+            var gpsStarted =
+                await JSRuntime.InvokeAsync<bool>(
+                    "bindPersistentEmployeeGps",
+                    dotNetReference,
+                    EmployeeId,
+                    liveLocationSessionId.ToString("D"),
+                    "/api/employee-location/update");
+
+            if (!gpsStarted)
+            {
+                Console.Error.WriteLine(
+                    $"Browser GPS watcher could not start. " +
+                    $"EmployeeId={EmployeeId}");
 
                 return;
             }
+
+            Console.WriteLine(
+                $"GPS watcher initialized. " +
+                $"EmployeeId={EmployeeId}, " +
+                $"SessionId={liveLocationSessionId}, " +
+                $"ReconnectAttempt={reconnectAttempts}");
 
             started = true;
 
