@@ -8,7 +8,6 @@
     private DotNetObjectReference<ApplicationRealtimeRefreshListener>? _dotNetRef;
     private bool _registered;
     private bool _disposed;
-    private long _lastRefreshTicks;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -38,14 +37,6 @@
     {
         if (_disposed)
             return;
-
-        // Protect against duplicate notifications arriving within the
-        // same millisecond from concurrent writes/reconnects.
-        var now = DateTime.UtcNow.Ticks;
-        if (now - _lastRefreshTicks < TimeSpan.FromMilliseconds(150).Ticks)
-            return;
-
-        _lastRefreshTicks = now;
 
         await InvokeAsync(() =>
         {

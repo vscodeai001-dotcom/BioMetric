@@ -8,7 +8,6 @@ window.attendanceRefresh = (function () {
     let viewerRef = null;
     let listeners = [];
     let applicationListeners = [];
-    let applicationRefreshTimer = null;
 
     async function start() {
 
@@ -106,7 +105,7 @@ window.attendanceRefresh = (function () {
              */
             connection.on(
                 "ApplicationDataChanged",
-                function (data) {
+                async function (data) {
 
                     console.log(
                         "ApplicationDataChanged",
@@ -122,33 +121,11 @@ window.attendanceRefresh = (function () {
                         )
                     );
 
-                    /*
-                     * The application-level listener lives in MainLayout
-                     * and remains mounted while the user navigates between
-                     * pages. It MUST always receive the global invalidation.
-                     *
-                     * Do not suppress this merely because the current
-                     * page also has an AttendanceRefreshListener.
-                     *
-                     * The global listener is the fallback that guarantees
-                     * pages without a domain-specific listener also refresh.
-                     * Existing domain-specific listeners continue handling
-                     * their own explicit events independently.
-                     */
-                    if (applicationRefreshTimer) {
-                        clearTimeout(applicationRefreshTimer);
-                    }
+                    // Deliver the application-wide invalidation immediately.
+                    // Database writes are already the source of truth; there is
+                    // intentionally no artificial debounce here.
+                    await notifyApplicationListeners(data);
 
-                    applicationRefreshTimer = setTimeout(
-                        async function () {
-                            applicationRefreshTimer = null;
-
-                            await notifyApplicationListeners(
-                                data
-                            );
-                        },
-                        250
-                    );
                 }
             );
 
@@ -685,10 +662,9 @@ window.attendanceRefresh = (function () {
                 );
             }
             catch (error) {
-                console.warn(
-                    "Application-wide refresh listener failed:",
-                    error
-                );
+                applicationListeners = applicationListeners.filter(function (item) {
+                    return item !== listener;
+                });
             }
         }
     }
@@ -892,12 +868,7 @@ window.attendanceRefresh = (function () {
                 }
             );
 
-        if (!listeners.length && !applicationListeners.length) {
-            if (applicationRefreshTimer) {
-                clearTimeout(applicationRefreshTimer);
-                applicationRefreshTimer = null;
-            }
-        }
+        // No application-wide debounce timer is used.
     }
 
 
