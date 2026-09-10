@@ -1047,6 +1047,260 @@
         color: #91a0b4 !important;
     }
 
+
+    /* ============================================================
+       PREMIUM ADMIN LIVE MAP VISUALS
+       Presentation-only: no GPS, attendance, database, or layout flow changes.
+       ============================================================ */
+
+    .admin-map-wrapper {
+        background: #eef2f7;
+        border-radius: 0 0 16px 16px;
+        overflow: hidden;
+    }
+
+    .admin-live-map {
+        height: 430px;
+        background: #eef2f7;
+        isolation: isolate;
+    }
+
+    .admin-live-map .leaflet-container {
+        font-family: inherit;
+        background: #eef2f7;
+    }
+
+    .admin-live-map .leaflet-tile-pane {
+        transition: filter .25s ease;
+    }
+
+    .admin-live-map .leaflet-control-zoom {
+        margin: 14px !important;
+        border: 1px solid rgba(15,23,42,.12) !important;
+        border-radius: 12px !important;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(15,23,42,.14) !important;
+    }
+
+    .admin-live-map .leaflet-control-zoom a {
+        width: 34px !important;
+        height: 34px !important;
+        line-height: 34px !important;
+        font-size: 17px !important;
+        color: #334155 !important;
+        background: rgba(255,255,255,.94) !important;
+        border: 0 !important;
+    }
+
+    .admin-live-map .leaflet-control-zoom a + a {
+        border-top: 1px solid rgba(15,23,42,.10) !important;
+    }
+
+    .admin-live-map .leaflet-control-attribution {
+        padding: 4px 7px !important;
+        border-radius: 8px 0 0 0;
+        background: rgba(255,255,255,.76) !important;
+        backdrop-filter: blur(8px);
+        color: #64748b !important;
+        font-size: 9px !important;
+    }
+
+    .admin-live-map .leaflet-control-attribution a {
+        color: #475569 !important;
+    }
+
+    .payroll-map-user {
+        width: 44px;
+        height: 44px;
+        border-radius: 15px;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 850;
+        letter-spacing: .5px;
+        border: 2px solid rgba(255,255,255,.96);
+        box-shadow:
+            0 10px 24px rgba(15,23,42,.30),
+            0 0 0 5px rgba(37,99,235,.10),
+            inset 0 1px 0 rgba(255,255,255,.42);
+        transition: transform .18s ease, box-shadow .18s ease;
+    }
+
+    .payroll-map-user::before {
+        content: "";
+        position: absolute;
+        inset: -7px;
+        border-radius: 19px;
+        border: 1px solid rgba(37,99,235,.18);
+        pointer-events: none;
+        animation: payrollMapMarkerPulse 2.6s ease-out infinite;
+    }
+
+    .payroll-map-user-within {
+        background: linear-gradient(145deg,#1478ff 0%,#5b55e8 100%);
+    }
+
+    .payroll-map-user-outside {
+        background: linear-gradient(145deg,#ef596b 0%,#c92f52 100%);
+        box-shadow:
+            0 10px 24px rgba(220,38,72,.30),
+            0 0 0 5px rgba(239,68,68,.10),
+            inset 0 1px 0 rgba(255,255,255,.42);
+    }
+
+    .payroll-map-user-outside::before {
+        border-color: rgba(239,68,68,.25);
+    }
+
+    .payroll-map-user:hover {
+        transform: translateY(-3px) scale(1.06);
+        box-shadow:
+            0 14px 30px rgba(15,23,42,.34),
+            0 0 0 7px rgba(37,99,235,.12),
+            inset 0 1px 0 rgba(255,255,255,.48);
+    }
+
+    .payroll-map-user-status {
+        width: 11px;
+        height: 11px;
+        right: -3px;
+        bottom: -3px;
+        border: 2px solid #fff;
+        box-shadow: 0 2px 8px rgba(0,0,0,.28);
+    }
+
+    .payroll-map-office {
+        width: 42px;
+        height: 42px;
+        border-radius: 14px;
+        color: #fff;
+        background: linear-gradient(145deg,#0d6efd,#594fe7);
+        border: 2px solid rgba(255,255,255,.98);
+        box-shadow:
+            0 10px 24px rgba(37,99,235,.34),
+            0 0 0 6px rgba(37,99,235,.12),
+            inset 0 1px 0 rgba(255,255,255,.40);
+        font-size: 18px;
+        position: relative;
+    }
+
+    .payroll-map-office::after {
+        inset: -9px;
+        border: 1px solid rgba(37,99,235,.30);
+        animation: payrollMapOfficePulse 2.8s ease-out infinite;
+    }
+
+    .admin-live-hover-tooltip,
+    .admin-office-tooltip {
+        border-radius: 14px !important;
+        border: 1px solid rgba(255,255,255,.15) !important;
+        background: rgba(10,18,32,.94) !important;
+        box-shadow: 0 16px 38px rgba(2,8,23,.32) !important;
+        backdrop-filter: blur(16px);
+    }
+
+    .admin-live-hover-card {
+        min-width: 245px;
+        padding: 3px;
+    }
+
+    .map-live-legend {
+        left: 14px;
+        bottom: 14px;
+        padding: 8px 11px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,.20);
+        background: rgba(8,15,28,.82);
+        backdrop-filter: blur(14px) saturate(1.15);
+        box-shadow: 0 12px 30px rgba(2,8,23,.24);
+        font-size: .63rem;
+    }
+
+    /* Raw GPS samples are intentionally not rendered as straight-line trails.
+       The visible route is the road-routed geometry returned by the existing
+       presentation routing layer. */
+    .admin-live-map .payroll-raw-gps-trail {
+        display: none !important;
+    }
+
+    @@keyframes payrollMapMarkerPulse {
+        0% { transform: scale(.72); opacity: .60; }
+        65% { transform: scale(1.18); opacity: 0; }
+        100% { transform: scale(1.18); opacity: 0; }
+    }
+
+    @@keyframes payrollMapOfficePulse {
+        0% { transform: scale(.76); opacity: .60; }
+        70% { transform: scale(1.16); opacity: 0; }
+        100% { transform: scale(1.16); opacity: 0; }
+    }
+
+    body.dark .admin-map-wrapper,
+    body.dark .admin-live-map,
+    body.dark .admin-live-map .leaflet-container {
+        background: #08111f;
+    }
+
+    body.dark .admin-live-map .leaflet-control-zoom {
+        border-color: rgba(255,255,255,.10) !important;
+        box-shadow: 0 10px 28px rgba(0,0,0,.35) !important;
+    }
+
+    body.dark .admin-live-map .leaflet-control-zoom a {
+        color: #dbe7f5 !important;
+        background: rgba(17,27,43,.94) !important;
+    }
+
+    body.dark .admin-live-map .leaflet-control-zoom a + a {
+        border-top-color: rgba(255,255,255,.09) !important;
+    }
+
+    body.dark .admin-live-map .leaflet-control-attribution {
+        background: rgba(7,15,27,.78) !important;
+        color: #94a3b8 !important;
+    }
+
+    body.dark .admin-live-map .leaflet-control-attribution a {
+        color: #cbd5e1 !important;
+    }
+
+    body.dark .payroll-map-office {
+        box-shadow:
+            0 12px 28px rgba(37,99,235,.40),
+            0 0 0 6px rgba(59,130,246,.16),
+            inset 0 1px 0 rgba(255,255,255,.34);
+    }
+
+    body.dark .map-live-legend {
+        background: rgba(7,15,27,.86);
+        border-color: rgba(255,255,255,.13);
+    }
+
+    /* Route hierarchy: a soft shadow/casing plus a crisp road line. */
+    .payroll-admin-road-casing {
+        pointer-events: none;
+        filter: drop-shadow(0 2px 5px rgba(2,8,23,.22));
+    }
+
+    .payroll-admin-road-line {
+        pointer-events: none;
+    }
+
+    @media (max-width: 768px) {
+        .admin-live-map {
+            height: 390px;
+        }
+
+        .map-live-legend {
+            left: 10px;
+            bottom: 10px;
+            font-size: .58rem;
+        }
+    }
+
 </style>
 
 <style>
