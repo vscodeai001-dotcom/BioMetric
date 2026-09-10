@@ -16,29 +16,12 @@ window.attendanceRefresh = (function () {
             return;
 
         if (!window.signalR) {
-    console.warn("Attendance refresh: SignalR client missing. Attempting dynamic load...");
-    
-    // Check if script element is already injected
-    if (!document.getElementById("signalr-client-script")) {
-        const script = document.createElement("script");
-        script.id = "signalr-client-script";
-        // Update URL to your local lib or CDN
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"; 
-        script.onload = function () {
-            console.log("SignalR client loaded successfully.");
-            start();
-        };
-        script.onerror = function () {
-            console.error("Failed to load SignalR client script.");
-            setTimeout(start, 5000);
-        };
-        document.head.appendChild(script);
-    } else {
-        setTimeout(start, 1000);
-    }
-    return;
-}
-        signalRReady = true;
+            console.warn(
+                "Attendance refresh: SignalR client is not loaded. Retrying in 2s..."
+            );
+            setTimeout(start, 2000);
+            return;
+        }
 
         starting = true;
 
@@ -97,13 +80,6 @@ window.attendanceRefresh = (function () {
              * ==========================================================
              * APPLICATION-WIDE DATABASE CHANGE
              * ==========================================================
-             *
-             * Emitted centrally after a successful EF Core write.
-             * This is a database invalidation signal, not a data
-             * payload. The active route reloads from the database.
-             *
-             * Rapid writes are coalesced so bulk CRUD does not cause
-             * a refresh storm.
              */
             connection.on(
                 "ApplicationDataChanged",
@@ -123,19 +99,6 @@ window.attendanceRefresh = (function () {
                         )
                     );
 
-                    /*
-                     * The application-level listener lives in MainLayout
-                     * and remains mounted while the user navigates between
-                     * pages. It MUST always receive the global invalidation.
-                     *
-                     * Do not suppress this merely because the current
-                     * page also has an AttendanceRefreshListener.
-                     *
-                     * The global listener is the fallback that guarantees
-                     * pages without a domain-specific listener also refresh.
-                     * Existing domain-specific listeners continue handling
-                     * their own explicit events independently.
-                     */
                     if (applicationRefreshTimer) {
                         clearTimeout(applicationRefreshTimer);
                     }
@@ -160,10 +123,8 @@ window.attendanceRefresh = (function () {
                 async function (data) {
                     console.log('LocationHealth', data);
 
-                    // Dispatch event for admin UI to update status/age indicators
                     window.dispatchEvent(new CustomEvent('location-health-updated', { detail: data }));
 
-                    // Also notify registered Blazor listeners so components refresh lightweight state
                     await notifyViewer();
                     await notifyListeners('LocationChanged', data);
                 }
@@ -368,31 +329,8 @@ window.attendanceRefresh = (function () {
 
             /*
              * ==========================================================
-             * LOCATION CHANGED
-             * ==========================================================
-             *
-             * Employee GPS sends:
-             *
-             * Employee
-             *     ↓
-             * LiveLocationStore
-             *     ↓
-             * SignalR
-             *     ↓
-             * LocationChanged
-             *     ↓
-             * Admin listeners
-             *
-             */
-
-            /*
-             * ==========================================================
              * GPS SESSION LIFECYCLE
              * ==========================================================
-             *
-             * A logout does not produce a LocationChanged event.
-             * Therefore an admin screen must receive the explicit
-             * SessionEnded event or it can retain the last live card.
              */
 
             connection.on(
@@ -418,7 +356,6 @@ window.attendanceRefresh = (function () {
                         data
                     );
 
-                    // Also notify application-wide listeners so any device is kicked out
                     await notifyApplicationListeners(
                         "SessionEnded",
                         data
@@ -470,14 +407,6 @@ window.attendanceRefresh = (function () {
                         )
                     );
 
-                    /*
-                     * IMPORTANT:
-                     * Pass the location payload through.
-                     *
-                     * The current LiveStaffLocationPanel can still
-                     * reload LiveLocationStore, so this remains
-                     * backward compatible.
-                     */
                     await notifyListeners(
                         "LocationChanged",
                         data
@@ -519,12 +448,33 @@ window.attendanceRefresh = (function () {
                 }
             );
 
+            /*
+             * ==========================================================
+             * NOTIFICATION CHANGED
+             * ==========================================================
+             */
+
             connection.on(
                 "NotificationChanged",
                 async function (data) {
+
+                    console.log(
+                        "NotificationChanged",
+                        data
+                    );
+
                     await notifyListeners(
                         "NotificationChanged",
                         data
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent(
+                            "notification-data-changed",
+                            {
+                                detail: data
+                            }
+                        )
                     );
                 }
             );
@@ -560,19 +510,8 @@ window.attendanceRefresh = (function () {
                         connectionId
                     );
 
-                    /*
-                     * Refresh normal attendance viewers.
-                     */
                     await notifyViewer();
 
-                    /*
-                     * IMPORTANT:
-                     *
-                     * Refresh all live-location listeners too.
-                     *
-                     * This allows the admin map to recover the latest
-                     * in-memory employee positions after reconnect.
-                     */
                     await notifyListeners(
                         "LocationChanged",
                         null
@@ -676,7 +615,6 @@ window.attendanceRefresh = (function () {
         for (const listener of currentListeners) {
 
             try {
-                // If only one argument is passed, default to ApplicationDataChanged for backward compatibility
                 const targetMethod = typeof data === "undefined" ? "ApplicationDataChanged" : (typeof methodName === "string" ? methodName : "ApplicationDataChanged");
                 const payload = typeof data === "undefined" ? methodName : data;
 
@@ -727,20 +665,6 @@ window.attendanceRefresh = (function () {
      * ==============================================================
      * LISTENER NOTIFICATION
      * ==============================================================
-     *
-     * data is optional.
-     *
-     * Existing components that define:
-     *
-     * LocationChanged()
-     *
-     * continue to work.
-     *
-     * Components that define:
-     *
-     * LocationChanged(data)
-     *
-     * can now receive the actual event payload.
      */
 
     async function notifyListeners(
@@ -779,9 +703,7 @@ window.attendanceRefresh = (function () {
                     error
                 );
 
-                // Some older Blazor circuits cannot bind the optional
-                // event payload. Retry the same callback without it so a
-                // realtime refresh is not lost.
+                // Fallback attempt without payload if C# method doesn't accept parameters
                 if (typeof data !== "undefined") {
                     try {
                         await listener.invokeMethodAsync(
@@ -890,13 +812,11 @@ window.attendanceRefresh = (function () {
     }
 
 
-    // Allow Blazor components to register for periodic LocationHealth bridge
     function registerLocationHealth(dotNetReference) {
         try {
             const handler = function (ev) {
                 try {
                     const detail = ev.detail;
-                    // invoke .NET LocationChanged to trigger lightweight refresh
                     dotNetReference.invokeMethodAsync('LocationChanged', null).catch(function () { });
                 }
                 catch (e) { }
@@ -904,7 +824,6 @@ window.attendanceRefresh = (function () {
 
             window.addEventListener('location-health-updated', handler);
 
-            // store handler on the dotNetReference so unregister can remove
             dotNetReference._locationHealthHandler = handler;
         }
         catch (e) { }
@@ -944,7 +863,5 @@ window.attendanceRefresh = (function () {
             unregisterApplication
 
     };
-
-
 
 })();
