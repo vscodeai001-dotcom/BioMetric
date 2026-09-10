@@ -2953,6 +2953,10 @@ window.updateAdminLiveStaffMap =
                     }
                 ).addTo(map);
 
+                // CRITICAL: Set initial view to prevent "Set map center and zoom first" errors
+                // when subsequent operations (like collision offset calc) are called before fitBounds.
+                map.setView(office, 15);
+
                 const officeIcon =
                     L.divIcon({
                         className:
@@ -3589,32 +3593,12 @@ window.updateAdminLiveStaffMap =
                         }
                     }).catch(function() {});
 
-                    if (!state.lines[employeeId]) {
-                        state.lines[
-                            employeeId
-                        ] =
-                            L.polyline(
-                                [
-                                    office,
-                                    position
-                                ],
-                                lineOptions
-                            ).addTo(
-                                state.map
-                            );
+                    if (state.lines[employeeId]) {
+                        state.lines[employeeId].setStyle({
+                            color: markerColor,
+                            opacity: Number(selectedId) > 0 ? (isSelected ? 0.9 : 0.25) : 0.6
+                        });
                     }
-                    else {
-                        // The smooth marker animation updates the line on
-                        // every animation frame. Only update its styling
-                        // here so the line never snaps to the destination.
-                        state.lines[
-                            employeeId
-                        ].setStyle(
-                            lineOptions
-                        );
-                    }
-
-
                 }
             );
 
@@ -3660,68 +3644,36 @@ window.updateAdminLiveStaffMap =
                 );
             }
 
-            if (
-                Number(selectedId) <= 0 &&
-                (!state.hasInitialFit || membershipChanged)
-            ) {
-                if (liveStaff.length > 0) {
-                    const points = [office];
-
-                    liveStaff.forEach(function (x) {
-                        const lat = Number(x.latitude);
-                        const lng = Number(x.longitude);
-
-                        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                            points.push([lat, lng]);
-                        }
-                    });
-
-                    if (points.length > 1) {
-                        state.map.fitBounds(
-                            L.latLngBounds(points),
-                            {
-                                padding: [35, 35],
-                                maxZoom: 17,
-                                animate: true,
-                                duration: 0.5
-                            }
-                        );
+            // Fit map bounds on initial load or selection change
+            if (!state.hasInitialFit || membershipChanged) {
+                const points = [office];
+                liveStaff.forEach(x => {
+                    const lat = Number(x.latitude);
+                    const lng = Number(x.longitude);
+                    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                        points.push([lat, lng]);
                     }
-                    else {
-                        state.map.setView(office, 17);
-                    }
-                }
-                else {
-                    state.map.setView(office, 17);
-                }
+                });
 
+                if (points.length > 1) {
+                    const bounds = L.latLngBounds(points);
+                    if (bounds.isValid()) {
+                        state.map.fitBounds(bounds, {
+                            padding: [50, 50],
+                            maxZoom: 17,
+                            animate: false
+                        });
+                    }
+                } else {
+                    state.map.setView(office, 15);
+                }
                 state.hasInitialFit = true;
             }
 
             state.lastStaffSignature = staffSignature;
             state.lastSelectedId = Number(selectedId);
-
-            window.ensureAdminLiveMapLayout(mapId);
-        }
-        catch (error) {
-            console.error(
-                'Admin live map error:',
-                error
-            );
-        }
-
-        function payrollInvalidateMapSize(map, delays) {
-            if (!map) return;
-
-            (delays || [0, 100, 300, 700]).forEach(function (delay) {
-                setTimeout(function () {
-                    try {
-                        map.invalidateSize(true);
-                    } catch (e) {
-                        console.warn("Leaflet invalidateSize failed:", e);
-                    }
-                }, delay);
-            });
+        } catch (error) {
+            console.error("Admin live map update failed:", error);
         }
     };
 
