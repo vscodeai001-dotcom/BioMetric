@@ -290,6 +290,23 @@ namespace Payroll.Web.Services
          * Notify all clients to refresh when major operations occur.
          */
 
+        public async Task NotifyGeoSettingsChangedAsync(
+            double officeLatitude,
+            double officeLongitude,
+            int geoRadiusMeters)
+        {
+            await _hub.Clients.All.SendAsync(
+                "GeoSettingsChanged",
+                new
+                {
+                    OfficeLatitude = officeLatitude,
+                    OfficeLongitude = officeLongitude,
+                    GeoRadiusMeters = geoRadiusMeters,
+                    Timestamp = DateTime.UtcNow
+                });
+        }
+
+
         public async Task NotifyGlobalRefreshAsync(string? reason = null)
         {
             await _hub.Clients.All.SendAsync(

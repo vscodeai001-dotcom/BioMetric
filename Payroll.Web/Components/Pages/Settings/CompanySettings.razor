@@ -167,6 +167,14 @@ else
             // Re-baseline GPS sessions for instant dashboard status updates
             await GeoService.RebaselineAllActiveSessionsAsync();
 
+            // Push the newly saved office/radius configuration immediately to
+            // already-connected employee apps. This is notification-only: the
+            // existing database, GPS and attendance validation flow is unchanged.
+            await AttendanceRefresh.NotifyGeoSettingsChangedAsync(
+                settings.OfficeLatitude,
+                settings.OfficeLongitude,
+                settings.GeoRadiusMeters);
+
             toastService.ShowSuccess("Settings saved!");
         }
         catch (Exception ex) { _logger.LogError(ex, "Error saving."); toastService.ShowError("Save failed."); }
