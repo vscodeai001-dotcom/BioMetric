@@ -16,7 +16,12 @@
 
     @* --- FILTER & REFRESH --- *@
     <div class="d-flex justify-content-between align-items-center mb-3 flex-shrink-0">
-        <span class="badge bg-warning text-dark">@pendingRequests.Count() Pending Requests</span>
+        <span>
+            <span class="badge bg-warning text-dark">@pendingRequests.Count() Pending Requests</span>
+            <span class="badge @(allowEmployeeResubmissionGlobally ? "bg-success" : "bg-secondary") ms-2">
+                Resubmission @(allowEmployeeResubmissionGlobally ? "Enabled" : "Disabled")
+            </span>
+        </span>
         <button class="btn btn-outline-primary btn-sm" @onclick="LoadRequests">
             <i class="bi bi-arrow-clockwise"></i> Refresh
         </button>
@@ -75,6 +80,7 @@
     private List<AttendanceRegularization> pendingRequests = new();
     private List<Employee> employees = new();
     private bool isLoading = true;
+    private bool allowEmployeeResubmissionGlobally;
 
     protected override async Task OnInitializedAsync()
     {
@@ -94,6 +100,9 @@
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
+            var features = await db.FeatureSettings.AsNoTracking().FirstOrDefaultAsync(f => f.Id == 1);
+            allowEmployeeResubmissionGlobally = features?.EnablePunchCorrection == true && features.EnableRegularizationRequest;
+
             pendingRequests = await db.AttendanceRegularizations
                 .Where(r => r.Status == "Pending")
                 .OrderBy(r => r.SubmissionDate)
@@ -110,16 +119,29 @@
         if (!confirmed) return;
 
         var remarks = approved ? "Approved" : await JSRuntime.InvokeAsync<string>("prompt", "Enter rejection reason:");
+        if (!approved && string.IsNullOrWhiteSpace(remarks))
+        {
+            toastService.ShowError("A rejection reason is required.");
+            return;
+        }
+
+        var allowResubmission = false;
+        if (!approved && allowEmployeeResubmissionGlobally)
+        {
+            allowResubmission = await JSRuntime.InvokeAsync<bool>(
+                "confirm",
+                "Allow this employee to submit another request for the same date and punch if needed?");
+        }
 
         try
         {
             await RegularizationService.UpdateStatusAndInjectPunchAsync(
                 req.RegularizationId,
                 approved ? "Approved" : "Rejected",
-                remarks ?? "No reason provided."
-            );
+                approved ? "Approved" : remarks!,
+                allowResubmission);
             
-            toastService.ShowSuccess($"Request {action}d. Attendance Log updated.");
+            toastService.ShowSuccess(approved ? "Request approved. Attendance updated." : $"Request rejected. {(allowResubmission ? "Resubmission allowed." : "Resubmission blocked.")}");
             
             // Note: The UI is correctly implemented to call the service.
             // The service is CRITICAL: it must inject the punch and mark the request as approved.

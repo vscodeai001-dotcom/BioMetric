@@ -32,6 +32,7 @@ public sealed class MobileEmployeeController : ControllerBase
     private readonly GeoLocationService _geo;
     private readonly IHubContext<AttendanceRefreshHub> _hub;
     private readonly ILogger<MobileEmployeeController> _logger;
+    private readonly RegularizationService _regularizationService;
 
     public MobileEmployeeController(
         UserManager<IdentityUser> userManager,
@@ -40,7 +41,8 @@ public sealed class MobileEmployeeController : ControllerBase
         MobileEmployeeTokenService tokens,
         GeoLocationService geo,
         IHubContext<AttendanceRefreshHub> hub,
-        ILogger<MobileEmployeeController> logger)
+        ILogger<MobileEmployeeController> logger,
+        RegularizationService regularizationService)
     {
         _userManager = userManager;
         _signInManager = signInManager;
@@ -49,6 +51,7 @@ public sealed class MobileEmployeeController : ControllerBase
         _geo = geo;
         _hub = hub;
         _logger = logger;
+        _regularizationService = regularizationService;
     }
 
     [HttpPost("login")]
@@ -566,7 +569,17 @@ public sealed class MobileEmployeeController : ControllerBase
     {
         var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
         var rows = await db.AttendanceRegularizations.AsNoTracking().Where(x => x.EmployeeId == employeeId).OrderByDescending(x => x.DateOfPunch).ToListAsync();
-        return Ok(rows.Select(x => new { id = x.RegularizationId, date = x.DateOfPunch.ToString("yyyy-MM-dd"), inPunch = x.IsInPunch, punchTime = x.PunchTimeNew.ToString("HH:mm"), reason = x.Reason, status = x.Status, remarks = x.AdminRemarks }));
+        return Ok(rows.Select(x => new
+        {
+            id = x.RegularizationId,
+            date = x.DateOfPunch.ToString("yyyy-MM-dd"),
+            inPunch = x.IsInPunch,
+            punchTime = x.PunchTimeNew.ToString("HH:mm"),
+            reason = x.Reason,
+            status = x.Status,
+            remarks = RegularizationService.GetDisplayAdminRemarks(x.AdminRemarks),
+            canResubmit = RegularizationService.CanResubmit(x)
+        }));
     }
 
     [HttpPost("regularizations")]
@@ -574,10 +587,27 @@ public sealed class MobileEmployeeController : ControllerBase
     public async Task<IActionResult> CreateRegularization([FromBody] RegularizationCreateRequest request)
     {
         if (!DateOnly.TryParse(request.DateOfPunch, out var date) || !TimeOnly.TryParse(request.PunchTimeNew, out var time) || string.IsNullOrWhiteSpace(request.Reason)) return BadRequest(new { success = false, message = "Date, time and reason are required." });
-        var employeeId = GetEmployeeId(); await using var db = await _dbFactory.CreateDbContextAsync();
-        var entry = new AttendanceRegularization { EmployeeId = employeeId, DateOfPunch = date, IsInPunch = request.IsInPunch, PunchTimeNew = time, Reason = request.Reason.Trim(), Status = "Pending", SubmissionDate = DateTime.Now };
-        db.AttendanceRegularizations.Add(entry); await db.SaveChangesAsync();
-        return Ok(new { id = entry.RegularizationId, date = date.ToString("yyyy-MM-dd"), inPunch = entry.IsInPunch, punchTime = time.ToString("HH:mm"), reason = entry.Reason, status = entry.Status, remarks = entry.AdminRemarks });
+        var employeeId = GetEmployeeId();
+        try
+        {
+            var createdId = await _regularizationService.SubmitRequestAsync(
+                employeeId, date, time, request.Reason.Trim(), request.IsInPunch);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { success = false, message = ex.Message });
+        }
+
+        return Ok(new
+        {
+            id = createdId,
+            date = date.ToString("yyyy-MM-dd"),
+            inPunch = request.IsInPunch,
+            punchTime = time.ToString("HH:mm"),
+            reason = request.Reason.Trim(),
+            status = "Pending",
+            remarks = (string?)null
+        });
     }
 
     [HttpGet("resignation")]
