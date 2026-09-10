@@ -2697,6 +2697,17 @@
             out value);
     }
 
+    // The shared attendance SignalR hub broadcasts NotificationChanged to all
+    // registered listeners. This component is registered as a general listener
+    // but does not own notification UI. Keep a no-op invokable endpoint so a
+    // notification broadcast cannot produce a Blazor JS interop exception.
+    // This is presentation/realtime plumbing only and does not alter business logic.
+    [JSInvokable]
+    public Task NotificationChanged(object? data = null)
+    {
+        return Task.CompletedTask;
+    }
+
     [JSInvokable]
     public async Task AttendanceChanged(object? data = null)
     {
