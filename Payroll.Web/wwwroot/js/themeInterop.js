@@ -38,6 +38,23 @@ window.themeInterop = {
 
 window.getCoords = async function () {
 
+    // Reuse the persistent employee GPS watcher when it already has a
+    // recent fix. This prevents the dashboard Remote Punch widget from
+    // opening a second competing GPS request and getting stuck waiting.
+    try {
+        if (window.getPersistentEmployeeGpsLocation) {
+            const persistent = window.getPersistentEmployeeGpsLocation(30000);
+            if (persistent &&
+                Number.isFinite(Number(persistent.Latitude)) &&
+                Number.isFinite(Number(persistent.Longitude))) {
+                return persistent;
+            }
+        }
+    }
+    catch (e) {
+        console.warn('Unable to reuse persistent employee GPS fix:', e);
+    }
+
     if (!navigator.geolocation) {
         throw new Error(
             "Geolocation is not supported by this browser."
@@ -3586,6 +3603,7 @@ window.updateAdminLiveStaffMap =
                     }).catch(function() {});
 
                     // Throttled road routing
+                });
 
             const effectiveRadius = Number(officeRadius) || 100;
 
