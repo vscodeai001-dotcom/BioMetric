@@ -14,20 +14,16 @@
 <PageTitle>Employee Home</PageTitle>
 
 <style>
-    .employee-dashboard-container {
-        animation: fadeIn 0.4s ease-out;
-    }
-
     .app-tile {
         background: white;
-        border: 1px solid rgba(0,0,0,.04);
-        border-radius: 22px;
-        padding: 1.25rem 1rem;
+        border: 1px solid #eee;
+        border-radius: 16px;
+        padding: 1rem;
         text-align: center;
-        transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        transition: all 0.2s ease-in-out;
         cursor: pointer;
         height: 100%;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
     }
 
     body.dark .app-tile {
@@ -44,8 +40,8 @@
 
         .app-tile:hover {
             transform: translateY(-5px);
-            box-shadow: 0 12px 25px rgba(59,130,246,0.12);
-            border-color: rgba(59,130,246,0.2);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.08);
+            border-color: #cce5ff;
         }
 
     .tile-icon {
@@ -60,22 +56,19 @@
     }
 
     .card-gradient-blue {
-        background: linear-gradient(135deg, #4F46E5 0%, #3B82F6 100%);
+        background: linear-gradient(135deg, #0061ff 0%, #60efff 100%);
         color: white;
         border: none;
-        border-radius: 24px;
     }
 
     .card-gradient-purple {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         border: none;
-        border-radius: 24px;
     }
 
     .employee-summary-card {
         min-height: 205px;
-        border-radius: 24px;
     }
 
     .employee-dashboard-layout {
@@ -99,15 +92,6 @@
         grid-column: 1;
     }
 
-    @@keyframes fadeIn {
-        from { opacity: 0; transform: translateY(15px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .animate-1 { animation: fadeIn 0.4s ease-out forwards; }
-    .animate-2 { animation: fadeIn 0.4s ease-out 0.1s forwards; opacity: 0; }
-    .animate-3 { animation: fadeIn 0.4s ease-out 0.2s forwards; opacity: 0; }
-    .animate-4 { animation: fadeIn 0.4s ease-out 0.3s forwards; opacity: 0; }
 </style>
 
 <AuthorizeView>
@@ -142,7 +126,7 @@
 else
 {
     <div class="employee-dashboard-layout">
-    <div class="row g-4 align-items-start employee-overview-row employee-dashboard-summary animate-1">
+    <div class="row g-4 align-items-start employee-overview-row employee-dashboard-summary">
 
         @* ============================================================
            1. SALARY CARD
@@ -266,7 +250,7 @@ else
 
         @if (featureSettings?.EmployeeCanViewAttendance == true)
         {
-            <div class="employee-dashboard-quick animate-2">
+            <div class="employee-dashboard-quick">
 
                 @if (linkedEmployee != null)
                 {
@@ -299,7 +283,7 @@ else
        4. APPLICATION GRID
        ============================================================ *@
 
-    <div class="employee-dashboard-applications animate-3">
+    <div class="employee-dashboard-applications">
     <h5 class="fw-bold text-secondary mb-3">
         Applications
     </h5>

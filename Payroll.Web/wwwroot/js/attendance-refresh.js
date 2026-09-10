@@ -399,12 +399,6 @@ window.attendanceRefresh = (function () {
                         "SessionEnded",
                         data
                     );
-
-                    // Also notify application-wide listeners so any device is kicked out
-                    await notifyApplicationListeners(
-                        "SessionEnded",
-                        data
-                    );
                 }
             );
 
@@ -650,7 +644,7 @@ window.attendanceRefresh = (function () {
      * ==============================================================
      */
 
-    async function notifyApplicationListeners(methodName, data) {
+    async function notifyApplicationListeners(data) {
 
         const currentListeners =
             [...applicationListeners];
@@ -658,13 +652,9 @@ window.attendanceRefresh = (function () {
         for (const listener of currentListeners) {
 
             try {
-                // If only one argument is passed, default to ApplicationDataChanged for backward compatibility
-                const targetMethod = typeof data === "undefined" ? "ApplicationDataChanged" : (typeof methodName === "string" ? methodName : "ApplicationDataChanged");
-                const payload = typeof data === "undefined" ? methodName : data;
-
                 await listener.invokeMethodAsync(
-                    targetMethod,
-                    payload
+                    "ApplicationDataChanged",
+                    data
                 );
             }
             catch (error) {

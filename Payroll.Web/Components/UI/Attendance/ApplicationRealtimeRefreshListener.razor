@@ -50,25 +50,13 @@
         await InvokeAsync(() =>
         {
             if (_disposed)
-                return;
+                return Task.CompletedTask;
 
             // Enhanced navigation refreshes the active route without
-            // forcing a browser reload.
+            // forcing a browser reload. The database remains the source
+            // of truth and the current page re-queries its normal data.
             Navigation.Refresh(false);
-        });
-    }
-
-    [JSInvokable]
-    public async Task SessionEnded(object? data = null)
-    {
-        if (_disposed) return;
-
-        // If the server broadcasts SessionEnded, it means a newer login replaced this one
-        // or the session was explicitly terminated.
-        await InvokeAsync(() =>
-        {
-            // Force a hard reload to trigger the identity redirect to login
-            Navigation.NavigateTo("/Account/Login", true);
+            return Task.CompletedTask;
         });
     }
 
