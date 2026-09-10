@@ -2371,6 +2371,7 @@
     private bool mapNeedsUpdate;
 
     private int selectedEmployeeId;
+    private int currentOfficeRadius = 100;
 
     private List<EmployeeLocationHistory> selectedHistory = new();
     private List<GeoPunchAudit> selectedPunchAudits = new();
@@ -2482,6 +2483,13 @@
             }
             else
             {
+                // Ported: If the update contains a newer office radius, update the map circle.
+                if (TryGetJsonInt(json, "AllowedRadiusMeters", out var newRadius) &&
+                    newRadius > 0 && newRadius != currentOfficeRadius)
+                {
+                    currentOfficeRadius = newRadius;
+                }
+
                 mapNeedsUpdate = true;
                 await InvokeAsync(StateHasChanged);
             }
@@ -2942,6 +2950,12 @@
                 locations.Clear();
                 locations.AddRange(snapshot);
 
+                // Initialize currentOfficeRadius from DB on first load/refresh
+                if (activeSessions.Any())
+                {
+                    currentOfficeRadius = activeSessions.First().LastAllowedRadiusMeters ?? 100;
+                }
+
                 lastRefresh = DateTime.Now;
                 mapNeedsUpdate = true;
 
@@ -3119,6 +3133,7 @@
                 mapId,
                 office.Latitude,
                 office.Longitude,
+                currentOfficeRadius,
                 staff,
                 selectedEmployeeId,
                 liveLocationSignalRReference);
@@ -3131,7 +3146,7 @@
     }
 
 
-    private async Task<(double Latitude, double Longitude)>
+    private async Task<(double Latitude, double Longitude, int Radius)>
         GetOfficeLocation()
     {
         await using var db =
@@ -3145,7 +3160,8 @@
 
         return (
             company?.OfficeLatitude ?? 0,
-            company?.OfficeLongitude ?? 0);
+            company?.OfficeLongitude ?? 0,
+            company?.GeoRadiusMeters ?? 100);
     }
 
 

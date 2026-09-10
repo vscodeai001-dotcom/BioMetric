@@ -350,7 +350,7 @@ public class GeoLocationService
                 var stableLocationState = ResolveStableGeofenceState(
                     previousLocationState,
                     safeDistance,
-                    allowedRadiusMeters);
+                    allowedRadiusMeters + 1); // UX: 1m buffer for map stability
 
                 // A radius change is configuration, not employee movement.
                 // Re-baseline the session against the new radius instead of
@@ -473,6 +473,7 @@ public class GeoLocationService
                             Timestamp = now,
                             DistanceMeters = safeDistance,
                             AccuracyMeters = safeAccuracy,
+                            AllowedRadiusMeters = allowedRadiusMeters,
                             IsWithinAllowedRadius = isWithinAllowedRadius
                         });
                 }
@@ -1440,8 +1441,9 @@ public class GeoLocationService
             company.OfficeLatitude,
             company.OfficeLongitude);
 
+        // UX: 2m buffer for GPS jitter
         var withinRadius =
-            distance <= company.GeoRadiusMeters;
+            distance <= (company.GeoRadiusMeters + 2);
 
         if (!withinRadius)
         {
