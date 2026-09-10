@@ -1,44 +1,218 @@
-/* Theme-aware styling for employee punch regularization.
-   Uses Bootstrap theme variables so the panel remains readable in both light and dark mode. */
+/* ============================================================
+   EMPLOYEE REGULARIZATION
+   MISSING PUNCHES + REQUEST HISTORY
+   Theme-aware for the application's existing light/dark system.
+   ============================================================ */
+
+
+/* ------------------------------------------------------------
+   Missing Punches header
+   ------------------------------------------------------------ */
+
 .regularization-missing-header {
-    background-color: var(--bs-tertiary-bg) !important;
-    color: var(--bs-body-color) !important;
-    border-color: var(--bs-border-color) !important;
+    background-color: var(--app-surface-muted, #f3f6fa) !important;
+    color: var(--app-text, #1a1a1a) !important;
+    border-color: var(--app-border, #d9d9d9) !important;
 }
 
+
+/* ------------------------------------------------------------
+   Missing Punches table header
+   ------------------------------------------------------------ */
+
 .regularization-table-head {
-    background-color: var(--bs-tertiary-bg) !important;
-    color: var(--bs-body-color) !important;
-    border-color: var(--bs-border-color) !important;
+    background-color: var(--app-surface-muted, #f3f6fa) !important;
+    color: var(--app-text, #1a1a1a) !important;
+    border-color: var(--app-border, #d9d9d9) !important;
 }
 
 .regularization-table-head th {
-    background-color: var(--bs-tertiary-bg) !important;
-    color: var(--bs-body-color) !important;
-    border-color: var(--bs-border-color) !important;
+    background-color: var(--app-surface-muted, #f3f6fa) !important;
+    color: var(--app-text, #1a1a1a) !important;
+    border-color: var(--app-border, #d9d9d9) !important;
 }
+
+
+/* ------------------------------------------------------------
+   My Requests section
+   ------------------------------------------------------------ */
 
 .regularization-requests-section {
-    background-color: var(--bs-secondary-bg) !important;
-    color: var(--bs-body-color) !important;
-    border-color: var(--bs-border-color) !important;
+    background-color: var(--app-surface-muted, #f3f6fa) !important;
+    color: var(--app-text, #1a1a1a) !important;
+    border-color: var(--app-border, #d9d9d9) !important;
 }
+
+
+/* ------------------------------------------------------------
+   My Requests table
+   ------------------------------------------------------------ */
 
 .regularization-requests-table {
-    --bs-table-bg: var(--bs-body-bg);
-    --bs-table-color: var(--bs-body-color);
-    --bs-table-border-color: var(--bs-border-color);
-    --bs-table-hover-bg: var(--bs-tertiary-bg);
-    --bs-table-hover-color: var(--bs-body-color);
+    --bs-table-bg: var(--app-surface, #ffffff);
+    --bs-table-color: var(--app-text, #1a1a1a);
+    --bs-table-border-color: var(--app-border, #d9d9d9);
+    --bs-table-hover-bg: var(--app-surface-muted, #f3f6fa);
+    --bs-table-hover-color: var(--app-text, #1a1a1a);
+
+    background-color: var(--app-surface, #ffffff) !important;
+    color: var(--app-text, #1a1a1a) !important;
+    border-color: var(--app-border, #d9d9d9) !important;
 }
 
+
+/* ------------------------------------------------------------
+   My Requests table header
+   ------------------------------------------------------------ */
+
+.regularization-requests-table thead,
+.regularization-requests-table thead tr,
 .regularization-requests-table thead th {
-    background-color: var(--bs-tertiary-bg) !important;
-    color: var(--bs-body-color) !important;
-    border-color: var(--bs-border-color) !important;
+    background-color: var(--app-surface-muted, #f3f6fa) !important;
+    color: var(--app-text, #1a1a1a) !important;
+    border-color: var(--app-border, #d9d9d9) !important;
 }
 
+
+/* ------------------------------------------------------------
+   My Requests table body
+   ------------------------------------------------------------ */
+
+.regularization-requests-table tbody,
+.regularization-requests-table tbody tr,
 .regularization-requests-table tbody td {
-    color: var(--bs-body-color);
-    border-color: var(--bs-border-color);
+    background-color: var(--app-surface, #ffffff) !important;
+    color: var(--app-text, #1a1a1a) !important;
+    border-color: var(--app-border, #d9d9d9) !important;
+}
+
+
+/* ------------------------------------------------------------
+   Bootstrap striped rows
+   ------------------------------------------------------------ */
+
+.regularization-requests-table.table-striped
+    > tbody
+    > tr:nth-of-type(odd)
+    > * {
+    background-color: var(--app-surface-muted, #f3f6fa) !important;
+    color: var(--app-text, #1a1a1a) !important;
+}
+
+
+/* ------------------------------------------------------------
+   Hover
+   ------------------------------------------------------------ */
+
+.regularization-requests-table.table-hover
+    > tbody
+    > tr:hover
+    > * {
+    background-color: var(--app-surface-muted, #f3f6fa) !important;
+    color: var(--app-text, #1a1a1a) !important;
+}
+
+
+/* ------------------------------------------------------------
+   Small / muted text
+   ------------------------------------------------------------ */
+
+.regularization-requests-table .text-muted,
+.regularization-requests-table td.small {
+    color: var(--app-text-muted, #6b7280) !important;
+}
+
+
+/* ============================================================
+   DARK MODE
+   Force the complete component to use the application's
+   existing dark theme tokens.
+   ============================================================ */
+
+body.dark .regularization-missing-header {
+    background-color: var(--app-surface-muted) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
+body.dark .regularization-table-head,
+body.dark .regularization-table-head th {
+    background-color: var(--app-surface-muted) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
+body.dark .regularization-requests-section {
+    background-color: var(--app-surface-muted) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
+body.dark .regularization-requests-table {
+    background-color: var(--app-surface) !important;
+    color: var(--app-text) !important;
+
+    --bs-table-bg: var(--app-surface) !important;
+    --bs-table-color: var(--app-text) !important;
+    --bs-table-border-color: var(--app-border) !important;
+    --bs-table-hover-bg: var(--app-surface-muted) !important;
+    --bs-table-hover-color: var(--app-text) !important;
+}
+
+body.dark .regularization-requests-table thead,
+body.dark .regularization-requests-table thead tr,
+body.dark .regularization-requests-table thead th {
+    background-color: var(--app-surface-muted) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
+body.dark .regularization-requests-table tbody,
+body.dark .regularization-requests-table tbody tr,
+body.dark .regularization-requests-table tbody td {
+    background-color: var(--app-surface) !important;
+    color: var(--app-text) !important;
+    border-color: var(--app-border) !important;
+}
+
+body.dark .regularization-requests-table.table-striped
+    > tbody
+    > tr:nth-of-type(odd)
+    > * {
+    background-color: var(--app-surface-muted) !important;
+    color: var(--app-text) !important;
+}
+
+body.dark .regularization-requests-table.table-hover
+    > tbody
+    > tr:hover
+    > * {
+    background-color: #26313d !important;
+    color: var(--app-text) !important;
+}
+
+body.dark .regularization-requests-table .text-muted,
+body.dark .regularization-requests-table td.small {
+    color: var(--app-text-muted) !important;
+}
+
+
+/* ------------------------------------------------------------
+   Keep badges readable in dark mode
+   ------------------------------------------------------------ */
+
+body.dark .regularization-requests-table .badge.bg-success {
+    background-color: #1f3a1f !important;
+    color: #b2ffb2 !important;
+}
+
+body.dark .regularization-requests-table .badge.bg-warning,
+body.dark .regularization-requests-table .badge.bg-warning.text-dark {
+    background-color: #3a321f !important;
+    color: #ffe6b3 !important;
+}
+
+body.dark .regularization-requests-table .badge.bg-danger {
+    background-color: #4a2025 !important;
+    color: #ffb4bc !important;
 }
