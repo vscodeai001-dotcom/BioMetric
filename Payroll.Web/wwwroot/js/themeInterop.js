@@ -38,23 +38,6 @@ window.themeInterop = {
 
 window.getCoords = async function () {
 
-    // Reuse the persistent employee GPS watcher when it already has a
-    // recent fix. This prevents the dashboard Remote Punch widget from
-    // opening a second competing GPS request and getting stuck waiting.
-    try {
-        if (window.getPersistentEmployeeGpsLocation) {
-            const persistent = window.getPersistentEmployeeGpsLocation(30000);
-            if (persistent &&
-                Number.isFinite(Number(persistent.Latitude)) &&
-                Number.isFinite(Number(persistent.Longitude))) {
-                return persistent;
-            }
-        }
-    }
-    catch (e) {
-        console.warn('Unable to reuse persistent employee GPS fix:', e);
-    }
-
     if (!navigator.geolocation) {
         throw new Error(
             "Geolocation is not supported by this browser."
@@ -3605,47 +3588,49 @@ window.updateAdminLiveStaffMap =
                     // Throttled road routing
                 });
 
-            const effectiveRadius = Number(officeRadius) || 100;
+            // --------------------------------------------------------
+            // OFFICE GEOFENCE RADIUS
+            // --------------------------------------------------------
+            // Keep exactly one live circle on the map. The radius comes
+            // from the current CompanySettings value on every Blazor
+            // refresh, so changing the admin radius updates the circle
+            // immediately without requiring a page reload.
+            // --------------------------------------------------------
+            const parsedRadius = Number(officeRadius);
+            const effectiveRadius = Number.isFinite(parsedRadius) && parsedRadius > 0
+                ? parsedRadius
+                : 100;
 
-            if (
-                !state.circle ||
-                state.lastOfficeRadius !==
-                effectiveRadius
-            ) {
-                if (state.circle) {
-                    try {
-                        state.map.removeLayer(
-                            state.circle
-                        );
-                    }
-                    catch { }
-                }
-
-                state.circle =
-                    L.circle(
-                        office,
-                        {
-                            radius:
-                                effectiveRadius,
-                            color:
-                                '#0d6efd',
-                            weight: 1,
-                            fillColor:
-                                '#0d6efd',
-                            fillOpacity: .06
-                        }
-                    ).addTo(
-                        state.map
-                    );
-
-                state.lastOfficeRadius =
-                    effectiveRadius;
+            if (!state.circle) {
+                state.circle = L.circle(office, {
+                    radius: effectiveRadius,
+                    color: '#0d6efd',
+                    weight: 2,
+                    opacity: 0.72,
+                    fillColor: '#0d6efd',
+                    fillOpacity: 0.08,
+                    interactive: false,
+                    bubblingMouseEvents: false
+                }).addTo(state.map);
+            } else {
+                state.circle.setLatLng(office);
+                state.circle.setRadius(effectiveRadius);
+                state.circle.setStyle({
+                    color: '#0d6efd',
+                    weight: 2,
+                    opacity: 0.72,
+                    fillColor: '#0d6efd',
+                    fillOpacity: 0.08
+                });
             }
-            else {
-                state.circle.setLatLng(
-                    office
-                );
-            }
+
+            state.lastOfficeRadius = effectiveRadius;
+
+            // Keep the geofence above route/trail overlays and below
+            // employee/office markers, making it visible at all zooms.
+            try {
+                state.circle.bringToFront();
+            } catch { }
 
             // Fit map bounds on initial load or selection change
             if (!state.hasInitialFit || membershipChanged) {
