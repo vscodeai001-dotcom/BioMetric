@@ -16,10 +16,7 @@ window.attendanceRefresh = (function () {
             return;
 
         if (!window.signalR) {
-            console.warn(
-                "Attendance refresh: SignalR client is not loaded. Retrying in 2s..."
-            );
-            setTimeout(start, 2000);
+            scheduleRetry();
             return;
         }
 
@@ -588,7 +585,7 @@ window.attendanceRefresh = (function () {
 
     function scheduleRetry() {
 
-        if (retryTimer || (!listeners.length && !applicationListeners.length))
+        if (retryTimer || (!listeners.length && !applicationListeners.length && !viewerRef))
             return;
 
         retryTimer = setTimeout(
@@ -703,7 +700,6 @@ window.attendanceRefresh = (function () {
                     error
                 );
 
-                // Fallback attempt without payload if C# method doesn't accept parameters
                 if (typeof data !== "undefined") {
                     try {
                         await listener.invokeMethodAsync(
