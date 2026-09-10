@@ -20,6 +20,10 @@
 
 
     [Parameter]
+    public EventCallback OnSessionStarted { get; set; }
+
+
+    [Parameter]
     public EventCallback OnRegularizationChanged { get; set; }
 
 
@@ -161,6 +165,41 @@
         {
             Console.Error.WriteLine(
                 $"LocationChanged callback failed: {ex}");
+        }
+    }
+
+
+    // ============================================================
+    // GPS SESSION STARTED
+    // ============================================================
+
+    [JSInvokable]
+    public async Task SessionStarted(object? data = null)
+    {
+        if (_disposed)
+            return;
+
+        try
+        {
+            if (OnSessionStarted.HasDelegate)
+            {
+                await InvokeAsync(
+                    () =>
+                        OnSessionStarted.InvokeAsync());
+            }
+            else if (OnLocationChanged.HasDelegate)
+            {
+                // Fallback to LocationChanged for components that don't
+                // distinguish session starts but need to refresh members.
+                await InvokeAsync(
+                    () =>
+                        OnLocationChanged.InvokeAsync());
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"SessionStarted callback failed: {ex}");
         }
     }
 

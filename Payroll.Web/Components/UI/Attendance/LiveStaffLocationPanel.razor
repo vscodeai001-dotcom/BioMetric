@@ -2580,7 +2580,28 @@
 
         if (existingIndex < 0)
         {
-            needsAuthoritativeRefresh = true;
+            // If the employee is not in the list (e.g. session just started),
+            // add them immediately using the data in this packet.
+            // This avoids waiting for a database refresh and fixes the lag.
+            var newLocation = new LiveEmployeeLocation
+            {
+                EmployeeId = employeeId,
+                Latitude = latitude,
+                Longitude = longitude,
+                AccuracyMeters = TryGetJsonDouble(json, "AccuracyMeters", out var acc) ? acc : 0,
+                DistanceMeters = TryGetJsonDouble(json, "DistanceMeters", out var dist) ? dist : 0,
+                AllowedRadiusMeters = TryGetJsonInt(json, "AllowedRadiusMeters", out var rad) ? rad : 0,
+                IsWithinAllowedRadius = TryGetJsonBool(json, "IsWithinAllowedRadius", out var within) ? within : true,
+                LastUpdatedUtc = TryGetJsonDateTime(json, "LastUpdatedUtc", out var upd) ? upd : DateTime.UtcNow,
+                SessionStartedUtc = TryGetJsonDateTime(json, "SessionStartedUtc", out var start) ? start : DateTime.UtcNow,
+                SessionId = sessionId
+            };
+
+            locations.Add(newLocation);
+
+            // Still set needsAuthoritativeRefresh to true to ensure
+            // the full Employee object is loaded if it's missing.
+            needsAuthoritativeRefresh = !employees.Any(e => e.EmployeeID == employeeId);
             return true;
         }
 
@@ -2957,6 +2978,13 @@
 
         try
         {
+            // Fast path: remove the employee from the local collection immediately
+            // to stop tracking on the UI while the authoritative DB refresh runs.
+            if (TryGetPayloadEmployeeId(data, out var employeeId))
+            {
+                locations.RemoveAll(x => x.EmployeeId == employeeId);
+            }
+
             await RefreshLocations();
 
             mapNeedsUpdate = true;
