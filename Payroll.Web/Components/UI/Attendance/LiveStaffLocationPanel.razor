@@ -2588,12 +2588,12 @@
                 EmployeeId = employeeId,
                 Latitude = latitude,
                 Longitude = longitude,
-                AccuracyMeters = TryGetJsonDouble(json, "AccuracyMeters", out var acc) ? acc : 0,
-                DistanceMeters = TryGetJsonDouble(json, "DistanceMeters", out var dist) ? dist : 0,
-                AllowedRadiusMeters = TryGetJsonInt(json, "AllowedRadiusMeters", out var rad) ? rad : 0,
-                IsWithinAllowedRadius = TryGetJsonBool(json, "IsWithinAllowedRadius", out var within) ? within : true,
-                LastUpdatedUtc = TryGetJsonDateTime(json, "LastUpdatedUtc", out var upd) ? upd : DateTime.UtcNow,
-                SessionStartedUtc = TryGetJsonDateTime(json, "SessionStartedUtc", out var start) ? start : DateTime.UtcNow,
+                AccuracyMeters = TryGetJsonDouble(json, "AccuracyMeters", out var accVal) ? accVal : 0,
+                DistanceMeters = TryGetJsonDouble(json, "DistanceMeters", out var distVal) ? distVal : 0,
+                AllowedRadiusMeters = TryGetJsonInt(json, "AllowedRadiusMeters", out var radVal) ? radVal : 0,
+                IsWithinAllowedRadius = TryGetJsonBool(json, "IsWithinAllowedRadius", out var withinVal) ? withinVal : true,
+                LastUpdatedUtc = TryGetJsonDateTime(json, "LastUpdatedUtc", out var updVal) ? updVal : DateTime.UtcNow,
+                SessionStartedUtc = TryGetJsonDateTime(json, "SessionStartedUtc", out var startVal) ? startVal : DateTime.UtcNow,
                 SessionId = sessionId
             };
 
@@ -2624,20 +2624,20 @@
             EmployeeId = existing.EmployeeId,
             Latitude = latitude,
             Longitude = longitude,
-            AccuracyMeters = TryGetJsonDouble(json, "AccuracyMeters", out var accuracy)
-                ? accuracy
+            AccuracyMeters = TryGetJsonDouble(json, "AccuracyMeters", out var accuracyVal)
+                ? accuracyVal
                 : existing.AccuracyMeters,
-            DistanceMeters = TryGetJsonDouble(json, "DistanceMeters", out var distance)
-                ? distance
+            DistanceMeters = TryGetJsonDouble(json, "DistanceMeters", out var distanceVal)
+                ? distanceVal
                 : existing.DistanceMeters,
-            AllowedRadiusMeters = TryGetJsonInt(json, "AllowedRadiusMeters", out var radius)
-                ? radius
+            AllowedRadiusMeters = TryGetJsonInt(json, "AllowedRadiusMeters", out var radiusVal)
+                ? radiusVal
                 : existing.AllowedRadiusMeters,
-            IsWithinAllowedRadius = TryGetJsonBool(json, "IsWithinAllowedRadius", out var within)
-                ? within
+            IsWithinAllowedRadius = TryGetJsonBool(json, "IsWithinAllowedRadius", out var updatedWithinVal)
+                ? updatedWithinVal
                 : existing.IsWithinAllowedRadius,
-            LastUpdatedUtc = TryGetJsonDateTime(json, "LastUpdatedUtc", out var updated)
-                ? updated
+            LastUpdatedUtc = TryGetJsonDateTime(json, "LastUpdatedUtc", out var updatedTimeVal)
+                ? updatedTimeVal
                 : DateTime.UtcNow,
             SessionStartedUtc = existing.SessionStartedUtc,
             SessionId = sessionId != Guid.Empty
