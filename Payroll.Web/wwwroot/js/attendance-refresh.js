@@ -17,8 +17,9 @@ window.attendanceRefresh = (function () {
 
         if (!window.signalR) {
             console.warn(
-                "Attendance refresh: SignalR client is not loaded."
+                "Attendance refresh: SignalR client is not loaded. Retrying in 2s..."
             );
+            setTimeout(start, 2000);
             return;
         }
 
@@ -399,6 +400,12 @@ window.attendanceRefresh = (function () {
                         "SessionEnded",
                         data
                     );
+
+                    // Also notify application-wide listeners so any device is kicked out
+                    await notifyApplicationListeners(
+                        "SessionEnded",
+                        data
+                    );
                 }
             );
 
@@ -644,7 +651,7 @@ window.attendanceRefresh = (function () {
      * ==============================================================
      */
 
-    async function notifyApplicationListeners(data) {
+    async function notifyApplicationListeners(methodName, data) {
 
         const currentListeners =
             [...applicationListeners];
@@ -652,9 +659,13 @@ window.attendanceRefresh = (function () {
         for (const listener of currentListeners) {
 
             try {
+                // If only one argument is passed, default to ApplicationDataChanged for backward compatibility
+                const targetMethod = typeof data === "undefined" ? "ApplicationDataChanged" : (typeof methodName === "string" ? methodName : "ApplicationDataChanged");
+                const payload = typeof data === "undefined" ? methodName : data;
+
                 await listener.invokeMethodAsync(
-                    "ApplicationDataChanged",
-                    data
+                    targetMethod,
+                    payload
                 );
             }
             catch (error) {

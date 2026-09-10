@@ -2900,6 +2900,7 @@ window.updateAdminLiveStaffMap =
         officeRadius,
         staff,
         selectedId,
+        isPlayback,
         dotNetRef
     ) {
         const parsedOfficeLat = Number(officeLat);
@@ -3365,7 +3366,7 @@ window.updateAdminLiveStaffMap =
 
                         // Smooth camera focus if this employee is selected
                         // Triggered on every SignalR fix (Blazor render)
-                        if (isSelected && !isPlaybackFullscreen) {
+                        if (isSelected && !isPlayback) {
                             const bounds = L.latLngBounds([office, position]);
                             state.map.fitBounds(bounds, {
                                 padding: [80, 80],
