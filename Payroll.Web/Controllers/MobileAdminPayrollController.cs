@@ -199,9 +199,9 @@ public sealed class MobileAdminPayrollController : ControllerBase
         LeaveDays = x.LeaveDays, AbsentDays = x.AbsentDays
     };
 
-    public sealed class PayrollPeriodRequest { public int Year { get; set; } public int Month { get; set; } }
+    public class PayrollPeriodRequest { public int Year { get; set; } public int Month { get; set; } }
     public sealed class PayrollFinalizeRequest : PayrollPeriodRequest { public List<PayrollDisplayRowDto> Rows { get; set; } = new(); }
-    public sealed class PayrollDisplayRowDto
+    public class PayrollDisplayRowDto
     {
         public int EmployeeID { get; set; }
         public string? EmployeeName { get; set; }
@@ -241,12 +241,12 @@ public sealed class MobileAdminPayrollController : ControllerBase
         public decimal DeductionsAdvance { get; set; }
         public decimal? NetSalary { get; set; }
         public decimal? BasicComponent { get; set; }
-        public decimal? PfDeduction { get; set; }
-        public decimal? EsiDeduction { get; set; }
-        public decimal? PtDeduction { get; set; }
-        public decimal? Bonus { get; set; }
-        public decimal? TdsDeduction { get; set; }
-        public decimal? TotalShiftAllowance { get; set; }
+        public new decimal? PfDeduction { get; set; }
+        public new decimal? EsiDeduction { get; set; }
+        public new decimal? PtDeduction { get; set; }
+        public new decimal? Bonus { get; set; }
+        public new decimal? TdsDeduction { get; set; }
+        public new decimal? TotalShiftAllowance { get; set; }
         public new int? AbsentDays { get; set; }
         public int? ManualLeaveDays { get; set; }
     }
