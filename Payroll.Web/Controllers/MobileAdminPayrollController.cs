@@ -201,7 +201,7 @@ public sealed class MobileAdminPayrollController : ControllerBase
 
     public class PayrollPeriodRequest { public int Year { get; set; } public int Month { get; set; } }
     public sealed class PayrollFinalizeRequest : PayrollPeriodRequest { public List<PayrollDisplayRowDto> Rows { get; set; } = new(); }
-    public sealed class PayrollDisplayRowDto
+    public class PayrollDisplayRowDto
     {
         public int EmployeeID { get; set; }
         public string? EmployeeName { get; set; }
